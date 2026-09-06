@@ -1,8 +1,10 @@
 package agentruntime
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/startvibecoding/mothx/internal/agent"
@@ -41,6 +43,7 @@ func TestExecutionRuntimeObserveAgentEventPersistsRetryAndSafeTerminalError(t *t
 		RetryMaxAttempts: 3,
 		RetryAfterMS:     1200,
 		RetryReason:      "provider timeout",
+		StatusMessage:    `"auto" tool choice requires --enable-auto-tool-choice (api_key=sk-secret-123)`,
 	})
 	if err != nil {
 		t.Fatalf("observe retry: %v", err)
@@ -51,8 +54,19 @@ func TestExecutionRuntimeObserveAgentEventPersistsRetryAndSafeTerminalError(t *t
 	if len(store.progress) != 1 || store.progress[0].ReasonCode != "timeout" {
 		t.Fatalf("stored retry progress = %#v", store.progress)
 	}
+	// The provider diagnostic is redacted and bounded before it enters the
+	// durable record, keeping the actionable detail renderable by adapters.
+	if !strings.Contains(store.progress[0].Message, `"auto" tool choice requires --enable-auto-tool-choice`) {
+		t.Fatalf("stored retry message = %q, want sanitized provider detail", store.progress[0].Message)
+	}
+	if strings.Contains(store.progress[0].Message, "sk-secret-123") || !strings.Contains(store.progress[0].Message, "[redacted]") {
+		t.Fatalf("stored retry message = %q, want credential redaction", store.progress[0].Message)
+	}
 	if len(sink.events) != 2 || sink.events[1].EventType != "run_retrying" || sink.events[1].Status != string(RunStateRunning) {
 		t.Fatalf("durable events = %#v", sink.events)
+	}
+	if !bytes.Contains(sink.events[1].Data, []byte(`"message":`)) || bytes.Contains(sink.events[1].Data, []byte("sk-secret-123")) {
+		t.Fatalf("run_retrying data = %s, want redacted message field", sink.events[1].Data)
 	}
 
 	if _, err := runtime.ObserveAgentEvent(agent.Event{Type: agent.EventTextDelta, TextDelta: "partial answer"}); err != nil {

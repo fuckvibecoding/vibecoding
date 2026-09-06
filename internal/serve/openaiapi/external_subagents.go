@@ -60,6 +60,7 @@ func (h *externalSubAgentHistory) update(sessionID string, ev agent.Event) exter
 		return externalSubAgentUpdate{}
 	}
 	info.UpdatedAt = now
+	mergeSubAgentMemberMetadata(&info, ev)
 	entries := h.messages[id]
 	update := externalSubAgentUpdate{changed: true}
 
@@ -118,6 +119,21 @@ func (h *externalSubAgentHistory) update(sessionID string, ev agent.Event) exter
 	h.agents[id] = info
 	h.messages[id] = entries
 	return update
+}
+
+// mergeSubAgentMemberMetadata copies the immutable child-event identity only
+// when it is present. Generic sub-agents and ESM workers intentionally keep
+// these fields empty; the serve projection never attempts to infer a persona
+// from a mutable expert bundle.
+func mergeSubAgentMemberMetadata(info *SessionSubAgentInfo, ev agent.Event) {
+	if info == nil || ev.MemberID == "" {
+		return
+	}
+	info.MemberID = ev.MemberID
+	info.ExpertID = ev.ExpertID
+	info.MemberDisplayName = ev.MemberDisplayName
+	info.MemberEmoji = ev.MemberEmoji
+	info.MemberRole = ev.MemberRole
 }
 
 func reconcileExternalAssistantResult(entries []SessionMessageEntry, agentID, result string) ([]SessionMessageEntry, string) {
@@ -218,11 +234,11 @@ func (s *Server) PublishExternalSubAgentEvent(sessionID string, ev agent.Event) 
 
 	runID := s.activeRunIDForSession(sessionID)
 	if update.recoveredText != "" {
-		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, assistantDeltaTranscriptEvent(update.recoveredText, ev.AgentID))
+		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, assistantDeltaTranscriptEvent(update.recoveredText, ev.AgentID, ev))
 	}
 	switch ev.Type {
 	case agent.EventTextDelta:
-		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, assistantDeltaTranscriptEvent(ev.TextDelta, ev.AgentID))
+		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, assistantDeltaTranscriptEvent(ev.TextDelta, ev.AgentID, ev))
 	case agent.EventToolCall:
 		name, callID := resolveToolEvent(ev)
 		s.publishToolEvent(sessionID, ToolStatusEvent{Tool: name, ToolCallID: callID, AgentID: string(ev.AgentID), Status: "running", Args: ev.ToolArgs})
@@ -237,11 +253,11 @@ func (s *Server) PublishExternalSubAgentEvent(sessionID string, ev agent.Event) 
 		if ev.Status != agent.TaskSuccess {
 			summary = safeAgentErrorMessage(ev.Error)
 		}
-		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, subAgentStatusTranscriptEvent(ev.AgentID, subAgentStatusForTaskStatus(ev.Status), summary))
+		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, subAgentStatusTranscriptEvent(ev.AgentID, subAgentStatusForTaskStatus(ev.Status), summary, ev))
 	case agent.EventDone:
-		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, subAgentStatusTranscriptEvent(ev.AgentID, "done", ""))
+		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, subAgentStatusTranscriptEvent(ev.AgentID, "done", "", ev))
 	case agent.EventError:
 		summary := safeAgentErrorMessage(ev.Error)
-		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, subAgentStatusTranscriptEvent(ev.AgentID, "error", summary))
+		s.getEventBroker().PublishTranscriptEvent(sessionID, runID, subAgentStatusTranscriptEvent(ev.AgentID, "error", summary, ev))
 	}
 }

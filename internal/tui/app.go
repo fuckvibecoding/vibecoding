@@ -302,7 +302,7 @@ type App struct {
 	esmFooter          string
 	esmMu              sync.Mutex
 	esmRunSeq          int64
-	esmSteeredSeq      int64
+	esmSteering        *esm.SteeringSource
 	esmRunTracked      bool
 	esmRunSessionID    string
 	esmRunID           string

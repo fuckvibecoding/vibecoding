@@ -106,7 +106,7 @@ func (d *ForkDAO) RunWindows(ctx context.Context, executor bun.IDB, sessionID st
 	return r, err
 }
 func (d *ForkDAO) InsertSessionFrom(ctx context.Context, executor bun.IDB, child, source string, boundary, seed int64, kind string) error {
-	_, err := executor.NewRaw("INSERT INTO sessions (id,cwd,timestamp,parent_session,version,channel_type,channel_id,fork_boundary_seq,seed_length,fork_kind) SELECT ?,cwd,timestamp,?,version,'local','',?,?,? FROM sessions WHERE id = ?", child, source, boundary, seed, kind, source).Exec(ctx)
+	_, err := executor.NewRaw("INSERT INTO sessions (id,cwd,timestamp,parent_session,version,channel_type,channel_id,fork_boundary_seq,seed_length,fork_kind,expert_id) SELECT ?,cwd,timestamp,?,version,'local','',?,?,?,expert_id FROM sessions WHERE id = ?", child, source, boundary, seed, kind, source).Exec(ctx)
 	return err
 }
 func (d *ForkDAO) InsertEntry(ctx context.Context, executor bun.IDB, record *ForkEntryRecord) (int64, error) {

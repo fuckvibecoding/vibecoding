@@ -195,7 +195,7 @@ func TestInitializeAdvertisesStandardSessionLifecycleCapabilities(t *testing.T) 
 
 func TestHandleDoctorDoesNotRequireSession(t *testing.T) {
 	configDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	var out bytes.Buffer
 	s := &server{w: &out}
 	s.handleDoctor(rpcRequest{ID: json.RawMessage("1"), Params: json.RawMessage(`{}`)})
@@ -220,7 +220,7 @@ func TestHandleDoctorDoesNotRequireSession(t *testing.T) {
 func TestHandleDoctorUsesServerCWDWhenRequestOmitsIt(t *testing.T) {
 	configDir := t.TempDir()
 	cwd := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	var out bytes.Buffer
 	s := &server{w: &out, cwd: cwd, version: "test-version"}
 	s.handleDoctor(rpcRequest{ID: json.RawMessage("1"), Params: json.RawMessage(`{}`)})
@@ -254,7 +254,7 @@ func TestInitializeAndDoctorUseConfiguredRunVersion(t *testing.T) {
 func TestDoctorMatchesSharedDoctorResponse(t *testing.T) {
 	configDir := t.TempDir()
 	cwd := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	var out bytes.Buffer
 	s := &server{w: &out, cwd: cwd, version: "0.3.1"}
 	s.handleDoctor(rpcRequest{ID: json.RawMessage("1"), Params: json.RawMessage(`{}`)})
@@ -489,6 +489,118 @@ func TestListSessionsUsesOpaqueCursor(t *testing.T) {
 	s.handleListSessions(rpcRequest{ID: json.RawMessage("3"), Params: json.RawMessage(fmt.Sprintf(`{"cwd":%q,"cursor":"bad"}`, cwd))})
 	if code := jsonLines(t, &out)[0]["error"].(map[string]any)["code"]; code != float64(-32602) {
 		t.Fatalf("invalid cursor error code = %#v, want -32602", code)
+	}
+}
+
+func TestListAllSessionsReturnsTheGlobalProjectCatalog(t *testing.T) {
+	dir := t.TempDir()
+	firstCwd := t.TempDir()
+	secondCwd := t.TempDir()
+	newTestSession(t, firstCwd, dir, "first-project-session", 1)
+	newTestSession(t, secondCwd, dir, "second-project-session", 1)
+
+	var out bytes.Buffer
+	s := &server{settings: &config.Settings{SessionDir: dir}, w: &out}
+	s.handleListAllSessions(rpcRequest{ID: json.RawMessage("1"), Params: json.RawMessage(`{}`)})
+
+	result := jsonLines(t, &out)[0]["result"].(map[string]any)
+	sessions := result["sessions"].([]any)
+	seen := map[string]string{}
+	for _, item := range sessions {
+		listed := item.(map[string]any)
+		seen[listed["sessionId"].(string)] = listed["cwd"].(string)
+	}
+	if seen["first-project-session"] != firstCwd || seen["second-project-session"] != secondCwd {
+		t.Fatalf("global session catalog = %#v, want both project directories", seen)
+	}
+}
+
+func TestListAllSessionsFiltersProjectSearchBeforePagination(t *testing.T) {
+	dir := t.TempDir()
+	targetCwd := t.TempDir()
+	target := session.New(targetCwd, dir)
+	if err := target.InitWithID("needle-session"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.AppendSessionTitle("Needle title", "manual"); err != nil {
+		t.Fatal(err)
+	}
+	project, err := session.CreateProject(dir, "Desktop history")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SetSessionMetadata(dir, "needle-session", session.SessionMetadata{ProjectID: project.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The matching session is created before a full first page of unrelated
+	// sessions. A client-side filter after pagination would miss it.
+	for i := 0; i < sessionListPageSize+1; i++ {
+		newTestSession(t, t.TempDir(), dir, fmt.Sprintf("other-%03d", i), 1)
+	}
+	var out bytes.Buffer
+	s := &server{settings: &config.Settings{SessionDir: dir}, w: &out}
+
+	s.handleListAllSessions(rpcRequest{ID: json.RawMessage("1"), Params: json.RawMessage(`{"query":"desktop history"}`)})
+	result := jsonLines(t, &out)[0]["result"].(map[string]any)
+	items := result["sessions"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["sessionId"] != "needle-session" {
+		t.Fatalf("project-name search result = %#v, want only needle-session", items)
+	}
+	if result["nextCursor"] != nil {
+		t.Fatalf("filtered one-item search returned cursor = %#v", result["nextCursor"])
+	}
+
+	out.Reset()
+	s.handleListAllSessions(rpcRequest{ID: json.RawMessage("2"), Params: json.RawMessage(fmt.Sprintf(`{"scope":"project","projectId":%q}`, project.ID))})
+	projectResult := jsonLines(t, &out)[0]["result"].(map[string]any)
+	projectItems := projectResult["sessions"].([]any)
+	if len(projectItems) != 1 || projectItems[0].(map[string]any)["sessionId"] != "needle-session" {
+		t.Fatalf("project scope result = %#v, want only needle-session", projectItems)
+	}
+
+	out.Reset()
+	s.handleProjectsDelete(rpcRequest{ID: json.RawMessage("3"), Params: json.RawMessage(fmt.Sprintf(`{"id":%q}`, project.ID))})
+	if response := jsonLines(t, &out)[0]; response["error"] != nil {
+		t.Fatalf("delete project response = %#v", response)
+	}
+	out.Reset()
+	s.handleListAllSessions(rpcRequest{ID: json.RawMessage("4"), Params: json.RawMessage(`{"scope":"ungrouped","query":"needle title"}`)})
+	ungroupedResult := jsonLines(t, &out)[0]["result"].(map[string]any)
+	ungroupedItems := ungroupedResult["sessions"].([]any)
+	if len(ungroupedItems) != 1 || ungroupedItems[0].(map[string]any)["sessionId"] != "needle-session" {
+		t.Fatalf("ungrouped result after project deletion = %#v, want retained needle-session", ungroupedItems)
+	}
+}
+
+func TestSetSessionWorkDirPersistsTarget(t *testing.T) {
+	dir := t.TempDir()
+	oldCwd := t.TempDir()
+	newCwd := t.TempDir()
+	newTestSession(t, oldCwd, dir, "move-session", 1)
+
+	var out bytes.Buffer
+	s := testSessionServer(oldCwd, dir, &out)
+	s.handleSetSessionWorkDir(rpcRequest{
+		ID:     json.RawMessage("1"),
+		Params: json.RawMessage(fmt.Sprintf(`{"sessionId":"move-session","cwd":%q,"_meta":{"mothx":{"workspace":{"cwd":%q}}}}`, newCwd, newCwd)),
+	})
+
+	messages := jsonLines(t, &out)
+	message := messages[len(messages)-1]
+	if _, ok := message["error"]; ok {
+		t.Fatalf("set work directory failed: %#v", message)
+	}
+	result := message["result"].(map[string]any)
+	if result["cwd"] != newCwd {
+		t.Fatalf("result cwd = %q, want %q", result["cwd"], newCwd)
+	}
+	mgr, err := session.OpenByIDExact(dir, "move-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mgr.GetHeader().Cwd != newCwd {
+		t.Fatalf("persisted cwd = %q, want %q", mgr.GetHeader().Cwd, newCwd)
 	}
 }
 

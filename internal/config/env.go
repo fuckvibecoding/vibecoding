@@ -36,10 +36,57 @@ func (c *EnvConfig) List() map[string]string {
 	return out
 }
 
+// ValidateEnvName checks whether a name is acceptable for a global
+// environment variable. It mirrors the rules enforced by EnvConfig.Set.
+func ValidateEnvName(name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.ContainsAny(name, "=\x00\r\n") {
+		return fmt.Errorf("invalid environment variable name")
+	}
+	return nil
+}
+
+// ApplyPatch atomically applies a set of variable assignments and a set of
+// deletions. It validates every name, rejects duplicates or conflicts, and
+// writes the result once. Values are preserved as-is, including empty strings.
+func (c *EnvConfig) ApplyPatch(set map[string]string, unset []string) error {
+	if c.Vars == nil {
+		c.Vars = map[string]string{}
+	}
+	seen := make(map[string]struct{}, len(set)+len(unset))
+	for name := range set {
+		name = strings.TrimSpace(name)
+		if err := ValidateEnvName(name); err != nil {
+			return err
+		}
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("duplicate environment variable name %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+	for _, name := range unset {
+		name = strings.TrimSpace(name)
+		if err := ValidateEnvName(name); err != nil {
+			return err
+		}
+		if _, ok := seen[name]; ok {
+			return fmt.Errorf("environment variable %q cannot be both set and unset", name)
+		}
+		seen[name] = struct{}{}
+	}
+	for name, value := range set {
+		c.Vars[strings.TrimSpace(name)] = value
+	}
+	for _, name := range unset {
+		delete(c.Vars, strings.TrimSpace(name))
+	}
+	return c.Save()
+}
+
 func (c *EnvConfig) Set(key, value string) error {
 	key = strings.TrimSpace(key)
-	if key == "" || strings.ContainsAny(key, "=\x00\r\n") {
-		return fmt.Errorf("invalid environment variable name")
+	if err := ValidateEnvName(key); err != nil {
+		return err
 	}
 	if c.Vars == nil {
 		c.Vars = map[string]string{}

@@ -602,6 +602,34 @@ func ListSessionRuns(sessionDir, sessionID string, limit int) ([]SessionRun, err
 	return result, nil
 }
 
+// ListLatestSessionRuns returns the most recent durable Run of each given
+// session as a read-only projection keyed by session ID. Sessions without any
+// Run are absent from the result. Adapters use it to project sidebar run
+// status (for example ACP session/list lastRun); Run lifecycle writes remain
+// owned by the Runtime and all SQL stays in the DAO.
+func ListLatestSessionRuns(ctx context.Context, sessionDir string, sessionIDs []string) (map[string]SessionRun, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result := make(map[string]SessionRun)
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+	db, ok, err := openExistingSessionDB(sessionDir)
+	if err != nil || !ok {
+		return result, err
+	}
+	records, err := dao.NewRunDAO(db.Bun()).LatestRunBySessions(ctx, sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	for sessionID, record := range records {
+		row := record
+		result[sessionID] = sessionRunFromRecord(&row)
+	}
+	return result, nil
+}
+
 func loadInputResourceIDs(ctx context.Context, db *dao.Database, runs []SessionRun) error {
 	if len(runs) == 0 {
 		return nil

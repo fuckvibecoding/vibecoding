@@ -17,6 +17,10 @@ Source: https://mothx.net/en/README.md
 </p>
 
 <p align="center">
+  <em>Make OSCHINA Tokens Harness eXecution</em>
+</p>
+
+<p align="center">
   Stop switching between Claude Code, Codex, Claw, and Channels.<br>
   MothX packs everything into a single file — providers, tools, sandbox, sessions, skills, and more.
 </p>
@@ -31,7 +35,7 @@ Source: https://mothx.net/en/README.md
   <a href="https://github.com/startvibecoding/mothx/network/dependencies"><img src="https://img.shields.io/librariesio/release/github/startvibecoding/mothx" alt="Dependencies"></a>
 </p>
 
-> **Rename notice:** MothX was formerly known as VibeCoding. During this transition release, legacy entry points such as the `vibecoding` command, the old installer package names, and `VIBECODING_*` environment variables are kept for compatibility. Legacy `.vibecoding` and `.vibe` directories are automatically migrated to `.mothx` when found.
+> **Rename notice:** MothX was formerly known as VibeCoding. The `vibecoding` command and old installer package names remain compatibility aliases. Configuration is read only from `.mothx` project directories and the MothX global configuration directory; legacy directories are neither read nor migrated.
 
 ---
 
@@ -672,13 +676,14 @@ mothx acp --multi-agent
 
 ## Protocol Details
 
-ACP uses JSON-RPC 2.0 over stdio and follows the ACP v1 schema. MothX-specific behavior is isolated in `_mothx/*` methods and `_meta` capability declarations; standard ACP objects never receive custom root fields.
+ACP uses JSON-RPC 2.0 over stdio and follows the ACP v1 schema. MothX-specific behavior is isolated in `mothx/*` and `_mothx/*` methods plus `_meta` extension declarations; standard ACP objects receive no non-extension custom fields.
 
 ### Methods
 
 | Method | Description |
 |--------|-------------|
 | `initialize` | Handshake and capability negotiation |
+| `mothx/doctor` | Return machine-readable installation/provider diagnostics; does not require a session |
 | `session/new` | Create a new session |
 | `session/load` | Load an existing session |
 | `session/list` | List persisted sessions, optionally filtered by working directory |
@@ -718,6 +723,8 @@ The server sends `session/update` notifications with the following event types:
 ## MothX Extensions
 
 MothX keeps non-standard interactions separate from ACP. Clients use these methods only after the matching capability appears in `agentCapabilities._meta["mothx.dev"]`; ACP clients that do not support the extension can ignore it without affecting the standard session flow.
+
+`initialize.agentInfo` identifies the product as `mothx` / `MothX` and carries the build version. The top-level `initialize._meta["mothx.dev"]` (also mirrored in `agentCapabilities._meta` for compatibility) advertises the stable feature list and `doctor: true`. `mothx/doctor` accepts `{}` or `{ "cwd": "/absolute/path" }` and returns `{ ok, version, summary, checks }`; checks use stable IDs and never include API key values. `mothx doctor --json` emits that same response as its only stdout output. If ACP exits before initialization, stderr includes one `MOTHX_ACP_ERROR { ... }` line with a stable error code and a short fix.
 
 | Method | Purpose |
 |------|------|
@@ -1471,6 +1478,323 @@ consistency and avoids logic divergence.
 Source: https://mothx.net/en/changelog.md
 
 # Changelog
+## v1.2.100
+
+### ✨ New Features
+
+- **WebUI: Slash Command Suggestions in the Chat Composer**
+  - Typing `/` in the chat input now shows a suggestion dropdown covering every supported slash command (`/clear`, `/mode`, `/model`, `/defaultModel`, `/models`, `/sessions`, `/status`, `/compact`, `/delegate`, `/alloweditpath`, `/allowautoedit`, `/workflows`, `/skill`, `/skills`, `/rule`, `/esm`, `/help`), with a dedicated subcommand filter for `/esm` (objective/edit/pause/resume/clear/guide).
+  - Navigate with ↑/↓, complete with Tab or Enter (Enter sends the prompt when the input already matches the selection), dismiss with Esc, or click an entry; accepting a suggestion places the cursor at the end of the inserted command. The composer keeps proper combobox/listbox ARIA state (`aria-expanded`, `aria-activedescendant`, `aria-selected`).
+  - Suggestions are suppressed while a run is active, the API is disabled, or the input spans multiple lines.
+
+### 🐛 Bug Fixes
+
+- **TUI: Prompts Submitted During an Active Run Are Queued Instead of Replacing It**
+  - A session allows exactly one foreground execution at a time. Previously, submitting input while a run was active replaced the in-memory run handle, orphaning the active run's terminal cleanup and its runtime lease. Such submissions are now queued in the TUI, and the next queued prompt starts only after the preceding run reaches its canonical terminal state and releases its lease — across every terminal branch (success, failure, incomplete, and cancellation).
+  - Queued prompts retain their Runtime-prepared attachments (`agentruntime.PreparedInput`) and re-enter through the same input contract, so attachments survive the delay unchanged.
+
+### ✅ Tests
+
+- TUI: new coverage asserting that input during an active run queues without replacing the lease owner, and that the queued prompt starts only after the cancellation path finalizes the durable run and releases its lease.
+
+## v1.2.99
+
+### ✨ New Features
+
+- **Unified Server-Resolved Model Catalog Across WebUI and TUI**
+  - A new `GET /api/models/catalog` endpoint resolves every selectable provider/model through `providerfactory.ResolvedModels`/`SortProviderIDs` — the same shared logic that builds the TUI's provider model lists — and returns canonical defaults plus the sorted provider list. The active provider stays selectable even when it comes from a built-in preset or a serve flag instead of the settings providers map.
+  - `stores.js` migrates `models` → `modelCatalog`; the Chat new-session picker now consumes the server catalog instead of merging raw settings JSON client-side, dropping the local `buildModelCatalog`/settings-fallback derivation. Settings surfaces (default provider/model dropdowns, provider editor) consume the same store, and inherited built-in preset models get dedicated zh/en labels.
+  - The TUI auth dialog's provider sort delegates to `providerfactory.ProviderSortPriority`, so TUI dialogs and the WebUI catalog share one ordering logic.
+
+- **Enable Supervisor Mode (ESM): Slash-Command Control, Shared Guidance, and Evidence Tracking**
+  - WebUI ESM control moves to the same `/esm` slash command as the TUI (`/esm <objective>`, `/esm status|edit|pause|resume|clear|guide`) instead of dedicated graphical controls — the 500-line `ESMControls` component is removed, and chat input and the ESM REST API share one server-side objective path.
+  - New guidance module: `/esm guide <text>` queues user guidance stamped with the objective's current version; the Supervisor injects pending guidance into every non-recovery role prompt and consumes it exactly once after the role result is applied — one core-owned lifecycle shared by the TUI and WebUI adapters.
+  - New evidence module: a shared `EvidenceTracker` accumulates tool-call evidence per role run (unique tool-call IDs, per-tool counts/errors), so the "tool-backed evidence" checks in `ApplyWorkerResult`/`ApplyReviewResult` cannot diverge between adapters.
+  - ESM no longer enforces token/time budgets: the `budget_limited` status, `SetBudget`/budget prompts, and the TUI `/esm budget` subcommand are removed; `TokensUsed`/`TimeUsedMS` remain observability-only counters. The blocked-audit threshold is centralized as `BlockedAuditLimit` (the objective becomes blocked after 3 consecutive runs report the same blocker).
+  - Unattended derived runs resolve their execution mode through `agentruntime.ResolveUnattendedMode`: only `os` is inherited from the session mode and every other session mode falls back to `yolo`, so ESM role sub-agents never stop on interactive approval (hard high-risk-command protections remain mode-independent).
+  - The Supervisor now runs continuations against the base Run ID (role runs use suffixed IDs derived from it), owns the terminal `FinishRun` call for both adapters, and clears stale streaks left by earlier continuations when a continuation ends.
+
+### 🐛 Bug Fixes
+
+- **ESM: Failed Objectives Pause Instead of Silently Re-running**
+  - A non-retryable role failure now pauses the objective and requires an explicit `/esm resume` before it can run again — queued guidance or a future trigger can no longer silently re-run a failed task. Timeouts and retryable transport errors still take the recovery path bounded by `RecoveryLimit`.
+  - Serve startup no longer replays historically persisted "active" ESM objectives: a role may have failed just before the process exited, so `Create`/`Edit`/`ResumeESM` are now the only explicit execution entry points.
+  - `esmCoordinator` gains `stop`/`stopAll` with done-channels and bounded waits; Serve shutdown cancels every ESM worker and waits for it to release session/runtime references (`SessionRuntime.Shutdown` remains the final resource boundary), and a closed coordinator refuses to start new workers.
+
+- **Native Directory Picker on Headless Servers**
+  - The Unix native picker reports itself unavailable when `DISPLAY`/`WAYLAND_DISPLAY` is absent instead of failing silently, letting the Web UI fall back to its built-in directory browser. Launch failures that print diagnostics on stderr now surface as errors instead of being mistaken for a dialog cancel.
+
+### 🔧 Improvements
+
+- **Directory Browser: Windows Drive Roots and Path-Aware Allowed Roots**
+  - `/api/browse` allowed-root resolution now takes the requested path, and Windows drive roots are listed through a virtual browse root (drive roots share no common parent for navigation). `DirBrowser` gains an `initialPath` prop, one-shot open semantics, a server-provided `selectable` flag, and refresh support.
+
+- **Tool Recovery Audit Trail**
+  - `RequestToolExecutionRecoveryRecords` records explicit user confirmation and returns only matching interrupted calls; the records are retained as audit evidence while recovery starts as a fresh execution, and a new DAO listing (`ListRequestedToolRecoveries`) exposes requested recoveries to Serve. Terminal Runs are never reactivated to consume these records.
+
+### ✅ Tests
+
+- ESM: new/expanded coverage for the guidance lifecycle (version stamping, injection, one-time consumption), evidence tracking, pause-on-non-retryable-failure, base-Run-ID continuations, budget removal, `/esm` slash-command parity, and coordinator `stop`/`stopAll` (including closed-coordinator start refusal).
+- Serve: a process-level test asserts startup never replays historical ESM objectives; browse-root tests cover allowed-root resolution and Windows drive-root listing; native picker tests cover the headless-unavailable and stderr-diagnostic cases.
+- Provider factory: catalog resolution and provider ordering tests; settings: `qwen3.8-max-0902` preset assertions.
+## v1.2.98
+
+### ✨ New Features
+
+- **New Gitee/Moark Model: `qwen3.8-max-0902`**
+  - Added `qwen3.8-max-0902` to the `gitee` and `moark` providers with a 1M context window, 128K max tokens, and text+image input.
+
+### 🔧 Improvements
+
+- **TUI: Dead Code Cleanup and Decision Lifecycle Alignment**
+  - Removed unused functions (`renderLiveAssistantMessage`, `renderPlanPanel`, `formatPlanForDisplay`, `normalizeHistoryLineEndings`, `resolveESMStoreDir`, `updateViewportContentWithFollow`) and trimmed the associated plan/ESM test coverage.
+  - Question requests are now registered through `DecisionService`, so pending questions persist and replay like approvals; duplicate question requests are rejected.
+  - Terminal decision status is mapped from the actual run state instead of always marking pending decisions `cancelled` — only an explicit cancellation records `cancelled`, any other terminal outcome records `timed_out`.
+  - The deferred print loop gained a `stopPrintLoop` exit path used on quit and reload so queued transcript lines are drained before teardown.
+  - The external status-line refresh is deferred to actual renders, coalescing event-dense bursts into a single refresh.
+  - `sessionsDel` now resolves the session directory through the defensive `getSessionDir()` helper.
+
+- **WebUI: Settings Model Lists Match the New-Session Picker**
+  - The settings "Default Provider / Default Model" dropdowns now reuse the same server-resolved catalog behind the new-session model picker (`GET /api/models/catalog`), so built-in preset providers and their default models stay selectable there too; unsaved form edits are appended after the catalog entries so they can be chosen before saving.
+  - The provider settings reuse the same catalog: the sidebar model-count badge shows the resolved count, and the model list additionally renders built-in preset models that are not written to settings as read-only rows (matching the new-session picker; they are not persisted on save — add a model with the same ID to override).
+
+### 🐛 Bug Fixes
+
+- **Serve Responses Recovery Preserves Terminal Runs**
+  - Recovering confirmed interrupted tool calls no longer changes a completed or failed durable Run back to `queued` or reattaches its terminal remote Responses task. Serve now submits a fresh, idempotent recovery message through the normal Runtime input path and starts a new local AgentLoop Run; the previous Run remains immutable.
+  - Removed the recovery-only terminal-to-active Run-store APIs so future callers cannot bypass the canonical monotonic lifecycle.
+
+### ✅ Tests
+
+- TUI: new tests cover question decision registration (pending kind, persistence, duplicate rejection) and ESM store directory resolution.
+- Serve: Responses recovery tests verify that the terminal parent is preserved, a fresh AgentLoop receives the recovery message, and repeated recovery requests reconcile idempotently to the same new Run.
+## v1.2.97
+
+### ✨ New Features
+
+- **Online Model Discovery for Providers**
+  - Provider model discovery moved into `internal/provider` as shared helpers (`ModelsEndpoint`, `ResolveSecretRef`, `DiscoverModels`) that fetch and normalize a provider's `/models` listing into `DiscoveredModel`s. The OpenAI-compatible `/v1/provider/models` and model-test endpoints now call these shared helpers instead of duplicating probe plumbing.
+
+- **TUI: Fetch and Search Online Models in the Auth Dialog**
+  - A new "Fetch Online Models" entry in the provider model list and model settings views runs discovery against the draft provider's Base URL / API type on a background command and opens an "Add Model · Online List" view where fetched models can be added to or removed from the draft. Nothing is persisted until the provider is saved, and stale results after closing the dialog or switching providers are dropped, with loading/empty/error states and zh/en labels.
+  - Typing in the online list filters fetched models, ranked exact > prefix > substring across model ID and display name while preserving discovery order within the same score; Esc clears the query, and a "No models match." hint shows when nothing matches.
+
+### 🔧 Improvements
+
+- **Public SDK Boundary: `agent/` Stays Internal-Free**
+  - The provider bridge moved from the public `agent/` package into `bootstrap/` (which external modules already blank-import); it registers the provider resolution hook plus the concrete provider factories at init time.
+  - `agent.Builder` no longer pre-resolves the platform session directory (the internal builder resolves the default at Build time) and reports a clear error when a hook is unregistered; the examples now blank-import `bootstrap` instead of internal packages.
+
+- **Session Store Integrity Hardening**
+  - `DeleteSession` now prunes child tables without a `session_id` column (`delivery_operations`, `attachment_deliveries`) through their session-owned parents, so deleting a session leaves no orphaned rows.
+  - Schema migrations apply in ascending version order instead of slice order; forward table references no longer depend on FK enforcement being disabled.
+  - Non-terminal/terminal Run status sets are centralized in `run_store.go` as the single source of truth; SQL literals, partial unique indexes, fork, trajectory, and recovery paths all derive from them.
+  - `EndConversationTurn` is idempotent for already-closed turns; conversation entry IDs grow to 64-bit; `IdentityLocks` delegates to a ref-counted lock registry, and the runtime lease bus closes its UDP listener once the last handler unsubscribes.
+
+### 🐛 Bug Fixes
+
+- **TUI: Instant Submit for a Lone Enter**
+  - A queued Enter was treated as line-break evidence, so every quick type-then-Enter send waited the full 120ms split-paste coalescing window. The extended idle window now applies only when the queue carries real paste evidence (newline-bearing rune chunks or Enter adjacent to text); a lone deferred Enter keeps the normal 16ms window and submits immediately.
+
+- **Missing Error Reason on Abandoned Durable Runs**
+  - A background run abandoned after interrupted tool execution could reach a terminal status without persisting the reason. A dedicated annotation boundary (`RunDAO.UpdateErrorIfEmpty` → `session.AnnotateSessionRunError` → `agentruntime.AnnotateDurableRunError`) now sets the error only while it is still empty — without changing run status, reviving terminal runs, or touching active runs, keeping the first recorded reason authoritative. The Responses API abandon path persists the reason through this boundary.
+
+- **Duplicate User Entry in the Background Run Coordinator**
+  - The durable user entry appended during admission is already in replay state after the manager reload; the coordinator now matches the deterministic `RunUserEntryID` and reuses it as the continuation message instead of appending a duplicate to the transcript and the provider request. The check stays idempotent across retries, recovery, and process restarts.
+
+- **Channel Rotation Lease Target**
+  - `AcquireRuntimeForRotate` now takes the session directory explicitly from the lifecycle owner (falling back to the dispatcher's configured directory when empty), so the mutation lease and the forced-release wait target the authoritative Session instead of whatever directory the dispatcher holds.
+
+### ✅ Tests
+
+- Architecture: `public_sdk_boundary_test` fails if the public `agent/` package or `example/` modules import internal packages again.
+- New session tests: delete integrity (no orphaned rows), ascending migration order, Run status-set consistency, ref-counted lock registry, and lease-bus listener cleanup; widened orphan-recovery timing margins under `-race`.
+- Regression tests for the fast lone-Enter submit path (split-paste continuation still protected) and durable-run error annotation.
+
+## v1.2.96
+
+### ✨ New Features
+
+- **Runtime Workspace Input Materialization**
+  - A single front-end-neutral input contract now owns user files for every entry point (CLI, TUI, WebUI/API, ACP, WeChat, Feishu). Adapters submit source streams; `internal/agentruntime` materializes accepted files into the project workspace and the first user message declares file paths plus metadata, letting the Agent decide how and whether to read each file.
+  - Images are no longer auto-converted to provider image content on ingest; input resources persist via the `input_resources` table with a Runtime-owned lifecycle (`PrepareInput`/`AttachPreparedInput`, discard/delete/cleanup, `input_resource_events`).
+  - TUI `/paste-image` now submits a stream the Runtime writes; the Web UI gained attachment upload/preview in chat; ACP prompt content (text/image/file/audio/video) and WeChat/Feishu inbound media all normalize through this same ingress.
+
+- **Lease-Based Execution Admission and Orphaned Run Recovery**
+  - The legacy `TryLockRuntime`/`TryLockRuntimes` path was replaced with explicit, purpose- and run-bound runtime leases across CLI, TUI, ACP, Serve, channels, and cron: ref-counted durable lease guards (`AcquireExecutionAdmission`/`AcquireFork`/`AcquireMutations` and run binding) plus recovery/reconciliation modes for stale or orphaned runs.
+  - A new `RecoveryCoordinator` converges orphaned runs lease-first through a startup scan and periodic/wake-driven retries, backed by the `session_run_recoveries` table with durable state, retry accounting, and idempotent replay.
+  - The session runtime snapshot surfaces admission/recovery facts (`reserved`, `local`, `external`, `detached_remote`, `orphaned`, `recovery_failed`, `inconsistent`); the Web UI shows matching status badges and disables delete/fork while a session is busy.
+
+- **Durable Delivery Outbox**
+  - Delivery intents and ordered operations (`delivery_intents`/`delivery_operations`) with deterministic `PlanDelivery` sequences (caption/upload/send/fallback), a Runtime claim/fence/retry coordinator, terminal-state atomic commit of assistant message/Run/turn/event/intent, and service-start recovery.
+  - WeChat (image/video/file) and Feishu (image/file) outbound media deliver natively through frozen transport contexts; published artifacts moved into a private store outside the work directory with integrity verification (size + SHA-256) on open.
+
+- **Idempotent Run Submissions**
+  - New `runtime_submissions` table with reconcile-on-conflict handling: submit-key conflicts reuse the existing submission instead of creating duplicates, making Run admission retry-safe.
+
+- **New Volcengine Model: `glm-5.3-flash`**
+  - Added `glm-5.3-flash` to the `volcengine`, `volcengine-agentplan`, and `volcengine-codingplan` providers with a 1M context window and text+image input; like `glm-5.3`, no default max_tokens is sent.
+
+- **New Gitee/Moark Model: `glm-5.3-flash`**
+  - Added `glm-5.3-flash` to the `gitee` and `moark` providers with a 1M context window, 128K max tokens, and text+image input.
+
+- **New AMD Radeon Provider Support**
+  - Added the `amd-radeon` vendor with Base URL `https://developer.amd.com.cn/radeon/api/v1` using the OpenAI-compatible protocol.
+  - Added `DeepSeek-V4-Flash` (1M context) and `Qwen3.8-Flash-Next` (1M context) models.
+
+### 🔧 Improvements
+
+- **DAO-Only SQL Migration**
+  - `internal/db` now owns process-wide SQLite/Bun connection lifecycle and transaction boundaries; all session, cron, stats, ESM, and delivery SQL moved into `internal/dao` persistence objects.
+  - Removed the `internal/commondb` compatibility package and the delivery legacy bridge; the architecture guard enforces the DAO-only boundary with a minimal migration-owner allowlist.
+
+- **Web UI Loading and State Stability**
+  - Route views (Chat/Sessions/Stats/Cron/Skills/Settings/Login) are lazy-loaded so only the active route's chunk is fetched; lucide/bits-ui/svelte dependencies are grouped into stable vendor chunks.
+  - Session runtime state (load/PATCH/polling/mode switching) moved into a unit-testable manager, and loaded history snapshots merge field by field so stale or empty persisted projections never erase live assistant text.
+
+### 🐛 Bug Fixes
+
+- **Cached Input Token Double Charge**
+  - Usage accounting now computes uncached input tokens (`UncachedInputTokens`) instead of charging cache reads twice across Anthropic, OpenAI-compatible, and Google wire formats.
+
+- **ListSessionRuns Connection Deadlock**
+  - `ListSessionRuns` queried `input_resources` inside the `session_runs` rows loop, blocking forever on the single-connection pool and hanging TUI startup for continued sessions with run records. The outer rows are now drained before a single batched query, with a regression test asserting completion.
+
+- **Durable-Run Terminal Event Stability**
+  - `RunExecutor.Finalize` no longer publishes the terminal stream event for durable runs; `FinalizeRun` remains the single publisher after `FinishDurable` commits the assistant message, so WebUI history reloads cannot race the database write. Durable identity is recovered from the canonical Run row when the in-memory marker is gone, and already-closed conversation turns are tolerated so idempotent retries still commit the final entry and terminal event.
+
+### ✅ Tests
+
+- Architecture: `input_contract_guard_test` enforces the single input contract across TUI, CLI, WebUI/API, ACP, and Channel entry points.
+- Extended admission/recovery tests for lease-first orphan convergence, execution snapshots, stop handling, idempotency, and cross-process lease behavior; delivery process integration tests for claim/fence/retry and coordinator recovery.
+- Regression tests for cached-input-token accounting and the `ListSessionRuns` deadlock.
+
+## v1.2.95
+
+### ✨ New Features
+
+- **New Gitee/Moark model: `qwen3.8-flash`**
+  - Supports a 1M context window and text/image input; no max-token limit is sent by default.
+
+- **Durable CLI Runs**
+  - CLI `runPrint` now persists canonical durable runs via `agentruntime.ExecutionRuntime`, aligning the CLI path with WebUI, channels, and ACP lifecycle tracking.
+
+- **UDP Runtime Lease Bus**
+  - Added best-effort UDP `SessionLeaseBus` for local-process wake-up on runtime lease and run-state changes.
+  - Uses directed loopback broadcast with deduplication; SQLite leases and durable rows remain the sole authority.
+
+- **Per-Run Provider/Model Selection (API & Web UI)**
+  - `POST /v1/responses` runs accept an optional `provider` field; qualified `provider/model` IDs are parsed and validated (with a structured mismatch error when the provider does not own the model).
+  - The run executes with the requested provider's agent built through the shared `SessionRuntime`; run policy snapshots and request fingerprints now record the provider.
+  - `/v1/models` now reports each model's provider.
+
+### 🔧 Improvements
+
+- **ClawHub Ambiguous Skill Slug Resolution**
+  - When ClawHub returns `409 AMBIGUOUS_SKILL_SLUG` for a bare skill slug, the client now auto-resolves the unique exact-slug match and retries once with the resolved owner, so installing skills like `clawhub.ai/custom-mail-fresh100` works without requiring the `@owner/slug` form.
+  - When matches do not identify one candidate, a descriptive error lists every candidate ref instead of exposing the raw 409 payload.
+
+- **Unified Bun Database Access**
+  - Added a shared `internal/db` SQLite/Bun connection and transaction layer, with DAO persistence objects for cron, usage statistics, ESM objectives, and channel bindings.
+  - Removed the `internal/commondb` compatibility package. Shared connections and shutdown now live in `internal/db`; Bun-backed DAOs own migrated table access, and session transaction helpers use the DAO-owned Bun handle.
+
+- **Event Broker Resync**
+  - Event broker now exposes `SubscribeWithResync`; subscriber overflow closes the WebSocket so the client reconnects and replays durable SQLite cursors.
+
+- **Runtime Lease Heartbeat**
+  - Lease heartbeat now retries transient SQLite failures for a bounded interval and publishes `acquired`/`released`/`lost` notifications.
+
+- **Session Capabilities (Sandbox/Browser/Web Search)**
+  - `SessionRuntime` gains `CapabilitySnapshot`, `ConfigureCapabilities`, and `SetCapabilityOption`; browser and web-search capabilities persist via `session_capabilities` and replay on load, with core tools synchronized accordingly.
+  - ACP sessions restore persisted capabilities and additional directories under the runtime lease; sandbox remains process-policy-owned.
+
+- **Web UI Provider-Aware Model Picker**
+  - New searchable `ModelPicker` component with modality icons (text/image/audio/video/file) replaces the old model menu.
+  - Chat composes a provider-cascading model catalog from `/v1/models` plus configured providers, so selecting a provider narrows to its models and submits the provider with each run.
+
+- **ACP Session Extension Methods**
+  - Added `session/fork` and `mothx/session/setTitle` handling, workspace-window negotiation (`cwd`/additional directories), a cascade delete across fork lineage, and an `available_commands_update` notification.
+  - Optional editor context is injected as a bounded, untrusted context block; loading historical sessions with a released runtime lease no longer rewrites persisted bindings.
+
+### 🐛 Bug Fixes
+
+- **Background Run Optimistic Concurrency**
+  - Reloaded the shared session manager after durable admission so the background coordinator appends the user message to the new leaf instead of failing its optimistic concurrency check.
+
+- **WeChat iLink Inbound Connection Recovery**
+  - The WeChat adapter now sends iLink start/stop lifecycle notifications, reports connected only after a successful `getupdates` poll, adopts the server's long-poll timeout, and persists the iLink sync cursor across restarts.
+  - Requests now identify the MothX channel version and bot agent, and malformed iLink responses are surfaced instead of being silently treated as empty polls.
+
+### ✅ Tests
+
+- Acquired the runtime lease in `TestResponsesRunAPIAbandonMarksInterruptedToolsWithoutRetry` before inspecting the abandoned tool record, matching the production recovery caller pattern.
+- Added ACP tests: loading a historical session with a released lease must not persist defaults, directory updates under the runtime lease, and title changes on historical sessions.
+- Added serve tests for per-run provider selection, provider/model mismatch, and qualified-model parsing.
+
+## v1.2.93
+
+### 🐛 Bug Fixes
+
+- **GHCR Image Builds Use Go 1.27**
+  - The Docker builder image is now `golang:1.27.0-bookworm`, matching `go.mod`, so GHCR packaging no longer fails with `go.mod requires go >= 1.27 (running go 1.26.1; GOTOOLCHAIN=local)`.
+
+- **Desktop Version Follows Git Tags**
+  - Desktop `package.json` keeps a `0.0.0` placeholder instead of a hardcoded release number.
+  - Packaging resolves the real version from `MOTHX_VERSION` if set, otherwise the current git tag (`git describe --tags --abbrev=0`), and writes it into `package.json`, `package-lock.json`, and `mothxRuntime.version` at build time.
+  - Desktop CI no longer treats a branch name as the version; it uses an explicit tag override or the checkout's git tag.
+
+### 🔧 Improvements
+
+- **ACP Installation Diagnostics**
+  - `initialize.agentInfo` now reports the real MothX identity and build version.
+  - Added session-free `mothx/doctor`, `mothx doctor --json`, and structured `MOTHX_ACP_ERROR` startup diagnostics with secret-free checks.
+
+- **CI Test Workflow Cleanup**
+  - Removed the per-commit GitHub Actions test workflow so tests no longer run on every push.
+
+## v1.2.92
+
+### ✨ New Features
+
+- **Session Fork & Message Branching**
+  - Sessions can now fork from any message and branch into alternative continuations; execution intent is wired through fork paths with a runtime lock.
+  - Session schema and migrations, run/response stores, entry handling, ESM guidance, the background run coordinator, and the dispatcher all support forks; TUI session commands/runtime and Web UI chat/sessions views are updated.
+
+- **WebUI Trajectory View & Session Log Export**
+  - A read-only trajectory projection in the Serve Web UI organizes session messages, tool events, and run events by run/turn/step without forking Agent/Runtime state.
+  - Server-side session trajectory and export endpoints live under the existing session route, and the session header gains a log download action (optionally including descendant sessions).
+
+- **WebUI Modernization with shadcn-svelte & lucide**
+  - Added Tailwind CSS v4 and shadcn-svelte style components (button, badge, card, dialog, input, switch, tabs, tooltip) with the `$lib` alias and `cn()` utility.
+  - Replaced text glyphs with lucide-svelte icons across the sidebar, sessions, settings, and list editor views; added a brand logo mark, a workspace filter menu (all/projects/ungrouped), and a Ctrl+Shift+K new-chat shortcut.
+
+- **Authored-commit Co-Author Setting**
+  - A new global "authored" setting (default off) appends the MothX co-author trailer to system prompts, guiding the model to include `Co-Authored-By: MothX <harness@mothx.net>` when creating git commits.
+  - Wired through config persistence, the TUI settings dialog, and the Web UI settings form with bilingual labels.
+
+- **New Provider Models**
+  - DeepSeek (anthropic + openai): added `deepseek-v4-flash-vision-exp` with 1M context, text+image input, and no default max_tokens.
+  - Volcengine codingplan: added `doubao-seed-evolving` with 1M context and text+image input.
+
+### 🔧 Improvements
+
+- **Default Mode is YOLO**
+  - New installs and empty-mode fallbacks now use `yolo` instead of `agent`: `settings.json` `defaultMode`, Serve/API `DefaultMode`, CLI/TUI/ACP/WebUI, public SDK `Builder`, and `agentruntime` policy resolution.
+  - Explicit `--mode`, persisted session mode, and WeChat/Feishu forced `yolo` still take precedence. Existing configs that set `defaultMode: "agent"` are unchanged.
+
+- **Native Directory Picker for Serve**
+  - Serve now opens the operating system's native directory picker (macOS, Windows, Unix) for selecting a working directory instead of typing a path.
+
+- **Unified Settings Components**
+  - Extracted shared `SettingsField`, `SettingsSection`, `SettingsSwitch`, and `ProviderEditorDetail` components and unified settings view layout/styling across AppSettings, ServeConfig, Channels, Env, Logs, Memory, Overview, SkillHub, and WorkDir.
+
+### 🐛 Bug Fixes
+
+- **WebUI Sidebar & Session ID Fixes**
+  - Sidebar collapsed state now persists in localStorage, with collapse/expand labels.
+  - Removed the unused trajectory timeline mode, state, translations, and layout helper.
+  - Fixed `AllocateSessionID` to treat "not registered in DB" as available after `sessions.db` exists, with a regression test.
+
 ## v1.2.91
 
 ### ✨ New Features
@@ -1488,10 +1812,6 @@ Source: https://mothx.net/en/changelog.md
   - Auto-generated IDs retry on collision (up to 8 attempts); the session header write uses a plain INSERT so duplicate IDs are detected reliably.
 
 ### 🔧 Improvements
-
-- **Default Mode is YOLO**
-  - New installs and empty-mode fallbacks now use `yolo` instead of `agent`: `settings.json` `defaultMode`, Serve/API `DefaultMode`, CLI/TUI/ACP/WebUI, public SDK `Builder`, and `agentruntime` policy resolution.
-  - Explicit `--mode`, persisted session mode, and WeChat/Feishu forced `yolo` still take precedence. Existing configs that set `defaultMode: "agent"` are unchanged.
 
 - **Unified Session Creation**
   - TUI, serve, and CLI now create sessions through `agentruntime.CreateSession` instead of constructing `session.New(...).Init()` directly, centralizing session creation in the shared runtime.
@@ -5212,7 +5532,7 @@ Default settings can be overridden via environment variables:
 | Variable | Description |
 |----------|-------------|
 | `DEEPSEEK_API_KEY` | DeepSeek API key |
-| `VIBECODING_DIR` | Override config directory |
+| `MOTHX_DIR` | Override config directory |
 | `VIBECODING_PROVIDER` | Override default provider |
 | `VIBECODING_MODEL` | Override default model |
 | `VIBECODING_MODE` | Override default mode |
@@ -5246,15 +5566,15 @@ MothX uses two configuration files:
 | `%APPDATA%\mothx\settings.json` | Windows | Global (all projects) | Low |
 | `.mothx/settings.json` | All | Project-level | High |
 
-> **Tip:** You can override the global config directory with `MOTHX_DIR`. The legacy-compatible `VIBECODING_DIR` variable is also supported; `MOTHX_DIR` takes precedence when both are set.
+> **Tip:** Override the global configuration directory with `MOTHX_DIR`.
 
 > **Windows:** `%APPDATA%` resolves to `C:\Users\<Username>\AppData\Roaming`, so the full path is typically `C:\Users\<Username>\AppData\Roaming\mothx\settings.json`.
 
 Project-level configuration overrides global configuration. Providers are merged by provider ID and then by fields explicitly present in the project file. An explicitly supplied `models` array replaces that provider's inherited model list.
 
-### Legacy Compatibility
+### Legacy Directories
 
-The current release uses `.mothx` for project files and `~/.mothx` (or `%APPDATA%\mothx` on Windows) for global files. Legacy `.vibe` and `.vibecoding` directories are no longer migrated automatically; copy any configuration you still need into the corresponding `.mothx` directory and review paths and fields. `VIBECODING_DIR` and `VIBECODING_*` remain compatibility entry points, while `MOTHX_DIR` takes precedence.
+The current release uses `.mothx` for project files and `~/.mothx` (or `%APPDATA%\mothx` on Windows) for global files. Legacy `.vibe` and `.vibecoding` directories are neither read nor migrated. Copy any configuration you still need into the corresponding `.mothx` directory and review paths and fields.
 
 
 ### `tuilang` (TUI language)
@@ -5604,6 +5924,8 @@ If not specified, auto-detected based on `baseUrl`:
 
 `background` is only available through `mothx serve`; normal CLI/TUI/ACP requests continue to use the streaming agent loop. A background-capable provider must support the selected model and Responses features.
 
+`toolControl.choice` selects the `tool_choice` sent to OpenAI Responses providers: `auto`, `none`, `required`, or the name of a tool to force that tool. The WebUI exposes `responses.toolControl` under Settings > Providers (Tool Choice, Parallel Tool Calls, Max Tool Calls), and the TUI exposes it under `/settings` > provider > B. Protocol > Responses. The TUI editor writes the global settings file; project-level overrides remain supported through `.mothx/settings.json`.
+
 Google native providers can be configured directly:
 
 ```json
@@ -5736,6 +6058,8 @@ The `compat` object is optional and should only be set when a model needs protoc
 | `supportsLongCacheRetention` | bool | Whether long prompt-cache retention is supported |
 | `sendSessionAffinityHeaders` | bool | Whether session affinity headers should be sent |
 | `supportsEagerToolInputStreaming` | bool | Whether Anthropic eager tool input streaming is supported |
+
+`supportsToolChoice` and `supportsParallelToolCalls` are also editable in the WebUI model row and in the TUI under `/settings` > model > Compatibility; the remaining flags stay file-only.
 
 ```json
 {
@@ -6444,8 +6768,7 @@ These environment variables override settings at runtime:
 
 | Environment Variable | Overrides | Example |
 |---------------------|-----------|---------|
-| `MOTHX_DIR` | Global config directory (preferred; takes precedence over `VIBECODING_DIR`) | `export MOTHX_DIR=/custom/config` |
-| `VIBECODING_DIR` | Legacy-compatible global config directory override | `export VIBECODING_DIR=/custom/config` |
+| `MOTHX_DIR` | Global configuration directory | `export MOTHX_DIR=/custom/config` |
 | `VIBECODING_PROVIDER` | `defaultProvider` | `export VIBECODING_PROVIDER=anthropic` |
 | `VIBECODING_MODEL` | `defaultModel` | `export VIBECODING_MODEL=claude-sonnet-4-20250514` |
 | `VIBECODING_MODE` | `defaultMode` | `export VIBECODING_MODE=yolo` |
@@ -6606,7 +6929,7 @@ This document describes how to contribute code to MothX.
 
 ### System Requirements
 
-- Go 1.24+
+- Go 1.27+
 - Git
 - Make (optional)
 - bubblewrap (optional, for sandbox testing)
@@ -7765,7 +8088,7 @@ Source: https://mothx.net/en/features-overview.md
 | **OpenAI** | GPT-4o, o1, etc. | OpenAI Chat |
 | **Anthropic** | Claude Sonnet, Opus, etc. | Anthropic Messages |
 | **LongCat** | LongCat-2.0 (1M context, 128K output) | OpenAI Chat / Anthropic Messages |
-| **Vendor Adapters** | Google Gemini, Google Vertex, Xiaomi, Volcengine/Doubao, Kimi, MiniMax, Seed, Qianfan, Bailian, Gitee, StepFun, OpenRouter, Together, Groq, Fireworks, Mistral, GitHub Copilot, Cloudflare AI Gateway, Cloudflare Workers AI, Amazon Bedrock, Z.AI, LongCat, and more | OpenAI Chat or Anthropic Messages |
+| **Vendor Adapters** | Google Gemini, Google Vertex, Xiaomi, Volcengine/Doubao, Kimi, MiniMax, Seed, Qianfan, Bailian, Gitee, StepFun, OpenRouter, Together, Groq, Fireworks, Mistral, GitHub Copilot, Cloudflare AI Gateway, Cloudflare Workers AI, Amazon Bedrock, Z.AI, LongCat, AMD Radeon, and more | OpenAI Chat or Anthropic Messages |
 | **Custom** | Any compatible model | Generic OpenAI Chat or Anthropic Messages fallback |
 
 ### Quick Switch
@@ -7785,7 +8108,7 @@ mothx --provider anthropic --model claude-3-5-sonnet-20241022
 
 MothX supports 25+ vendor adapters, including:
 
-- **China**: Xiaomi, Volcengine/Doubao, Kimi, MiniMax, Seed, Qianfan, Bailian, Gitee, StepFun, Z.AI, LongCat
+- **China**: Xiaomi, Volcengine/Doubao, Kimi, MiniMax, Seed, Qianfan, Bailian, Gitee, StepFun, Z.AI, LongCat, AMD Radeon
 - **International**: Google Gemini, Google Vertex, OpenRouter, Together, Groq, Fireworks, Mistral, GitHub Copilot, Cloudflare AI Gateway, Cloudflare Workers AI, Amazon Bedrock
 
 No additional configuration needed — just set the API key and start using.
@@ -9498,7 +9821,7 @@ $ mothx --enable-a2a-master --verbose
 ```
 
 ```
-A2A master mode enabled: 2 agents loaded from /home/user/.vibecoding/a2a-list.json
+A2A master mode enabled: 2 agents loaded from /home/user/.mothx/a2a-list.json
 
 > review internal/handler.go for code quality, then run tests to make sure nothing breaks
 

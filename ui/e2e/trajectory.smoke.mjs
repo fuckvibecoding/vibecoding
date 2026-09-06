@@ -145,10 +145,10 @@ try {
   assert.equal(await evaluate(cdp, `document.querySelector('.session-log-download')?.getAttribute('aria-label')`), '下载 Session 日志');
   await cdp.call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
   await waitFor(cdp, `!matchMedia('(max-width: 900px)').matches && document.querySelector('.sidebar:not(.mobile-drawer)') !== null`);
-  await waitFor(cdp, `getComputedStyle(document.querySelector('.app-shell')).gridTemplateColumns.startsWith('272px')`);
+  await waitFor(cdp, `getComputedStyle(document.querySelector('.app-shell')).gridTemplateColumns.startsWith('280px')`);
   assert.equal(await evaluate(cdp, `getComputedStyle(document.querySelector('.trajectory-layout')).display`), 'grid');
-  assert.equal(await evaluate(cdp, `getComputedStyle(document.querySelector('.sidebar')).paddingTop`), '8px');
-  assert.equal(await evaluate(cdp, `getComputedStyle(document.querySelector('.sidebar')).width`), '272px');
+  assert.equal(await evaluate(cdp, `getComputedStyle(document.querySelector('.sidebar')).paddingTop`), '16px');
+  assert.equal(await evaluate(cdp, `getComputedStyle(document.querySelector('.sidebar')).width`), '280px');
   assert.equal(await evaluate(cdp, `document.querySelector('.side-search') === null`), true);
   assert.equal(await evaluate(cdp, `document.querySelector('.sidebar-browser-head') !== null`), true);
   assert.equal(await evaluate(cdp, `document.querySelector('.sidebar-browser-head .sidebar-section-label') === null`), true);

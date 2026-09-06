@@ -8,6 +8,9 @@
   export let list = [];
   export let onAdd = () => {};
   export let onRemove = () => {};
+  // Secret lists (auth tokens) render as password fields so credentials are not
+  // shown in plain text or offered for browser autofill.
+  export let type = 'text';
 </script>
 
 <div class="list-editor full">
@@ -19,7 +22,7 @@
   </div>
   {#each list as item, i (i)}
     <div class="inline-row">
-      <Input bind:value={list[i]} />
+      <Input {type} autocomplete={type === 'password' ? 'new-password' : undefined} bind:value={list[i]} />
       <Button variant="ghost" size="icon-xs" type="button" onclick={() => onRemove(i)} aria-label={$t('common.remove')}>
         <Trash2 size={14} aria-hidden="true" />
       </Button>

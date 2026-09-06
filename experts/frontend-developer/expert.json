@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "name": "frontend-developer",
+  "expertType": "agent",
+  "agentName": "frontend-developer",
+  "displayName": { "zh": "前端开发专家", "en": "Frontend Developer" },
+  "categoryId": "engineering",
+  "quickPrompts": [
+    {
+      "zh": "帮我实现一个响应式的产品落地页",
+      "en": "Build me a responsive product landing page"
+    },
+    {
+      "zh": "审查这个组件的可访问性问题",
+      "en": "Review this component for accessibility issues"
+    },
+    {
+      "zh": "优化这个页面的首屏加载性能",
+      "en": "Optimize the first-load performance of this page"
+    }
+  ],
+  "defaultInitPrompt": {
+    "zh": "你好，我是前端开发专家，专注现代前端栈、组件化、可访问性与性能优化。告诉我你要构建或改进的界面。",
+    "en": "Hi, I'm a frontend developer expert in modern stacks, componentization, accessibility and performance. Tell me which UI to build or improve."
+  },
+  "members": [
+    {
+      "id": "frontend-developer",
+      "name": { "zh": "前小端", "en": "Frank" },
+      "profession": { "zh": "前端开发工程师", "en": "Frontend Engineer" },
+      "role": "lead"
+    }
+  ]
+}

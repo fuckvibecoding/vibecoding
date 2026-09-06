@@ -110,6 +110,35 @@ func CloseAll() error {
 	return errors.Join(errs...)
 }
 
+// Close releases one process-owned SQLite connection. It is used by resource
+// stores that own a whole database file and need to remove that exact file
+// after their data has been deleted. General callers should normally keep
+// using CloseAll at process shutdown.
+func Close(path string) error {
+	canonical, err := CanonicalPath(path)
+	if err != nil {
+		return err
+	}
+	state.Lock()
+	connection := state.dbs[canonical]
+	if connection != nil {
+		delete(state.dbs, canonical)
+	}
+	state.Unlock()
+	if connection == nil {
+		return nil
+	}
+	var errs []error
+	var busy, logFrames, checkpointed int
+	if err := connection.QueryRow("PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &logFrames, &checkpointed); err != nil {
+		errs = append(errs, fmt.Errorf("checkpoint %s: %w", canonical, err))
+	}
+	if err := connection.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("close %s: %w", canonical, err))
+	}
+	return errors.Join(errs...)
+}
+
 func open(path string, migrate Migrator) (*bun.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
@@ -159,6 +188,7 @@ func DSNForOS(path string, windows bool) string {
 	u := url.URL{Scheme: "file", Path: uriPath}
 	q := u.Query()
 	q.Add("_pragma", "busy_timeout(10000)")
+	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_pragma", "synchronous(FULL)")
 	q.Set("_txlock", "immediate")
 	q.Set("_dqs", "false")

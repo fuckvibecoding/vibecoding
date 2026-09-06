@@ -1,13 +1,15 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist-ts",
     "types": ["node", "electron"]
   },
-  "include": ["main/**/*.ts", "preload/**/*.ts", "scripts/**/*.ts"]
+  "include": ["main/**/*.ts", "preload/**/*.ts", "renderer/**/*.ts", "scripts/**/*.ts"]
 }

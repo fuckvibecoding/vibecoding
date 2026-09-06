@@ -100,6 +100,16 @@ type Event struct {
 	Type    EventType
 	AgentID agentpkg.AgentID
 
+	// Expert-team metadata (additive; empty when no expert team is bound).
+	// MemberID and ExpertID identify the persona and bundle. The display fields
+	// are immutable snapshots from the resolved member definition so replaying
+	// an old event never needs to resolve potentially changed package content.
+	MemberID          string
+	ExpertID          string
+	MemberDisplayName string
+	MemberEmoji       string
+	MemberRole        string
+
 	// Agent lifecycle
 	Messages []provider.Message
 
@@ -124,7 +134,12 @@ type Event struct {
 	ToolDiff           *tools.FileDiff
 	ToolError          error
 	ToolExecutionState string
-	PartialResult      any
+	// ToolImages carries the image payloads embedded in a completed tool
+	// result (EventToolExecutionEnd) so adapters can project them as image
+	// content blocks without re-parsing provider messages. Additive: text-only
+	// consumers can ignore it.
+	ToolImages    []ToolImage
+	PartialResult any
 
 	// Plan events
 	Plan *tools.TaskPlan
@@ -184,4 +199,11 @@ type Event struct {
 	PressureMessage string  // Human-readable warning message
 	PressureType    string  // "context" or "budget"
 	PressurePercent float64 // Usage percentage that triggered the event
+}
+
+// ToolImage is one image payload extracted from a rich tool result. Data holds
+// the base64-encoded image bytes exactly as the tool produced them.
+type ToolImage struct {
+	MimeType string
+	Data     string
 }

@@ -52,3 +52,6 @@ internal/vendored/bin/
 .vibe
 .mothx
 debug.log
+
+# Local audit/review scratch notes (not project documentation)
+/review.md

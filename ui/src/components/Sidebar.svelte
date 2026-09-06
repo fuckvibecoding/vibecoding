@@ -65,6 +65,7 @@
   const primaryNav = [
     { key: 'chat', path: '/chat', label: 'nav.newChat', icon: 'edit', accent: true },
     { key: 'sessions', path: '/sessions', label: 'nav.sessions', icon: 'clock' },
+    { key: 'experts', path: '/experts', label: 'nav.experts', icon: 'skills' },
     { key: 'skills', path: '/skills', label: 'nav.skills', icon: 'skills' },
     { key: 'stats', path: '/stats', label: 'nav.stats', icon: 'chart' },
     { key: 'cron', path: '/cron', label: 'nav.cron', icon: 'timer' }

@@ -9,10 +9,7 @@ import (
 	"strings"
 )
 
-const (
-	appDirName       = "mothx"
-	legacyAppDirName = "vibecoding"
-)
+const appDirName = "mothx"
 
 // ──────────────────────────────────────────────────────────────────────────────
 // OS detection
@@ -171,13 +168,6 @@ func ConfigDir() string {
 	if dir := os.Getenv("MOTHX_DIR"); dir != "" {
 		return dir
 	}
-	if dir := os.Getenv("VIBECODING_DIR"); dir != "" {
-		if samePathString(dir, LegacyConfigDir()) {
-			return configDirForOS(runtime.GOOS, HomeDir(), os.Getenv("APPDATA"))
-		}
-		return dir
-	}
-
 	return configDirForOS(runtime.GOOS, HomeDir(), os.Getenv("APPDATA"))
 }
 
@@ -195,52 +185,7 @@ func configDirForOS(goos, home, appData string) string {
 
 // ConfigDirOverridden reports whether the user selected a custom config dir.
 func ConfigDirOverridden() bool {
-	if os.Getenv("MOTHX_DIR") != "" {
-		return true
-	}
-	if dir := os.Getenv("VIBECODING_DIR"); dir != "" {
-		return !samePathString(dir, LegacyConfigDir())
-	}
-	return false
-}
-
-// LegacyConfigDir returns the pre-MothX default global configuration directory.
-func LegacyConfigDir() string {
-	return legacyConfigDirForOS(runtime.GOOS, HomeDir(), os.Getenv("APPDATA"))
-}
-
-func legacyConfigDirForOS(goos, home, appData string) string {
-	switch goos {
-	case "windows":
-		if appData != "" {
-			return filepath.Join(appData, legacyAppDirName)
-		}
-		return filepath.Join(home, "AppData", "Roaming", legacyAppDirName)
-	default:
-		return filepath.Join(home, "."+legacyAppDirName)
-	}
-}
-
-func samePathString(a, b string) bool {
-	a = cleanComparablePath(a)
-	b = cleanComparablePath(b)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
-}
-
-func cleanComparablePath(path string) string {
-	if path == "~" {
-		if home := HomeDir(); home != "" {
-			path = home
-		}
-	} else if strings.HasPrefix(path, "~/") || strings.HasPrefix(path, `~\`) {
-		if home := HomeDir(); home != "" {
-			path = filepath.Join(home, path[2:])
-		}
-	}
-	return filepath.Clean(path)
+	return os.Getenv("MOTHX_DIR") != ""
 }
 
 // DataDir returns the platform-specific data directory.

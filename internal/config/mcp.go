@@ -16,7 +16,10 @@ type MCPServer struct {
 	URL        string   `json:"url,omitempty"`
 	MessageURL string   `json:"messageUrl,omitempty"`
 	Args       []string `json:"args,omitempty"`
-	Headers    []struct {
+	// Enabled is an additive management toggle. nil keeps every pre-existing
+	// mcp.json entry enabled so older files and writers behave unchanged.
+	Enabled *bool `json:"enabled,omitempty"`
+	Headers []struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"headers,omitempty"`
@@ -149,6 +152,13 @@ func FullMCPConfigTemplate() *MCPConfig {
 			},
 		},
 	}
+}
+
+// MCPServerEnabled reports whether a configured server entry is enabled.
+// A nil Enabled value means enabled, preserving backwards compatibility with
+// mcp.json files written before the management toggle existed.
+func MCPServerEnabled(srv MCPServer) bool {
+	return srv.Enabled == nil || *srv.Enabled
 }
 
 // NormalizeMCPConfig applies basic defaults.

@@ -19,6 +19,7 @@ import (
 func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 	if a.isBackgroundAgentEvent(event) {
 		a.recordAgentActivity(event)
+		a.projectMemberLifecycle(event)
 		if event.Type == agent.EventStatus {
 			a.refreshESMPanel()
 		}
@@ -238,7 +239,7 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 		switch event.Status {
 		case agent.TaskFailed:
 			a.commitActiveStream()
-			if (a.multiAgent || a.delegateMode || a.workflows) && a.agentMgr != nil && a.agent != nil {
+			if a.agentManagementEnabled() && a.agentMgr != nil && a.agent != nil {
 				a.agentMgr.MarkError(a.agent.ID(), errors.New(a.formatAgentError(event, observedError)))
 			}
 			a.isThinking = false
@@ -252,7 +253,7 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 			return tea.Batch(a.timer.Stop(), a.listenAgentEvents(), a.finishESMRun(event.Error), nextPrompt)
 		case agent.TaskIncomplete:
 			a.commitActiveStream()
-			if (a.multiAgent || a.delegateMode || a.workflows) && a.agentMgr != nil && a.agent != nil {
+			if a.agentManagementEnabled() && a.agentMgr != nil && a.agent != nil {
 				a.agentMgr.MarkIncomplete(a.agent.ID(), event.Error)
 			}
 			a.isThinking = false
@@ -267,7 +268,7 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 
 		case agent.TaskCanceled:
 			a.commitActiveStream()
-			if (a.multiAgent || a.delegateMode || a.workflows) && a.agentMgr != nil && a.agent != nil {
+			if a.agentManagementEnabled() && a.agentMgr != nil && a.agent != nil {
 				a.agentMgr.MarkCanceled(a.agent.ID(), event.Error)
 			}
 			a.isThinking = false
@@ -288,7 +289,7 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 				a.addMessage(statusStyle.Render(attachmentText))
 			}
 			a.invalidateToolModalCache()
-			if (a.multiAgent || a.delegateMode || a.workflows) && a.agentMgr != nil && a.agent != nil {
+			if a.agentManagementEnabled() && a.agentMgr != nil && a.agent != nil {
 				a.agentMgr.MarkDone(a.agent.ID(), "")
 			}
 			a.isThinking = false
@@ -322,7 +323,7 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 			a.addMessage(statusStyle.Render(attachmentText))
 		}
 		a.invalidateToolModalCache()
-		if (a.multiAgent || a.delegateMode || a.workflows) && a.agentMgr != nil && a.agent != nil {
+		if a.agentManagementEnabled() && a.agentMgr != nil && a.agent != nil {
 			a.agentMgr.MarkDone(a.agent.ID(), "")
 		}
 		a.isThinking = false
@@ -356,7 +357,7 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 			return a.listenAgentEvents()
 		}
 		a.commitActiveStream()
-		if (a.multiAgent || a.delegateMode || a.workflows) && a.agentMgr != nil && a.agent != nil {
+		if a.agentManagementEnabled() && a.agentMgr != nil && a.agent != nil {
 			a.agentMgr.MarkError(a.agent.ID(), errors.New(a.formatAgentError(event, observedError)))
 		}
 		a.isThinking = false
@@ -428,6 +429,8 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 
 	case agent.EventStatus:
 		if event.RetryStatus {
+			// RetryStatus is a compatibility projection for the following EventRetry.
+			// New adapters should consume EventRetry instead.
 			return a.listenAgentEvents()
 		}
 		if event.StatusMessage != "" {
@@ -448,10 +451,51 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 	return a.listenAgentEvents()
 }
 
-// retryStatusMessage renders only the stable retry metadata emitted by Agent
-// Core. RetryReason can contain provider-specific diagnostics, so it must not
-// become part of the TUI's user-facing status.
+// projectMemberLifecycle renders only canonical member start/terminal events
+// as transcript blocks. The Runtime remains the owner of member state; this is
+// a Bubble Tea projection of immutable event metadata rather than a second
+// member state machine.
+func (a *App) projectMemberLifecycle(event agent.Event) {
+	if event.MemberID == "" {
+		return
+	}
+	label := event.MemberID
+	if event.MemberDisplayName != "" {
+		label = event.MemberDisplayName + " (" + event.MemberID + ")"
+	}
+	if event.MemberEmoji != "" {
+		label = event.MemberEmoji + " " + label
+	}
+	switch event.Type {
+	case agent.EventAgentStart:
+		a.addEventMessage(statusStyle.Render("Member started: "+label), true)
+	case agent.EventRunFinished:
+		state := string(event.Status)
+		if state == "" {
+			state = "completed"
+		}
+		a.addEventMessage(statusStyle.Render("Member "+state+": "+label), true)
+	}
+}
+
+// retryStatusMessage renders the friendly i18n retry summary from the
+// structured metadata emitted by Agent Core. When the provider supplied a
+// sanitized diagnostic (EventRetry.StatusMessage), it is appended as a
+// supplementary detail line so the friendly display stays intact.
 func (a *App) retryStatusMessage(event agent.Event) string {
+	friendly := a.friendlyRetryStatus(event)
+	// truncatePlain collapses whitespace and bounds the length, so even a
+	// malformed detail cannot flood the status view.
+	detail := truncatePlain(event.StatusMessage, 240)
+	if detail == "" {
+		return friendly
+	}
+	return friendly + "\n  ↳ " + detail
+}
+
+// friendlyRetryStatus builds the translated retry summary from structured
+// fields only; it never parses presentation text.
+func (a *App) friendlyRetryStatus(event agent.Event) string {
 	if event.RetryMaxTokens > 0 {
 		return a.translator.Text(i18n.MsgOutputRetry, event.RetryMaxTokens)
 	}

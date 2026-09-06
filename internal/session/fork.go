@@ -39,6 +39,9 @@ type ForkOptions struct {
 	AtSeq           *int64
 	RequestID       string
 	TitleMode       string
+	// ExpertID overrides the forked session's expert binding when non-nil
+	// (empty string unbinds); nil preserves the source session's binding.
+	ExpertID *string
 }
 
 type ForkResult struct {
@@ -240,6 +243,11 @@ func ForkSession(ctx context.Context, sessionDir string, options ForkOptions) (F
 	if err := forkDAO.InsertSessionFrom(ctx, tx, childID, options.SourceSessionID, boundary, int64(len(copyEntries)), string(kind)); err != nil {
 		return ForkResult{}, err
 	}
+	if options.ExpertID != nil {
+		if err := dao.NewSessionDAO(nil).UpdateSessionExpertID(ctx, tx, "sessions", childID, *options.ExpertID); err != nil {
+			return ForkResult{}, err
+		}
+	}
 	seqMap := make(map[int64]int64, len(copyEntries))
 	for _, source := range copyEntries {
 		newID := entryIDMap[source.ID]
@@ -263,6 +271,9 @@ func ForkSession(ctx context.Context, sessionDir string, options ForkOptions) (F
 			header.ForkBoundarySeq = boundary
 			header.SeedLength = int64(len(copyEntries))
 			header.ForkKind = string(kind)
+			if options.ExpertID != nil {
+				header.ExpertID = *options.ExpertID
+			}
 			encoded, marshalErr := json.Marshal(header)
 			if marshalErr != nil {
 				return ForkResult{}, marshalErr

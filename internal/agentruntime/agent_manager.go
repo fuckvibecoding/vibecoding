@@ -48,17 +48,33 @@ func NewAgentManager(opts AgentManagerOptions) (*agent.AgentManager, error) {
 	runtimeManager := opts.Runtime.Manager
 	entrySource := opts.Runtime.EntrySource
 	opts.Runtime.mu.RUnlock()
+	// The Runtime's session manager is authoritative. Do not let a caller's
+	// settings pointer redirect sub-agents to the platform-default session DB:
+	// that would split child execution and durable state from the parent run.
+	effectiveSettingsValue := *opts.Settings
+	if runtimeManager != nil && runtimeManager.GetSessionDir() != "" {
+		effectiveSettingsValue.SessionDir = runtimeManager.GetSessionDir()
+	}
+	effectiveSettings := &effectiveSettingsValue
+	// A team expert binding forces multi-agent capability for the session at
+	// the shared manager boundary; adapters may not downgrade it.
+	expertBinding, mailbox := opts.Runtime.ExpertState()
+	multiAgentEnabled := opts.MultiAgentEnabled || (expertBinding != nil && expertBinding.Team)
+	expertIdentity, expertRoster := "", ""
+	if expertBinding != nil {
+		expertIdentity, expertRoster = expertBinding.IdentityPrompt, expertBinding.RosterPrompt
+	}
 	currentSourceFor := func(manager *session.Manager) RuntimeSource {
 		if manager != nil && manager == runtimeManager {
 			return policy.Source
 		}
 		return SourceUnknown
 	}
-	compaction := agent.CompactionSettingsFromConfig(opts.Settings.Compaction)
+	compaction := agent.CompactionSettingsFromConfig(effectiveSettings.Compaction)
 	factory := agent.NewAgentFactoryWithOptions(
 		opts.Provider,
 		opts.Model,
-		opts.Settings,
+		effectiveSettings,
 		opts.Runtime.SandboxMgr,
 		opts.Runtime.ExtraContext,
 		opts.Runtime.RuleContent,
@@ -66,9 +82,11 @@ func NewAgentManager(opts AgentManagerOptions) (*agent.AgentManager, error) {
 		compaction,
 		nil,
 		agent.AgentFactoryOptions{
-			MultiAgentEnabled: opts.MultiAgentEnabled,
+			MultiAgentEnabled: multiAgentEnabled,
 			DelegateEnabled:   opts.DelegateEnabled,
 			WorkflowsEnabled:  opts.WorkflowsEnabled,
+			ExpertIdentity:    expertIdentity,
+			ExpertRoster:      expertRoster,
 			ProviderName:      opts.ProviderName,
 			Allow:             opts.Allow,
 			BeforeToolCall:    beforeToolCallForPolicy(policy, nil),
@@ -99,5 +117,9 @@ func NewAgentManager(opts AgentManagerOptions) (*agent.AgentManager, error) {
 			},
 		},
 	)
-	return agent.NewAgentManager(factory), nil
+	manager := agent.NewAgentManager(factory)
+	if expertBinding != nil {
+		manager.SetMemberContext(agent.NewMemberDefRegistry(expertBinding.MemberDefs), mailbox, expertBinding.ID)
+	}
+	return manager, nil
 }

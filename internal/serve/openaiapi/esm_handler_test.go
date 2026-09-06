@@ -2,6 +2,7 @@ package openaiapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,6 +76,42 @@ func TestHandleESMAPIControlLifecycle(t *testing.T) {
 	}
 	if cleared.Status != "none" {
 		t.Fatalf("cleared=%#v", cleared)
+	}
+}
+
+func TestESMLifecycleControlsRejectActiveForegroundRun(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.pool.Stop()
+	const id = "webui-esm-active-control"
+	sess, err := srv.getOrCreateSession(id, srv.cfg.GetWorkDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.CreateESM(id, "finish the objective"); err != nil {
+		t.Fatal(err)
+	}
+	sess.SetRunning(true)
+	t.Cleanup(func() { sess.SetRunning(false) })
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/"+id+"/esm/pause", nil)
+	rec := httptest.NewRecorder()
+	srv.HandleESMAPI(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("active-run pause HTTP status=%d body=%s, want %d", rec.Code, rec.Body.String(), http.StatusConflict)
+	}
+
+	if _, err := srv.PauseESM(id); !errors.Is(err, ErrESMControlRequiresIdle) {
+		t.Fatalf("PauseESM error = %v, want ErrESMControlRequiresIdle", err)
+	}
+	if _, err := srv.ResumeESM(id); !errors.Is(err, ErrESMControlRequiresIdle) {
+		t.Fatalf("ResumeESM error = %v, want ErrESMControlRequiresIdle", err)
+	}
+	if err := srv.ClearESM(id); !errors.Is(err, ErrESMControlRequiresIdle) {
+		t.Fatalf("ClearESM error = %v, want ErrESMControlRequiresIdle", err)
+	}
+	obj, err := srv.esmStore().Get(t.Context(), id)
+	if err != nil || obj.Status != "active" {
+		t.Fatalf("lifecycle control changed active objective: obj=%#v err=%v", obj, err)
 	}
 }
 

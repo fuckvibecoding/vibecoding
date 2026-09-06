@@ -1,11 +1,64 @@
 package agentruntime
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/startvibecoding/mothx/internal/provider"
 	"github.com/startvibecoding/mothx/internal/session"
 )
+
+func TestSessionRuntimeExpertConfigOptionUsesRuntimeBindingRules(t *testing.T) {
+	workDir := t.TempDir()
+	writeExpertFixtures(t, workDir)
+	manager := session.New(workDir, t.TempDir())
+	if err := manager.Init(); err != nil {
+		t.Fatal(err)
+	}
+	model := &provider.Model{ID: "model", Name: "Model"}
+	p := provider.NewMockProvider("test-provider", []*provider.Model{model}, nil)
+	runtime := &SessionRuntime{
+		ID: manager.GetHeader().ID, Source: SourceACP, EntrySource: SourceACP,
+		WorkDir: workDir, Manager: manager,
+	}
+	if err := runtime.ConfigureSession(p, "test-provider", model, ModeYolo, provider.ThinkingMedium); err != nil {
+		t.Fatal(err)
+	}
+
+	options := runtime.ConfigOptions()
+	expertOption := SessionConfigOption{}
+	for _, option := range options {
+		if option.ID == ConfigOptionExpert {
+			expertOption = option
+			break
+		}
+	}
+	if expertOption.ID == "" || expertOption.CurrentValue != "" {
+		t.Fatalf("initial expert option = %#v", expertOption)
+	}
+	if len(expertOption.Options) < 3 || expertOption.Options[0].Value != "" {
+		t.Fatalf("expert choices = %#v, want unbound/studio/solo", expertOption.Options)
+	}
+
+	if err := runtime.SetConfigOption(ConfigOptionExpert, "studio"); err != nil {
+		t.Fatalf("bind expert through config option: %v", err)
+	}
+	if got := manager.GetExpertID(); got != "studio" || !runtime.TeamExpertActive() {
+		t.Fatalf("expert binding = %q, team=%v", got, runtime.TeamExpertActive())
+	}
+	if got := optionCurrentValue(runtime.ConfigOptions(), ConfigOptionExpert); got != "studio" {
+		t.Fatalf("bound expert option = %q", got)
+	}
+	if err := runtime.SetConfigOption(ConfigOptionExpert, "solo"); !errors.Is(err, ErrExpertSwitchRequiresFork) {
+		t.Fatalf("in-place expert switch error = %v, want ErrExpertSwitchRequiresFork", err)
+	}
+	if err := runtime.SetConfigOption(ConfigOptionExpert, ""); err != nil {
+		t.Fatalf("unbind expert through config option: %v", err)
+	}
+	if got := manager.GetExpertID(); got != "" || runtime.TeamExpertActive() {
+		t.Fatalf("expert unbind = %q, team=%v", got, runtime.TeamExpertActive())
+	}
+}
 
 func TestSessionRuntimeConfigOptionsPersistAndRejectInvalidModel(t *testing.T) {
 	workDir := t.TempDir()

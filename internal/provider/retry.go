@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // httpStatusOriginTimeout is Cloudflare's non-standard HTTP status for an
@@ -117,52 +119,133 @@ func RetryDelay(attempt int, baseDelayMs int) time.Duration {
 
 // FormatRetryMessage returns a user-visible message for a retry attempt.
 func FormatRetryMessage(attempt, maxRetries int, delay time.Duration, err error) string {
+	return fmt.Sprintf("Retrying (%d/%d): %s — waiting %s...",
+		attempt+1, maxRetries, classifyRetryError(err), formatDelay(delay))
+}
+
+// RetryErrorDetail returns only the sanitized reason for a retryable error,
+// without the "Retrying (n/m)" wrapper. The result is always single-line and
+// length-bounded, so adapters can render it verbatim as a supplementary
+// diagnostic. It returns "" for a nil error. This text is presentation-only:
+// retry scheduling and control flow must never depend on it.
+func RetryErrorDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	return classifyRetryError(err)
+}
+
+// classifyRetryError maps an error to a single-line, bounded reason: a JSON
+// error payload first, then known transport/HTTP classifications, then a
+// truncated raw error fallback.
+func classifyRetryError(err error) string {
 	errStr := ""
 	if err != nil {
 		errStr = err.Error()
 	}
 
-	// Classify the error for a user-friendly message
-	var reason string
-	switch {
-	case strings.Contains(errStr, "524"):
-		reason = "origin timeout (HTTP 524)"
-	case strings.Contains(strings.ToLower(errStr), "overloaded"):
-		reason = "server overloaded"
-	case strings.Contains(errStr, "timeout") || strings.Contains(errStr, "DeadlineExceeded"):
-		reason = "request timed out"
-	case strings.Contains(errStr, "connection refused"):
-		reason = "connection refused"
-	case strings.Contains(errStr, "connection reset"):
-		reason = "connection reset"
-	case strings.Contains(errStr, "429"):
-		reason = "rate limited (HTTP 429)"
-	case strings.Contains(errStr, "500"):
-		reason = "internal server error (HTTP 500)"
-	case strings.Contains(errStr, "502"):
-		reason = "bad gateway (HTTP 502)"
-	case strings.Contains(errStr, "503"):
-		reason = "service unavailable (HTTP 503)"
-	case strings.Contains(errStr, "504"):
-		reason = "gateway timeout (HTTP 504)"
-	case strings.Contains(strings.ToLower(errStr), "stream_read_error"):
-		reason = "upstream stream read error"
-	case strings.Contains(errStr, "EOF"):
-		reason = "connection closed unexpectedly"
-	default:
-		reason = fmt.Sprintf("error: %s", truncateErr(errStr, 80))
+	// Try to extract a more specific error message from JSON responses
+	if msg := extractJSONErrorMessage(errStr); msg != "" {
+		return msg
 	}
 
-	return fmt.Sprintf("Retrying (%d/%d): %s — waiting %s...",
-		attempt+1, maxRetries, reason, formatDelay(delay))
+	// Classify the error for a user-friendly message
+	switch {
+	case strings.Contains(errStr, "524"):
+		return "origin timeout (HTTP 524)"
+	case strings.Contains(strings.ToLower(errStr), "overloaded"):
+		return "server overloaded"
+	case strings.Contains(errStr, "timeout") || strings.Contains(errStr, "DeadlineExceeded"):
+		return "request timed out"
+	case strings.Contains(errStr, "connection refused"):
+		return "connection refused"
+	case strings.Contains(errStr, "connection reset"):
+		return "connection reset"
+	case strings.Contains(errStr, "429"):
+		return "rate limited (HTTP 429)"
+	case strings.Contains(errStr, "500"):
+		return "internal server error (HTTP 500)"
+	case strings.Contains(errStr, "502"):
+		return "bad gateway (HTTP 502)"
+	case strings.Contains(errStr, "503"):
+		return "service unavailable (HTTP 503)"
+	case strings.Contains(errStr, "504"):
+		return "gateway timeout (HTTP 504)"
+	case strings.Contains(strings.ToLower(errStr), "stream_read_error"):
+		return "upstream stream read error"
+	case strings.Contains(errStr, "EOF"):
+		return "connection closed unexpectedly"
+	default:
+		return fmt.Sprintf("error: %s", truncateErr(sanitizeRetryDetail(errStr), 80))
+	}
 }
 
-// truncateErr truncates an error string to maxLen characters.
+// extractJSONErrorMessage attempts to extract the "message" field from a JSON
+// error response. It handles common API error formats like OpenAI's error response.
+func extractJSONErrorMessage(errStr string) string {
+	// Look for JSON in the error string (e.g., "HTTP 400: {\"message\":...}")
+	jsonStart := strings.Index(errStr, "{")
+	if jsonStart == -1 {
+		return ""
+	}
+
+	jsonStr := errStr[jsonStart:]
+	var errResp struct {
+		Message string `json:"message"`
+		Error   struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.Unmarshal([]byte(jsonStr), &errResp); err != nil {
+		return ""
+	}
+
+	// Check for OpenAI-style error.message field
+	if errResp.Error.Message != "" {
+		return truncateErr(sanitizeRetryDetail(errResp.Error.Message), 200)
+	}
+
+	// Check for top-level message field
+	if errResp.Message != "" {
+		return truncateErr(sanitizeRetryDetail(errResp.Message), 200)
+	}
+
+	return ""
+}
+
+// sanitizeRetryDetail collapses newlines and control characters into single
+// spaces so retry diagnostics always render as one bounded line and cannot
+// inject fake log/status lines into adapters.
+func sanitizeRetryDetail(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	pendingSpace := false
+	for _, r := range s {
+		if r <= 0x20 || r == 0x7f {
+			pendingSpace = true
+			continue
+		}
+		if pendingSpace && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		pendingSpace = false
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// truncateErr truncates an error string to maxLen bytes without splitting
+// multi-byte runes.
 func truncateErr(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	cut := maxLen - 3
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "..."
 }
 
 // formatDelay formats a duration in a human-readable way.

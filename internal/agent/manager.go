@@ -15,13 +15,18 @@ import (
 
 // ManagedAgentStatus captures scheduling state for an agent managed by AgentManager.
 type ManagedAgentStatus struct {
-	ID        agentpkg.AgentID
-	ParentID  agentpkg.AgentID
-	State     string
-	Result    string
-	Error     string
-	StartedAt time.Time
-	UpdatedAt time.Time
+	ID                agentpkg.AgentID
+	ParentID          agentpkg.AgentID
+	MemberID          string
+	ExpertID          string
+	MemberDisplayName string
+	MemberEmoji       string
+	MemberRole        string
+	State             string
+	Result            string
+	Error             string
+	StartedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // AgentStatusListener observes lifecycle transitions of managed agents. It is
@@ -40,17 +45,48 @@ type AgentManager struct {
 	listeners []AgentStatusListener
 	factory   *AgentFactory
 	counter   int64
+
+	// Expert-team member context, installed once by the runtime assembly
+	// layer via SetMemberContext before any run starts and treated as
+	// read-only afterwards. All three are nil/empty when no expert team is
+	// bound to the session.
+	Members  *MemberDefRegistry
+	Mailbox  *MemberMailbox
+	ExpertID string
 }
 
 // NewAgentManager creates a new agent manager.
 func NewAgentManager(factory *AgentFactory) *AgentManager {
-	return &AgentManager{
+	manager := &AgentManager{
 		agents:   make(map[agentpkg.AgentID]agentpkg.Agent),
 		parentOf: make(map[agentpkg.AgentID]agentpkg.AgentID),
 		children: make(map[agentpkg.AgentID][]agentpkg.AgentID),
 		statuses: make(map[agentpkg.AgentID]ManagedAgentStatus),
 		cancels:  make(map[agentpkg.AgentID]context.CancelFunc),
 		factory:  factory,
+	}
+	if factory != nil {
+		factory.manager = manager
+	}
+	return manager
+}
+
+// SetMemberContext installs the expert-team member context: the roster
+// registry, the session member mailbox, and the bound expert id. Passing
+// nil/empty values clears a previous binding. Callers must set the context
+// during assembly, before any agent run starts; sub-agent tools read these
+// fields directly and rely on that happens-before ordering.
+func (m *AgentManager) SetMemberContext(members *MemberDefRegistry, mailbox *MemberMailbox, expertID string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Members = members
+	m.Mailbox = mailbox
+	m.ExpertID = expertID
+	if m.factory != nil {
+		m.factory.memberMailbox = mailbox
 	}
 }
 
@@ -181,11 +217,16 @@ func (m *AgentManager) Create(opts AgentOptions) (agentpkg.Agent, error) {
 	}
 	now := time.Now()
 	m.statuses[opts.ID] = ManagedAgentStatus{
-		ID:        opts.ID,
-		ParentID:  opts.ParentID,
-		State:     "ready",
-		StartedAt: now,
-		UpdatedAt: now,
+		ID:                opts.ID,
+		ParentID:          opts.ParentID,
+		MemberID:          opts.MemberID,
+		ExpertID:          opts.ExpertID,
+		MemberDisplayName: opts.MemberDisplayName,
+		MemberEmoji:       opts.MemberEmoji,
+		MemberRole:        opts.MemberRole,
+		State:             "ready",
+		StartedAt:         now,
+		UpdatedAt:         now,
 	}
 
 	return a, nil

@@ -38,6 +38,13 @@ type AgentFactory struct {
 	forcedMode               string
 	resolveMode              func(manager *session.Manager, requestedMode string) (string, error)
 	beforeToolCallForSession func(manager *session.Manager) func(ctx BeforeToolCallContext) *ToolCallBlockResult
+	expertIdentity           string
+	expertRoster             string
+	// manager and memberMailbox are installed by AgentManager during shared
+	// Runtime assembly. They are used only for manager-created top-level
+	// agents (for example an ESM worker continuation), never for child agents.
+	manager       *AgentManager
+	memberMailbox *MemberMailbox
 }
 
 // NewAgentFactory creates a factory with shared configuration.
@@ -69,6 +76,10 @@ type AgentFactoryOptions struct {
 	ForcedMode               string
 	ResolveMode              func(manager *session.Manager, requestedMode string) (string, error)
 	BeforeToolCallForSession func(manager *session.Manager) func(ctx BeforeToolCallContext) *ToolCallBlockResult
+	// ExpertIdentity/ExpertRoster are injected into main agents only
+	// (ParentID == ""); sub-agents never receive the lead persona overlay.
+	ExpertIdentity string
+	ExpertRoster   string
 }
 
 // NewAgentFactoryWithOptions creates a factory with explicit behavior flags.
@@ -108,13 +119,23 @@ func NewAgentFactoryWithOptions(
 		forcedMode:               opts.ForcedMode,
 		resolveMode:              opts.ResolveMode,
 		beforeToolCallForSession: opts.BeforeToolCallForSession,
+		expertIdentity:           opts.ExpertIdentity,
+		expertRoster:             opts.ExpertRoster,
 	}
 }
 
 // AgentOptions specifies per-agent overrides.
 type AgentOptions struct {
-	ID                 agentpkg.AgentID
-	ParentID           agentpkg.AgentID
+	ID       agentpkg.AgentID
+	ParentID agentpkg.AgentID
+	// Member metadata is a display snapshot for a named expert-team child.
+	// AgentFactory does not interpret it; AgentManager retains it alongside the
+	// child lifecycle so adapters can project the same canonical identity.
+	MemberID           string
+	ExpertID           string
+	MemberDisplayName  string
+	MemberEmoji        string
+	MemberRole         string
 	Mode               string
 	Model              *provider.Model
 	WorkDir            string
@@ -210,6 +231,7 @@ func (f *AgentFactory) Create(opts AgentOptions) agentpkg.Agent {
 		registry.Remove("subagent_status")
 		registry.Remove("subagent_send")
 		registry.Remove("subagent_destroy")
+		registry.Remove("subagent_wait")
 		registry.Remove("delegate_subagent")
 	}
 
@@ -238,6 +260,14 @@ func (f *AgentFactory) Create(opts AgentOptions) agentpkg.Agent {
 		delegateMode = false
 		workflows = false
 	}
+	// Manager-created top-level agents normally have an isolated Registry. If
+	// the shared Runtime resolved team capability for this run, reattach the
+	// canonical manager-owned sub-agent tools here. This is what lets an ESM
+	// worker continue as the team lead while preserving critic/audit isolation
+	// (those roles keep MultiAgent=false).
+	if opts.ParentID == "" && multiAgent && f.manager != nil {
+		RegisterSubAgentTools(registry, f.manager)
+	}
 
 	thinkingLevel := provider.ThinkingLevel(agentpkg.ThinkingMedium)
 	if f.settings != nil {
@@ -247,6 +277,10 @@ func (f *AgentFactory) Create(opts AgentOptions) agentpkg.Agent {
 		if entry, ok := sess.GetLatestThinkingLevelChange(); ok && entry.ThinkingLevel != "" {
 			thinkingLevel = provider.ThinkingLevel(entry.ThinkingLevel)
 		}
+	}
+	expertIdentity, expertRoster := "", ""
+	if opts.ParentID == "" {
+		expertIdentity, expertRoster = f.expertIdentity, f.expertRoster
 	}
 	cfg := Config{
 		ID:            opts.ID,
@@ -272,9 +306,11 @@ func (f *AgentFactory) Create(opts AgentOptions) agentpkg.Agent {
 			}
 			return f.approvalHandler
 		}(),
-		MultiAgent:   multiAgent,
-		DelegateMode: delegateMode,
-		Workflows:    workflows,
+		MultiAgent:     multiAgent,
+		DelegateMode:   delegateMode,
+		Workflows:      workflows,
+		ExpertIdentity: expertIdentity,
+		ExpertRoster:   expertRoster,
 	}
 
 	beforeToolCall := f.beforeToolCall
@@ -289,6 +325,9 @@ func (f *AgentFactory) Create(opts AgentOptions) agentpkg.Agent {
 		MaxIterations:      maxIterations,
 		BeforeToolCall:     beforeToolCall,
 		BeforeToolExecute:  f.beforeToolExecute,
+	}
+	if opts.ParentID == "" && f.memberMailbox != nil {
+		loopCfg.GetSteeringMessages = f.memberMailbox.DrainSteering
 	}
 
 	a := NewWithLoopConfig(loopCfg, registry)

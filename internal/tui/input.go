@@ -152,7 +152,7 @@ func (a *App) finalizeThinkStream(idx int) {
 }
 
 func (a *App) registerManagedAgent() {
-	if !(a.multiAgent || a.delegateMode || a.workflows) || a.agentMgr == nil || a.agent == nil {
+	if !a.agentManagementEnabled() || a.agentMgr == nil || a.agent == nil {
 		return
 	}
 	id := agentpkg.AgentID(a.agent.ID())
@@ -164,7 +164,7 @@ func (a *App) registerManagedAgent() {
 }
 
 func (a *App) finishManagedAgent(cause error) {
-	if !(a.multiAgent || a.delegateMode || a.workflows) || a.agentMgr == nil || a.agent == nil {
+	if !a.agentManagementEnabled() || a.agentMgr == nil || a.agent == nil {
 		return
 	}
 	id := a.agent.ID()

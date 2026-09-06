@@ -51,7 +51,7 @@ func TestNormalize(t *testing.T) {
 }
 
 func TestCheckInBackgroundRespectsDisableFlag(t *testing.T) {
-	t.Setenv("VIBECODING_DIR", t.TempDir())
+	t.Setenv("MOTHX_DIR", t.TempDir())
 	t.Setenv("VIBECODING_NO_UPDATE_CHECK", "1")
 
 	oldFetch := fetchLatestVersion
@@ -70,7 +70,7 @@ func TestCheckInBackgroundRespectsDisableFlag(t *testing.T) {
 }
 
 func TestCheckInBackgroundRecordsFailureCooldown(t *testing.T) {
-	t.Setenv("VIBECODING_DIR", t.TempDir())
+	t.Setenv("MOTHX_DIR", t.TempDir())
 	t.Setenv("VIBECODING_NO_UPDATE_CHECK", "")
 
 	oldFetch := fetchLatestVersion
@@ -98,7 +98,7 @@ func TestCheckInBackgroundRecordsFailureCooldown(t *testing.T) {
 }
 
 func TestRefreshCacheNotifiesForNewerSemver(t *testing.T) {
-	t.Setenv("VIBECODING_DIR", t.TempDir())
+	t.Setenv("MOTHX_DIR", t.TempDir())
 	t.Setenv("VIBECODING_NO_UPDATE_CHECK", "")
 
 	oldFetch := fetchLatestVersion
@@ -128,7 +128,7 @@ func TestRefreshCacheNotifiesForNewerSemver(t *testing.T) {
 }
 
 func TestRefreshCacheSkipsNotifyForCurrentOrOlderVersion(t *testing.T) {
-	t.Setenv("VIBECODING_DIR", t.TempDir())
+	t.Setenv("MOTHX_DIR", t.TempDir())
 	t.Setenv("VIBECODING_NO_UPDATE_CHECK", "")
 
 	oldFetch := fetchLatestVersion

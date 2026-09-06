@@ -35,7 +35,7 @@ type tuiTestESMAdapter struct {
 }
 
 func (a *tuiTestESMAdapter) RunRole(ctx context.Context, req esm.RoleRequest) (esm.RoleResult, error) {
-	result, err := a.app.runESMRoleAgent(ctx, a.eventCh, a.manager, req.RunID, req.WorkDir, req.Mode, req.Tools, req.MaxIterations, req.Prompt)
+	result, err := a.app.runESMRoleAgentWithTimeoutForRole(ctx, a.eventCh, a.manager, req.Role, req.RunID, req.WorkDir, req.Mode, req.Tools, req.MaxIterations, req.Prompt, esmRoleTimeout)
 	return esm.RoleResult{Response: result.Response, Tokens: result.Tokens, ToolCalls: result.ToolCalls, ToolNames: result.ToolNames, ToolError: result.ToolError}, err
 }
 

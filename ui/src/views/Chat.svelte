@@ -2265,8 +2265,13 @@
       ? localized
       : $t('chat.retrying', { attempt, maxAttempts });
     const retryAfterMs = Number(progress?.retryAfterMs || 0) || 0;
-    if (!retryAfterMs) return base;
-    return `${base} ${$t('chat.retry.after', { seconds: Math.max(1, Math.ceil(retryAfterMs / 1000)) })}`;
+    const label = retryAfterMs
+      ? `${base} ${$t('chat.retry.after', { seconds: Math.max(1, Math.ceil(retryAfterMs / 1000)) })}`
+      : base;
+    // Append the sanitized provider diagnostic (when the Runtime persisted one)
+    // after the friendly label, mirroring errorDisplayMessage's message+detail.
+    const detail = String(progress?.message || '').trim();
+    return detail ? `${label}: ${detail}` : label;
   }
 
   // handleSubAgentEffects applies view-only side effects reported by reducers

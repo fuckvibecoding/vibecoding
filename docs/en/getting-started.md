@@ -163,6 +163,21 @@ mothx acp --multi-agent
 
 Multi-agent mode registers `subagent_*` tools for delegated work. Cron command entry points are available in TUI multi-agent workflows.
 
+### Expert Teams
+
+Bind a reusable single expert or a coordinated team to a session:
+
+```bash
+# Start with the built-in software team
+mothx --expert software-company
+```
+
+In TUI, use `/expert list`, `/expert show <id>`, `/expert bind <id>`,
+`/expert unbind`, and `/expert switch <id>`. Switching between two experts
+creates a session fork so the original identity and history remain intact.
+Team experts automatically enable the session's member-dispatch capability.
+See [Expert Teams](expert-teams.md) for lifecycle, ESM, and local-bundle details.
+
 ### Delegate Mode
 
 ```bash

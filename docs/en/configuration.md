@@ -10,15 +10,15 @@ MothX uses two configuration files:
 | `%APPDATA%\mothx\settings.json` | Windows | Global (all projects) | Low |
 | `.mothx/settings.json` | All | Project-level | High |
 
-> **Tip:** You can override the global config directory with `MOTHX_DIR`. The legacy-compatible `VIBECODING_DIR` variable is also supported; `MOTHX_DIR` takes precedence when both are set.
+> **Tip:** Override the global configuration directory with `MOTHX_DIR`.
 
 > **Windows:** `%APPDATA%` resolves to `C:\Users\<Username>\AppData\Roaming`, so the full path is typically `C:\Users\<Username>\AppData\Roaming\mothx\settings.json`.
 
 Project-level configuration overrides global configuration. Providers are merged by provider ID and then by fields explicitly present in the project file. An explicitly supplied `models` array replaces that provider's inherited model list.
 
-### Legacy Compatibility
+### Legacy Directories
 
-The current release uses `.mothx` for project files and `~/.mothx` (or `%APPDATA%\mothx` on Windows) for global files. Legacy `.vibe` and `.vibecoding` directories are no longer migrated automatically; copy any configuration you still need into the corresponding `.mothx` directory and review paths and fields. `VIBECODING_DIR` and `VIBECODING_*` remain compatibility entry points, while `MOTHX_DIR` takes precedence.
+The current release uses `.mothx` for project files and `~/.mothx` (or `%APPDATA%\mothx` on Windows) for global files. Legacy `.vibe` and `.vibecoding` directories are neither read nor migrated. Copy any configuration you still need into the corresponding `.mothx` directory and review paths and fields.
 
 
 ### `tuilang` (TUI language)
@@ -368,6 +368,8 @@ If not specified, auto-detected based on `baseUrl`:
 
 `background` is only available through `mothx serve`; normal CLI/TUI/ACP requests continue to use the streaming agent loop. A background-capable provider must support the selected model and Responses features.
 
+`toolControl.choice` selects the `tool_choice` sent to OpenAI Responses providers: `auto`, `none`, `required`, or the name of a tool to force that tool. The WebUI exposes `responses.toolControl` under Settings > Providers (Tool Choice, Parallel Tool Calls, Max Tool Calls), and the TUI exposes it under `/settings` > provider > B. Protocol > Responses. The TUI editor writes the global settings file; project-level overrides remain supported through `.mothx/settings.json`.
+
 Google native providers can be configured directly:
 
 ```json
@@ -500,6 +502,8 @@ The `compat` object is optional and should only be set when a model needs protoc
 | `supportsLongCacheRetention` | bool | Whether long prompt-cache retention is supported |
 | `sendSessionAffinityHeaders` | bool | Whether session affinity headers should be sent |
 | `supportsEagerToolInputStreaming` | bool | Whether Anthropic eager tool input streaming is supported |
+
+`supportsToolChoice` and `supportsParallelToolCalls` are also editable in the WebUI model row and in the TUI under `/settings` > model > Compatibility; the remaining flags stay file-only.
 
 ```json
 {
@@ -1208,8 +1212,7 @@ These environment variables override settings at runtime:
 
 | Environment Variable | Overrides | Example |
 |---------------------|-----------|---------|
-| `MOTHX_DIR` | Global config directory (preferred; takes precedence over `VIBECODING_DIR`) | `export MOTHX_DIR=/custom/config` |
-| `VIBECODING_DIR` | Legacy-compatible global config directory override | `export VIBECODING_DIR=/custom/config` |
+| `MOTHX_DIR` | Global configuration directory | `export MOTHX_DIR=/custom/config` |
 | `VIBECODING_PROVIDER` | `defaultProvider` | `export VIBECODING_PROVIDER=anthropic` |
 | `VIBECODING_MODEL` | `defaultModel` | `export VIBECODING_MODEL=claude-sonnet-4-20250514` |
 | `VIBECODING_MODE` | `defaultMode` | `export VIBECODING_MODE=yolo` |

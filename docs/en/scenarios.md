@@ -365,7 +365,7 @@ $ mothx --enable-a2a-master --verbose
 ```
 
 ```
-A2A master mode enabled: 2 agents loaded from /home/user/.vibecoding/a2a-list.json
+A2A master mode enabled: 2 agents loaded from /home/user/.mothx/a2a-list.json
 
 > review internal/handler.go for code quality, then run tests to make sure nothing breaks
 

@@ -27,7 +27,7 @@
   <a href="https://github.com/startvibecoding/mothx/network/dependencies"><img src="https://img.shields.io/librariesio/release/github/startvibecoding/mothx" alt="Dependencies"></a>
 </p>
 
-> **Rename notice:** MothX was formerly known as VibeCoding. During this transition release, legacy entry points such as the `vibecoding` command, the old installer package names, and `VIBECODING_*` environment variables are kept for compatibility. Legacy `.vibecoding` and `.vibe` directories are automatically migrated to `.mothx` when found.
+> **Rename notice:** MothX was formerly known as VibeCoding. The `vibecoding` command and old installer package names remain compatibility aliases. Configuration is read only from `.mothx` project directories and the MothX global configuration directory; legacy directories are neither read nor migrated.
 
 ---
 

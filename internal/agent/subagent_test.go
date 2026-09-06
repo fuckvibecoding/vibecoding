@@ -284,7 +284,9 @@ func TestSubAgentSpawnTool(t *testing.T) {
 
 func waitForManagedAgentToStop(t testing.TB, mgr *AgentManager, id agentpkg.AgentID) {
 	t.Helper()
-	deadline := time.Now().Add(time.Second)
+	// Generous budget: under -race on loaded machines the full child run
+	// (session init, prompt build, stream, persistence) can exceed 1s.
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		st, ok := mgr.Status(id)
 		if ok && (st.State == "done" || st.State == "error") {
@@ -354,7 +356,7 @@ func TestDelegateSubAgentToolBlocksUntilChildCompletes(t *testing.T) {
 
 	select {
 	case <-started:
-	case <-time.After(time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("delegated child did not start")
 	}
 	// The provider cannot complete before release is closed. Use a

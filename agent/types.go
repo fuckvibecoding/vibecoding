@@ -322,6 +322,15 @@ type Event struct {
 	AgentID AgentID
 	Type    EventType
 
+	// Expert-team metadata is additive and populated on forwarded child-agent
+	// events. It is a display snapshot so consumers can render a member without
+	// resolving mutable expert-package content during replay.
+	MemberID          string
+	ExpertID          string
+	MemberDisplayName string
+	MemberEmoji       string
+	MemberRole        string
+
 	// Agent lifecycle
 	Messages []Message
 
@@ -348,7 +357,12 @@ type Event struct {
 	// ToolExecutionState is set to interrupted when idempotency recovery
 	// refuses to repeat a tool whose prior process may have died mid-execution.
 	ToolExecutionState string
-	PartialResult      any
+	// ToolImages carries the image payloads embedded in a completed tool
+	// result (EventToolExecutionEnd), for adapters that project them as image
+	// content blocks. Data is base64-encoded. Additive: consumers that only
+	// render ToolResult text can ignore it.
+	ToolImages    []ToolImage
+	PartialResult any
 
 	// Plan events
 	Plan *TaskPlan
@@ -397,6 +411,14 @@ type Event struct {
 
 	// Context usage
 	ContextUsage *ContextUsage
+}
+
+// ToolImage is one image payload produced by a tool result. Data holds the
+// base64-encoded image bytes and MimeType the image format, mirroring the
+// provider image content the Agent Core already sends to vision models.
+type ToolImage struct {
+	MimeType string
+	Data     string
 }
 
 // FileDiff describes a file change produced by a write-like tool.

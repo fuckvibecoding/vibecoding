@@ -370,6 +370,11 @@ func (a *App) authModelCompatOptions() []authOption {
 		authOption{Title: a.translator.Text(i18n.MsgAuthLabelSessionAffinity), Description: a.boolYesNo(ce.SendSessionAffinityHeaders), Value: "sessionAffinityHeaders"},
 		authOption{Title: a.translator.Text(i18n.MsgAuthLabelEagerToolStreaming), Description: a.triStateStr(ce.SupportsEagerToolInputStreaming), Value: "eagerToolStreaming"},
 	)
+	// Tool choice controls
+	opts = append(opts,
+		authOption{Title: a.translator.Text(i18n.MsgAuthLabelSupportsToolChoice), Description: a.triStateStr(ce.SupportsToolChoice), Value: "supportsToolChoice"},
+		authOption{Title: a.translator.Text(i18n.MsgAuthLabelSupportsParallelTools), Description: a.triStateStr(ce.SupportsParallelToolCalls), Value: "supportsParallelToolCalls"},
+	)
 	opts = append(opts,
 		authOption{Title: a.translator.Text(i18n.MsgAuthLabelResetCompat), Description: a.translator.Text(i18n.MsgAuthLabelResetCompat), Value: "resetAll"},
 		authOption{Title: a.translator.Text(i18n.MsgAuthDone), Description: a.translator.Text(i18n.MsgAuthLabelConfirm), Value: "done"},
@@ -449,7 +454,8 @@ func (a *App) selectModelFieldValue(value string) {
 	// Tri-state pointer fields
 	switch value {
 	case "supportsDeveloperRole", "supportsStore", "supportsReasoningEffort", "supportsStrictMode",
-		"disableSamplingParams", "cacheControlOnTools", "longCacheRetention", "promptCacheKey", "reasoningSummary", "eagerToolStreaming":
+		"disableSamplingParams", "cacheControlOnTools", "longCacheRetention", "promptCacheKey", "reasoningSummary", "eagerToolStreaming",
+		"supportsToolChoice", "supportsParallelToolCalls":
 		a.toggleModelTriState(value)
 		a.scheduleRender()
 		return
@@ -623,6 +629,10 @@ func (a *App) toggleModelTriState(field string) {
 		p = &ce.SupportsReasoningSummary
 	case "eagerToolStreaming":
 		p = &ce.SupportsEagerToolInputStreaming
+	case "supportsToolChoice":
+		p = &ce.SupportsToolChoice
+	case "supportsParallelToolCalls":
+		p = &ce.SupportsParallelToolCalls
 	default:
 		return
 	}

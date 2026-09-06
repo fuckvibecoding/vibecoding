@@ -143,21 +143,27 @@ func ParentModeFromContext(ctx context.Context) (string, bool) {
 
 // Config holds the agent configuration.
 type Config struct {
-	ID                 agentpkg.AgentID
-	ParentID           agentpkg.AgentID
-	Provider           provider.Provider
-	Vendor             string // user-configured provider/vendor name (e.g. "longcat", "openai")
-	Model              *provider.Model
-	Mode               string // "plan", "agent", "yolo", "os"
-	ThinkingLevel      provider.ThinkingLevel
-	MaxTokens          int
-	MaxTokensUserSet   bool
-	SandboxMgr         *sandbox.Manager
-	Settings           *config.Settings
-	Allow              *config.AllowConfig // auto-approval (allow.json): autoEdit, editPaths, bash rules
-	Session            *session.Manager
-	ExtraContext       string // extra context from files and skills
-	RuleContent        string // content of .mothx/rule.md (project rules)
+	ID               agentpkg.AgentID
+	ParentID         agentpkg.AgentID
+	Provider         provider.Provider
+	Vendor           string // user-configured provider/vendor name (e.g. "longcat", "openai")
+	Model            *provider.Model
+	Mode             string // "plan", "agent", "yolo", "os"
+	ThinkingLevel    provider.ThinkingLevel
+	MaxTokens        int
+	MaxTokensUserSet bool
+	SandboxMgr       *sandbox.Manager
+	Settings         *config.Settings
+	Allow            *config.AllowConfig // auto-approval (allow.json): autoEdit, editPaths, bash rules
+	Session          *session.Manager
+	ExtraContext     string // extra context from files and skills
+	RuleContent      string // content of .mothx/rule.md (project rules)
+	// ExpertIdentity is the runtime-injected expert persona overlay and
+	// ExpertRoster the team roster + dispatch rules section. Both are
+	// authoritative runtime content (empty when no expert is bound) rendered
+	// between project rules and project context.
+	ExpertIdentity     string
+	ExpertRoster       string
 	CompactionSettings ctxpkg.CompactionSettings
 	ApprovalHandler    func(toolCallID, toolName string, args map[string]any) bool
 	// ApprovalDecisionLookup supplies a durable decision for a previously
@@ -488,6 +494,8 @@ func (a *Agent) buildFrozenPrompt() {
 			ToolExecutionMode:  a.config.ToolExecutionMode,
 			MaxToolConcurrency: a.config.MaxToolConcurrency,
 			Authored:           a.config.Settings != nil && a.config.Settings.Authored,
+			ExpertIdentity:     a.config.ExpertIdentity,
+			ExpertRoster:       a.config.ExpertRoster,
 		},
 	)
 	a.frozenToolDefs = toolDefs
@@ -1437,15 +1445,19 @@ func (a *Agent) loop(ctx context.Context, ch chan<- Event) {
 				if retryMaxAttempts == 0 {
 					retryMaxAttempts = event.RetryMax
 				}
-				// Preserve one status event for older consumers, but never pass
-				// provider diagnostics through a user-facing event. New adapters use
-				// the marked EventRetry below instead of parsing presentation text.
+				// Preserve one status event for older consumers. This compatibility
+				// projection stays sanitized: provider diagnostics ride on the
+				// marked EventRetry below instead of user-facing status text.
 				ch <- Event{
 					Type: EventStatus, StatusMessage: retryCompatibilityStatus(event.RetryAttempt, retryMaxAttempts, event.RetryAfterMS), RetryStatus: true,
 					RetryAttempt: event.RetryAttempt, RetryMaxAttempts: retryMaxAttempts, RetryAfterMS: event.RetryAfterMS,
 				}
+				// StatusMessage carries the sanitized, bounded RetryDetail for
+				// adapters that opt into showing it. Retry scheduling and state
+				// never depend on this text.
 				ch <- Event{
 					Type:             EventRetry,
+					StatusMessage:    event.RetryDetail,
 					RetryAttempt:     event.RetryAttempt,
 					RetryMaxAttempts: retryMaxAttempts,
 					RetryAfterMS:     event.RetryAfterMS,
@@ -2276,7 +2288,7 @@ func (a *Agent) executeSingleToolCallWithRecovery(ctx context.Context, tc provid
 		if reusedResult.IsError {
 			executionState = "interrupted"
 		}
-		ch <- Event{Type: EventToolExecutionEnd, ToolCallID: tc.ID, ToolName: tc.Name, ToolResult: reusedResult.Content, ToolError: reusedErr, ToolExecutionState: executionState}
+		ch <- Event{Type: EventToolExecutionEnd, ToolCallID: tc.ID, ToolName: tc.Name, ToolResult: reusedResult.Content, ToolError: reusedErr, ToolExecutionState: executionState, ToolImages: toolResultImages(reusedResult.Contents)}
 		ch <- Event{Type: EventToolResult, ToolCallID: tc.ID, ToolName: tc.Name, ToolResult: reusedResult.Content, ToolError: reusedErr, ToolExecutionState: executionState}
 		return reusedResult
 	}
@@ -2373,6 +2385,7 @@ func (a *Agent) executeSingleToolCallWithRecovery(ctx context.Context, tc provid
 		ToolResult: resultContent,
 		ToolDiff:   resultDiff,
 		ToolError:  err,
+		ToolImages: toolResultImages(resultContents),
 	}
 	ch <- Event{
 		Type:       EventToolResult,

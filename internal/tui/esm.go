@@ -126,15 +126,15 @@ func (a *App) handleESMCommand(cmd string) tea.Cmd {
 		a.showESMStatus()
 		return nil
 	}
-	if a.isThinking {
-		a.addCommandError("Cannot change ESM while the agent is running. Press Esc to abort first.")
-		return nil
-	}
 
 	ctx := context.Background()
 	store := a.ensureESMStore()
 	sessionID := a.currentSessionID()
 	sub, rest := splitESMSubcommand(raw)
+	if a.isThinking && (sub == "pause" || sub == "resume" || sub == "clear") {
+		a.addCommandError("Only /esm <objective>, /esm edit, and /esm guide may update an active run. Pause, resume, and clear require the current run to finish or be aborted.")
+		return nil
+	}
 	var (
 		obj            *esm.Objective
 		err            error
@@ -180,7 +180,7 @@ func (a *App) handleESMCommand(cmd string) tea.Cmd {
 		}
 		a.setESMFooter(obj)
 		a.addCommandStatus("Guidance queued for the next ESM role run.\n" + formatESMStatus(obj))
-		if obj != nil && obj.Status == esm.StatusActive {
+		if !a.isThinking && obj != nil && obj.Status == esm.StatusActive {
 			return a.startESMContinuationIfIdle()
 		}
 		return nil
@@ -190,6 +190,16 @@ func (a *App) handleESMCommand(cmd string) tea.Cmd {
 	}
 	if err != nil {
 		a.addCommandError(formatESMCommandError(err))
+		return nil
+	}
+	if a.isThinking {
+		// Do not reset the live Agent or mutate its registry. The run-scoped ESM
+		// steering source will inject this persisted objective version at the
+		// next normal loop boundary, and finishESMRun will arrange any needed
+		// continuation only after this run reaches a terminal state.
+		a.trackESMObjectiveForActiveRun(obj)
+		a.setESMFooter(obj)
+		a.addCommandStatus(formatESMStatus(obj))
 		return nil
 	}
 	if err := a.syncESMTools(); err != nil {
@@ -269,10 +279,10 @@ func (a *App) prepareESMRun() {
 	}
 	a.esmMu.Lock()
 	a.esmRunSeq++
-	a.esmSteeredSeq = 0
 	a.esmRunTokens = 0
 	a.esmSupervisorRun = false
 	a.esmRunSessionID = a.currentSessionID()
+	a.esmSteering = esm.NewSteeringSource(a.ensureESMStore(), a.esmRunSessionID)
 	a.esmRunTracked = obj != nil && (obj.Status == esm.StatusActive || obj.Status == esm.StatusCompleteCandidate)
 	a.esmRunID = ""
 	if a.esmRunTracked {
@@ -284,29 +294,35 @@ func (a *App) prepareESMRun() {
 
 func (a *App) nextESMSteeringMessages() []provider.Message {
 	a.esmMu.Lock()
-	seq := a.esmRunSeq
-	if seq == 0 {
-		a.esmMu.Unlock()
-		return nil
-	}
-	tracked := a.esmRunTracked
-	includeRegular := a.esmSteeredSeq != seq
-	if includeRegular {
-		a.esmSteeredSeq = seq
-	}
+	source := a.esmSteering
 	a.esmMu.Unlock()
-	if !tracked {
+	if source == nil {
 		return nil
 	}
-	obj, err := a.loadESMObjective(context.Background())
-	if err != nil || obj == nil {
-		return nil
+	return source.Next()
+}
+
+// trackESMObjectiveForActiveRun enrolls a foreground run that began before a
+// user created or edited an ESM objective. It deliberately does not restart
+// the Agent: steering is delivered by nextESMSteeringMessages at the next loop
+// boundary and this marker only enables usage accounting/idle continuation.
+func (a *App) trackESMObjectiveForActiveRun(obj *esm.Objective) {
+	if a == nil || obj == nil || obj.Status != esm.StatusActive {
+		return
 	}
-	var messages []provider.Message
-	if includeRegular && obj.Status == esm.StatusActive {
-		messages = append(messages, esm.SteeringMessage(obj))
+	sessionID := a.currentSessionID()
+	if sessionID == "" || obj.SessionID != sessionID {
+		return
 	}
-	return messages
+	a.esmMu.Lock()
+	defer a.esmMu.Unlock()
+	if a.esmRunSessionID != sessionID {
+		return
+	}
+	if !a.esmRunTracked {
+		a.esmRunTracked = true
+		a.esmRunID = fmt.Sprintf("esm-run-%d-%d", time.Now().UnixNano(), a.esmRunSeq)
+	}
 }
 
 func (a *App) recordESMUsage(usage *provider.Usage) {
@@ -392,7 +408,7 @@ func (a *App) finishESMRun(err error) tea.Cmd {
 }
 
 func (a *App) startESMContinuationIfIdle() tea.Cmd {
-	if a.manualCompactionActive || a.waitingForApproval || a.waitingForQuestion || a.hasQueuedInput() {
+	if a.isThinking || a.manualCompactionActive || a.waitingForApproval || a.waitingForQuestion || a.hasQueuedInput() {
 		return nil
 	}
 	if strings.TrimSpace(a.input.Value()) != "" {
@@ -493,13 +509,22 @@ type esmRoleResult struct {
 type esmRoleRunner func(ctx context.Context, eventCh chan<- internalagent.Event, manager *internalagent.AgentManager, id, workDir, mode string, toolFilter []string, maxIterations int, task string) (esmRoleResult, error)
 
 func (a *App) runESMRoleAgent(ctx context.Context, eventCh chan<- internalagent.Event, manager *internalagent.AgentManager, id, workDir, mode string, toolFilter []string, maxIterations int, task string) (esmRoleResult, error) {
-	return a.runESMRoleAgentWithTimeout(ctx, eventCh, manager, id, workDir, mode, toolFilter, maxIterations, task, esmRoleTimeout)
+	return a.runESMRoleAgentWithTimeoutForRole(ctx, eventCh, manager, esm.Role(""), id, workDir, mode, toolFilter, maxIterations, task, esmRoleTimeout)
 }
 
 func (a *App) runESMRoleAgentWithTimeout(ctx context.Context, eventCh chan<- internalagent.Event, manager *internalagent.AgentManager, id, workDir, mode string, toolFilter []string, maxIterations int, task string, timeout time.Duration) (esmRoleResult, error) {
+	return a.runESMRoleAgentWithTimeoutForRole(ctx, eventCh, manager, esm.Role(""), id, workDir, mode, toolFilter, maxIterations, task, timeout)
+}
+
+// runESMRoleAgentWithTimeoutForRole keeps the ESM role policy explicit at the
+// adapter edge: only a team-bound worker continuation may act as the lead and
+// receive member scheduling. Critic, audit, recovery, and ordinary sessions
+// retain their isolated tool surface.
+func (a *App) runESMRoleAgentWithTimeoutForRole(ctx context.Context, eventCh chan<- internalagent.Event, manager *internalagent.AgentManager, role esm.Role, id, workDir, mode string, toolFilter []string, maxIterations int, task string, timeout time.Duration) (esmRoleResult, error) {
 	if a.esmRoleRunner != nil {
 		return a.esmRoleRunner(ctx, eventCh, manager, id, workDir, mode, toolFilter, maxIterations, task)
 	}
+	teamWorker := role == esm.RoleWorker && a.runtime != nil && a.runtime.TeamExpertActive()
 	no := false
 	childID := agentpkg.AgentID(id)
 	child, err := manager.Create(internalagent.AgentOptions{
@@ -509,7 +534,7 @@ func (a *App) runESMRoleAgentWithTimeout(ctx context.Context, eventCh chan<- int
 		WorkDir:       workDir,
 		Tools:         toolFilter,
 		MaxIterations: maxIterations,
-		MultiAgent:    &no,
+		MultiAgent:    &teamWorker,
 		DelegateMode:  &no,
 		Workflows:     &no,
 	})

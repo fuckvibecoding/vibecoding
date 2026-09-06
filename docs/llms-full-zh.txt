@@ -17,6 +17,10 @@ Source: https://mothx.net/zh/README.md
 </p>
 
 <p align="center">
+  <em>驾驭中国词元 (Make OSCHINA Tokens Harness eXecution)</em>
+</p>
+
+<p align="center">
   别再在 Claude Code、Codex、Claw、Channels 之间来回切换了。<br>
   MothX 把所有功能打包成一个文件 — 提供商、工具、沙箱、会话、技能，一应俱全。
 </p>
@@ -34,7 +38,7 @@ Source: https://mothx.net/zh/README.md
   <strong>GitHub: <a href="https://github.com/startvibecoding/mothx">海外用户</a></strong>
 </p>
 
-> **改名说明：** MothX 原名 VibeCoding。本过渡版本仍保留 `vibecoding` 命令、旧安装包名以及 `VIBECODING_*` 环境变量作为兼容入口；发现旧 `.vibecoding` 和 `.vibe` 目录时会自动迁移到 `.mothx`。
+> **改名说明：** MothX 原名 VibeCoding。`vibecoding` 命令和旧安装包名仍作为兼容别名保留。配置只会从 `.mothx` 项目目录和 MothX 全局配置目录读取；不会读取或迁移旧目录。
 
 ---
 
@@ -263,7 +267,6 @@ mothx serve   # 部署为微信/飞书机器人
 |------|------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
 | `MOTHX_DIR` | 覆盖全局配置目录（首选） |
-| `VIBECODING_DIR` | 兼容旧版本的配置目录覆盖变量 |
 | `VIBECODING_PROVIDER` | 覆盖默认提供商 |
 | `VIBECODING_MODEL` | 覆盖默认模型 |
 | `VIBECODING_MODE` | 覆盖默认模式 |
@@ -739,13 +742,14 @@ mothx acp --multi-agent
 
 ## 协议细节
 
-ACP 使用 JSON-RPC 2.0 通过 stdio 进行通信，并遵循 ACP v1 schema。MothX 的业务扩展使用独立的 `_mothx/*` 方法和 `_meta` 能力声明，不会向标准 ACP 对象添加自定义根字段。
+ACP 使用 JSON-RPC 2.0 通过 stdio 进行通信，并遵循 ACP v1 schema。MothX 的业务扩展使用独立的 `mothx/*`、`_mothx/*` 方法和 `_meta` 扩展声明；标准 ACP 对象不会添加非扩展用途的自定义字段。
 
 ### 方法
 
 | 方法 | 描述 |
 |------|------|
 | `initialize` | 握手和能力协商 |
+| `mothx/doctor` | 返回机器可读的安装/提供商诊断；无需会话 |
 | `session/new` | 创建新会话 |
 | `session/load` | 加载已有会话 |
 | `session/list` | 列出持久化会话，支持按工作目录筛选和游标分页 |
@@ -785,6 +789,8 @@ MothX 在初始化时声明以下 ACP 能力：
 ## MothX 扩展
 
 MothX 将非 ACP 标准的交互隔离为扩展。客户端仅在 `initialize` 响应的 `agentCapabilities._meta["mothx.dev"]` 声明对应能力后使用这些方法；不支持扩展的 ACP 客户端可以忽略它们且不影响标准会话流程。
+
+`initialize.agentInfo` 会以 `mothx` / `MothX` 标识产品，并携带构建版本。顶层 `initialize._meta["mothx.dev"]`（也镜像到 `agentCapabilities._meta` 以兼容现有客户端）声明稳定功能列表和 `doctor: true`。`mothx/doctor` 接受 `{}` 或 `{ "cwd": "/absolute/path" }`，并返回 `{ ok, version, summary, checks }`；检查使用稳定 ID，绝不返回 API key 原文。`mothx doctor --json` 的 stdout 只输出这一份响应。ACP 若在 initialize 前退出，stderr 会包含一行 `MOTHX_ACP_ERROR { ... }`，其中带稳定错误码和简短修复建议。
 
 | 方法 | 用途 |
 |------|------|
@@ -1527,6 +1533,323 @@ A2A Master 模式通过 `--enable-a2a-master` 启用，加载 `a2a-list.json`
 Source: https://mothx.net/zh/changelog.md
 
 # 更新日志
+## v1.2.100
+
+### ✨ 新功能
+
+- **WebUI：聊天输入框斜杠命令建议**
+  - 在聊天输入中键入 `/` 即弹出建议下拉框，覆盖全部支持的斜杠命令（`/clear`、`/mode`、`/model`、`/defaultModel`、`/models`、`/sessions`、`/status`、`/compact`、`/delegate`、`/alloweditpath`、`/allowautoedit`、`/workflows`、`/skill`、`/skills`、`/rule`、`/esm`、`/help`），并对 `/esm` 提供专门的子命令过滤（objective/edit/pause/resume/clear/guide）。
+  - 使用 ↑/↓ 导航，Tab 或 Enter 补全（当输入与选中项完全一致时 Enter 直接发送），Esc 关闭，或点击选中；选中后光标定位到插入命令的末尾。输入框保持完整的 combobox/listbox 无障碍状态（`aria-expanded`、`aria-activedescendant`、`aria-selected`）。
+  - 运行进行中、API 被禁用或输入包含换行时不显示建议。
+
+### 🐛 问题修复
+
+- **TUI：运行期间提交的提示词排队执行，不再顶替当前运行**
+  - 同一会话同一时刻只允许一个前台执行。此前在运行进行中提交输入会直接替换内存中的运行句柄，导致活跃运行的终态清理与运行时租约被孤立。现在此类提交会在 TUI 中排队，仅当前一个运行到达规范终态并释放租约后，才启动下一个排队提示词 —— 覆盖所有终态分支（成功、失败、未完成与取消）。
+  - 排队的提示词保留 Runtime 预制的附件（`agentruntime.PreparedInput`），并通过同一输入契约重新提交，附件在延迟期间保持不变。
+
+### ✅ 测试
+
+- TUI：新增测试断言运行期间提交的输入仅排队而不替换租约持有者，且排队提示词只有在取消流程完成持久化运行终态并释放租约之后才会启动。
+
+## v1.2.99
+
+### ✨ 新功能
+
+- **WebUI 与 TUI 统一使用服务端解析的模型目录**
+  - 新增 `GET /api/models/catalog` 端点，通过 `providerfactory.ResolvedModels`/`SortProviderIDs` 解析全部可选 Provider/模型 —— 与构建 TUI Provider 模型列表使用的是同一套共享逻辑 —— 并返回规范化默认值与排序后的 Provider 列表。即使当前活跃 Provider 来自内置预设或 serve 参数而非 settings 的 providers 映射，也依然可选。
+  - `stores.js` 由 `models` 迁移为 `modelCatalog`；Chat 新会话选择器改为直接消费服务端目录，不再在客户端合并原始 settings JSON，移除本地 `buildModelCatalog`/settings 兜底推导。设置页各入口（默认 Provider/模型下拉、Provider 编辑器）消费同一 store，继承的内置预设模型新增专用中英文标签。
+  - TUI 认证对话框的 Provider 排序委托给 `providerfactory.ProviderSortPriority`，TUI 对话框与 WebUI 目录共用同一套排序逻辑。
+
+- **Enable Supervisor Mode（ESM）：斜杠命令控制、共享引导与证据追踪**
+  - WebUI 的 ESM 控制改为与 TUI 相同的 `/esm` 斜杠命令（`/esm <objective>`、`/esm status|edit|pause|resume|clear|guide`），不再使用专用图形控件 —— 移除 500 行的 `ESMControls` 组件，聊天输入与 ESM REST API 共享同一条服务端 objective 路径。
+  - 新增引导（guidance）模块：`/esm guide <text>` 将用户引导排队并打上 objective 当前版本戳；Supervisor 将待处理引导注入每个非恢复角色（role）的提示词，并在角色结果应用后恰好消费一次 —— 由核心统一持有生命周期，TUI 与 WebUI 适配器共享。
+  - 新增证据（evidence）模块：共享的 `EvidenceTracker` 按角色运行累积工具调用证据（唯一工具调用 ID、按工具的计数/错误），使 `ApplyWorkerResult`/`ApplyReviewResult` 中“工具支撑证据”校验不会在适配器之间产生分歧。
+  - ESM 不再强制 token/时间预算：移除 `budget_limited` 状态、`SetBudget`/预算提示词与 TUI `/esm budget` 子命令；`TokensUsed`/`TimeUsedMS` 仅作可观测性计数。阻塞审计阈值集中为 `BlockedAuditLimit`（连续 3 次运行报告相同 blocker 后置为 blocked）。
+  - 无人值守派生运行通过 `agentruntime.ResolveUnattendedMode` 解析执行模式：仅 `os` 从会话模式继承，其余会话模式一律回退为 `yolo`，ESM 角色子代理不会因交互式审批而停摆（高危命令硬防护仍与模式无关）。
+  - Supervisor 以基础 Run ID 执行 continuation（角色运行使用由其派生的带后缀 ID），由 Supervisor 统一持有两个适配器的终态 `FinishRun` 调用，并在 continuation 结束时清理更早 continuation 遗留的过期连续计数。
+
+### 🐛 问题修复
+
+- **ESM：失败 objective 转为暂停，杜绝静默重跑**
+  - 不可重试的角色失败现在会将 objective 置为暂停，须显式 `/esm resume` 才能再次运行 —— 排队的引导或后续触发器不再静默重跑已失败的任务。超时与可重试的传输错误仍走受 `RecoveryLimit` 约束的恢复路径。
+  - Serve 启动时不再重放历史上持久化为 "active" 的 ESM objective：角色可能在进程退出前刚刚失败，因此 `Create`/`Edit`/`ResumeESM` 成为仅有的显式执行入口。
+  - `esmCoordinator` 新增带 done 通道与有界等待的 `stop`/`stopAll`；Serve 关闭时取消所有 ESM worker 并等待其释放会话/运行时引用（`SessionRuntime.Shutdown` 仍是最终资源边界），已关闭的协调器拒绝启动新 worker。
+
+- **无桌面服务器上的原生目录选择器**
+  - Unix 环境下缺少 `DISPLAY`/`WAYLAND_DISPLAY` 时，原生选择器明确报告不可用而非静默失败，让 Web UI 回退到内置目录浏览器。启动失败且 stderr 带诊断信息的场景现在会作为错误暴露，不再被误判为对话框取消。
+
+### 🔧 改进
+
+- **目录浏览器：Windows 盘符根目录与按路径解析的允许根**
+  - `/api/browse` 的允许根（allowed-root）解析现在接收请求路径；Windows 各盘符根目录通过虚拟浏览根列出（盘符根之间没有可供导航的公共父目录）。`DirBrowser` 新增 `initialPath` 属性、一次性打开语义、服务端返回的 `selectable` 标志与刷新支持。
+
+- **工具恢复审计记录**
+  - `RequestToolExecutionRecoveryRecords` 记录用户的显式确认并仅返回匹配的中断调用；记录作为审计证据保留，恢复则以全新执行开始。新增 DAO 列表接口（`ListRequestedToolRecoveries`）向 Serve 暴露已请求的恢复记录。终态 Run 绝不会被重新激活来消费这些记录。
+
+### ✅ 测试
+
+- ESM：新增/扩充引导生命周期（版本戳、注入、一次性消费）、证据追踪、不可重试失败即暂停、基础 Run ID continuation、预算移除、`/esm` 斜杠命令一致性，以及协调器 `stop`/`stopAll`（含已关闭协调器拒绝启动）的覆盖。
+- Serve：进程级测试断言启动绝不重放历史 ESM objective；browse-root 测试覆盖允许根解析与 Windows 盘符根列出；原生选择器测试覆盖无桌面不可用与 stderr 诊断场景。
+- Provider factory：目录解析与 Provider 排序测试；settings：`qwen3.8-max-0902` 预设断言。
+## v1.2.98
+
+### ✨ 新功能
+
+- **Gitee/Moark 新增模型：`qwen3.8-max-0902`**
+  - `gitee` 和 `moark` 两个提供商均新增 `qwen3.8-max-0902`，支持 1M 上下文窗口、128K 最大输出与文本/图片输入。
+
+### 🔧 改进
+
+- **TUI：死代码清理与决策生命周期对齐**
+  - 移除未使用的函数（`renderLiveAssistantMessage`、`renderPlanPanel`、`formatPlanForDisplay`、`normalizeHistoryLineEndings`、`resolveESMStoreDir`、`updateViewportContentWithFollow`），并精简对应的 plan/ESM 测试覆盖。
+  - 问题请求现在通过 `DecisionService` 注册，挂起的问题与审批一样可持久化、可重放；重复的问题请求会被拒绝。
+  - 终态决策状态根据实际运行状态映射，不再一律将挂起决策标记为 `cancelled` —— 只有显式取消才记录 `cancelled`，其它任何终态记录 `timed_out`。
+  - 延迟打印循环新增 `stopPrintLoop` 退出路径，退出与重载前排空已排队的转录内容再清理。
+  - 外部状态行刷新推迟到实际渲染时执行，将高密度事件突发合并为一次刷新。
+  - `sessionsDel` 改为通过防御性的 `getSessionDir()` 辅助函数解析会话目录。
+
+- **WebUI：设置页模型列表与新会话选择器保持一致**
+  - 设置页的“默认 Provider / 默认模型”下拉改为复用新会话模型选择器背后的服务端解析目录（`GET /api/models/catalog`），因此内置预设 Provider 及其默认模型也可在此选择；表单中尚未保存的编辑会追加在目录之后，可在保存前直接选用。
+  - 供应商设置同样复用该目录：左侧模型数量徽标显示解析后的模型数，模型列表额外以只读行展示未写入配置的内置预设模型（与新会话选择器一致，保存时不会持久化；添加相同 ID 的模型即可覆盖）。
+
+### 🐛 问题修复
+
+- **Serve Responses 恢复保持 Run 终态不变**
+  - 恢复经用户确认的中断工具调用时，不再把已完成或失败的 durable Run 改回 `queued`，也不再重新接管其已终止的远端 Responses 任务。Serve 现在通过正常 Runtime 输入路径提交一条新的、幂等的恢复消息，并启动新的本地 AgentLoop Run；原 Run 保持不可变。
+  - 移除仅供恢复使用的“终态转活跃”Run 存储 API，防止后续调用方绕过规范的单调生命周期。
+
+### ✅ 测试
+
+- TUI：新增问题决策注册（挂起类型、持久化、重复拒绝）与 ESM 存储目录解析测试。
+- Serve：Responses 恢复测试覆盖原终态 Run 保持不变、新 AgentLoop 收到恢复消息，以及重复恢复请求幂等返回同一个新 Run。
+## v1.2.97
+
+### ✨ 新功能
+
+- **Provider 在线模型发现**
+  - 模型发现能力下沉到 `internal/provider`，提供共享辅助函数（`ModelsEndpoint`、`ResolveSecretRef`、`DiscoverModels`），可拉取并规范化 provider 的 `/models` 列表为 `DiscoveredModel`。OpenAI 兼容的 `/v1/provider/models` 与 model-test 接口改为调用这些共享实现，不再各自重复探测逻辑。
+
+- **TUI：在认证对话框中拉取并搜索在线模型**
+  - provider 模型列表与模型设置视图新增 "Fetch Online Models" 入口：以后台命令对草稿 provider 的 Base URL / API 类型执行发现，并打开 "Add Model · Online List" 视图，可将拉取到的模型加入或移出草稿。保存 provider 之前不会持久化任何内容，关闭对话框或切换 provider 后的过期结果会被丢弃，加载中/空/错误状态均有 zh/en 文案。
+  - 在在线列表中输入即可过滤拉取到的模型，按模型 ID 与显示名以 精确 > 前缀 > 子串 排序，同分保持发现顺序；Esc 清空查询，无匹配时显示 "No models match." 提示。
+
+### 🔧 改进
+
+- **公共 SDK 边界：`agent/` 不再依赖 internal 包**
+  - provider 桥接从公共 `agent/` 包移入 `bootstrap/`（外部模块本来就通过空白导入使用它），在 init 时注册 provider 解析钩子与具体工厂。
+  - `agent.Builder` 不再预先解析平台会话目录（由内部 builder 在 Build 时解析默认值），钩子未注册时给出明确错误；示例改为空白导入 `bootstrap` 而非 internal 包。
+
+- **会话存储完整性加固**
+  - `DeleteSession` 现在通过其会话归属的父表级联清理没有 `session_id` 列的子表（`delivery_operations`、`attachment_deliveries`），删除会话后不再残留孤儿行。
+  - schema 迁移按版本号升序执行，不再按切片顺序；前向建表引用不再依赖 FK 强制关闭。
+  - Run 的非终态/终态状态集合集中在 `run_store.go`，作为唯一事实来源；SQL 字面量、部分唯一索引、fork、轨迹与恢复路径全部从中派生。
+  - `EndConversationTurn` 对已关闭的回合幂等；会话条目 ID 扩展为 64 位；`IdentityLocks` 委托给引用计数的锁注册表；运行时租约总线在最后一个处理器退订后关闭 UDP 监听。
+
+### 🐛 问题修复
+
+- **TUI：单独回车即时提交**
+  - 排队中的 Enter 曾被当作换行证据，导致每次快速输入后回车发送都要等满 120ms 的分片粘贴合并窗口。现在扩展空闲窗口仅在队列中存在真实粘贴证据（含换行的字符块或紧邻文本的 Enter）时启用；单独的延迟 Enter 保持正常 16ms 窗口并立即提交。
+
+- **被放弃的 Durable 运行缺失错误原因**
+  - 工具执行被中断后放弃的后台运行可能在进入终态时未持久化原因。现在通过专用注解边界（`RunDAO.UpdateErrorIfEmpty` → `session.AnnotateSessionRunError` → `agentruntime.AnnotateDurableRunError`）仅在错误仍为空时写入——不改变运行状态、不复活终态运行、不触碰活跃运行，首个记录的原因保持权威。Responses API 的放弃路径经该边界持久化原因。
+
+- **后台运行协调器重复用户条目**
+  - 准入阶段原子追加的用户条目在管理器重载后已存在于重放状态中；协调器现在按确定性 `RunUserEntryID` 匹配并复用该条目作为续接消息，不再向会话转录与 provider 请求追加重复条目。该检查在重试、恢复与进程重启间保持幂等。
+
+- **通道轮换租约目标目录**
+  - `AcquireRuntimeForRotate` 现在显式从生命周期属主获取会话目录（为空时回退到 dispatcher 配置的目录），使变更租约与强制释放等待作用于权威的 Session，而非 dispatcher 持有的任意目录。
+
+### ✅ 测试
+
+- 架构：新增 `public_sdk_boundary_test`，公共 `agent/` 包或 `example/` 模块再次导入 internal 包时失败。
+- 新增会话测试：删除完整性（无孤儿行）、迁移升序执行、Run 状态集合一致性、引用计数锁注册表、租约总线监听器清理；`-race` 下放宽孤儿恢复的时序余量。
+- 新增快速单独回车提交（分片粘贴续接仍受保护）与 durable 运行错误注解的回归测试。
+
+## v1.2.96
+
+### ✨ 新功能
+
+- **运行时工作区输入物化**
+  - 现在所有入口点（CLI、TUI、WebUI/API、ACP、微信、飞书）的用户文件统一由一个前端无关的输入契约负责。适配器提交源流，`internal/agentruntime` 将接收的文件物化到项目工作区，首条用户消息声明文件路径与元数据，由 Agent 决定是否以及如何读取每个文件。
+  - 图片不再在摄入时就自动转换为厂商图片内容；输入资源通过 `input_resources` 表持久化，并拥有 Runtime 托管的完整生命周期（`PrepareInput`/`AttachPreparedInput`、丢弃/删除/清理、`input_resource_events`）。
+  - TUI 的 `/paste-image` 现在提交由 Runtime 写入的流；Web UI 新增聊天附件上传/预览；ACP 的提示内容（文本/图片/文件/音频/视频）与微信/飞书入站媒体都统一走同一入口。
+
+- **基于租约的执行准入与孤儿运行恢复**
+  - 旧的 `TryLockRuntime`/`TryLockRuntimes` 路径被显式、按用途和运行绑定的运行时租约取代，覆盖 CLI、TUI、ACP、Serve、通道和定时任务：带引用计数的 durable 租约守卫（`AcquireExecutionAdmission`/`AcquireFork`/`AcquireMutations`、运行绑定）以及针对陈旧/孤儿运行的恢复与协调模式。
+  - 新增 `RecoveryCoordinator`，通过启动扫描和周期/唤醒驱动的重试以租约优先方式收敛孤儿运行，并由 `session_run_recoveries` 表提供持久化状态、重试计数与幂等重放。
+  - 会话运行时快照现在暴露准入/恢复事实（`reserved`、`local`、`external`、`detached_remote`、`orphaned`、`recovery_failed`、`inconsistent`）；Web UI 显示对应状态徽标，并在会话忙碌时禁用删除/fork。
+
+- **Durable 投递发件箱**
+  - 新增投递意图与有序操作（`delivery_intents`/`delivery_operations`），支持确定性的 `PlanDelivery` 序列（caption/上传/发送/回退）、Runtime 的 claim/fence/重试协调器、助手消息/Run/回合/事件/意图的终态原子提交，以及服务启动恢复。
+  - 微信（图片/视频/文件）与飞书（图片/文件）出站媒体通过冻结的传输上下文原生投递；发布产物移动到工作目录之外的私有存储，打开时校验完整性（大小 + SHA-256）。
+
+- **幂等的运行提交**
+  - 新增 `runtime_submissions` 表，冲突时进行对账处理：submit-key 冲突复用已有提交而不是创建重复记录，使 Run 准入具备重试安全性。
+
+- **火山引擎新增模型：`glm-5.3-flash`**
+  - `volcengine`、`volcengine-agentplan` 和 `volcengine-codingplan` 三个提供商均新增 `glm-5.3-flash`，支持 1M 上下文窗口与文本/图片输入；与 `glm-5.3` 一致，默认不发送 max_tokens。
+
+- **Gitee/Moark 新增模型：`glm-5.3-flash`**
+  - `gitee` 和 `moark` 两个提供商均新增 `glm-5.3-flash`，支持 1M 上下文窗口、128K 最大输出与文本/图片输入。
+
+- **新增 AMD Radeon 厂商支持**
+  - 新增 `amd-radeon` 厂商，Base URL `https://developer.amd.com.cn/radeon/api/v1`，OpenAI 兼容协议。
+  - 新增 `DeepSeek-V4-Flash`（1M 上下文）与 `Qwen3.8-Flash-Next`（1M 上下文）模型。
+
+### 🔧 改进
+
+- **仅 DAO 的 SQL 迁移**
+  - `internal/db` 现在统一管理进程级 SQLite/Bun 连接生命周期与事务边界；会话、定时任务、用量统计、ESM 与投递相关 SQL 全部迁移到 `internal/dao` 持久化对象。
+  - 移除 `internal/commondb` 兼容包与投递遗留桥接；架构守卫以最小迁移归属 allowlist 强制 DAO-only 边界。
+
+- **Web UI 加载与状态稳定性**
+  - 路由视图（Chat/Sessions/Stats/Cron/Skills/Settings/Login）改为懒加载，只拉取当前路由的 chunk；lucide/bits-ui/svelte 依赖合并为稳定的 vendor chunk。
+  - 会话运行时状态（加载/PATCH/轮询/模式切换）抽成可单测的管理器；历史快照逐字段合并，陈旧的持久化投影不会覆盖实时助手文本。
+
+### 🐛 问题修复
+
+- **缓存输入 token 重复计费**
+  - 用量统计现在通过 `UncachedInputTokens` 正确计算未缓存输入 token，避免在 Anthropic、OpenAI 兼容与 Google 三种线上格式中重复收取缓存读取费用。
+
+- **ListSessionRuns 连接死锁**
+  - `ListSessionRuns` 在 `session_runs` 行循环内查询 `input_resources`，在单连接池（MaxOpenConns(1)）下永久阻塞，导致带运行记录的会话在 TUI 启动时挂起。现在先耗尽外层行再一次性批量查询，并新增断言其正常完成的回归测试。
+
+- **Durable 运行终态事件稳定性**
+  - `RunExecutor.Finalize` 不再为 durable 运行发布终态流事件；`FinalizeRun` 在 `FinishDurable` 提交助手消息后保持唯一发布者，避免 WebUI 历史重载与数据库写入竞争。当内存标记已清除时从规范 Run 行恢复 durable 身份；终态化期间容忍已关闭的会话回合，幂等重试仍能提交最终条目与终态事件。
+
+### ✅ 测试
+
+- 架构：`input_contract_guard_test` 在 TUI、CLI、WebUI/API、ACP 与 Channel 入口点强制单一输入契约。
+- 扩展准入/恢复测试：租约优先的孤儿收敛、执行快照、停止处理、幂等性与跨进程租约行为；投递进程集成测试覆盖 claim/fence/重试与协调器恢复。
+- 新增缓存输入 token 计费与 `ListSessionRuns` 死锁的回归测试。
+
+## v1.2.95
+
+### ✨ 新功能
+
+- **新增 Gitee/Moark 模型：`qwen3.8-flash`**
+  - 支持 1M 上下文、文本/图片输入，默认不发送 max-token 上限。
+
+- **CLI 持久化运行**
+  - CLI `runPrint` 现在通过 `agentruntime.ExecutionRuntime` 持久化规范的 durable run，与 WebUI、消息通道和 ACP 的运行生命周期保持一致。
+
+- **UDP 运行时租约总线**
+  - 新增尽力而为的 UDP `SessionLeaseBus`，在运行时租约和运行状态变化时唤醒本地进程。
+  - 使用定向回环广播和去重；SQLite 租约与 durable 记录仍是唯一权威。
+
+- **按运行选择厂商/模型（API 与 Web UI）**
+  - `POST /v1/responses` 运行新增可选 `provider` 字段；支持解析并校验 `provider/model` 限定 ID，厂商与模型不匹配时返回结构化错误。
+  - 运行使用请求厂商的 Agent，通过共享 `SessionRuntime` 构建；运行策略快照与请求指纹记录厂商。
+  - `/v1/models` 现在返回每个模型的所属厂商。
+
+### 🔧 改进
+
+- **ClawHub 歧义技能 slug 自动解析**
+  - 当 ClawHub 对无归属前缀的技能 slug 返回 `409 AMBIGUOUS_SKILL_SLUG` 时，客户端现在会自动解析唯一精确匹配的 slug，并使用解析出的归属者重试一次，安装 `clawhub.ai/custom-mail-fresh100` 这类技能不再需要手写 `@owner/slug` 形式。
+  - 当匹配项无法确定唯一候选时，将返回列出所有候选 ref 的可读错误，而不是直接暴露原始 409 响应。
+
+- **统一 Bun 数据库访问**
+  - 新增共享的 `internal/db` SQLite/Bun 连接与事务层，并为定时任务、用量统计、ESM 目标和通道绑定增加 DAO 持久化对象。
+  - 移除 `internal/commondb` 兼容包；共享连接与关闭统一由 `internal/db` 管理，已迁移表由 Bun DAO 负责访问，会话事务辅助统一使用 DAO 持有的 Bun 句柄。
+
+- **事件代理重同步**
+  - 事件代理新增 `SubscribeWithResync`；订阅者溢出时关闭 WebSocket，让客户端重连并重放 durable SQLite 游标。
+
+- **运行时租约心跳**
+  - 租约心跳现在对瞬态 SQLite 失败进行有界重试，并发布 `acquired`/`released`/`lost` 通知。
+
+- **会话能力开关（沙箱/浏览器/联网搜索）**
+  - `SessionRuntime` 新增 `CapabilitySnapshot`、`ConfigureCapabilities` 与 `SetCapabilityOption`；浏览器与联网搜索能力通过 `session_capabilities` 持久化并在加载时重放，同时同步核心工具。
+  - ACP 会话在运行时租约下恢复持久化能力与额外目录；沙箱仍由进程策略拥有。
+
+- **Web UI 厂商感知的模型选择器**
+  - 新增可搜索的 `ModelPicker` 组件，带文本/图片/音频/视频/文件模态图标，替换原有模型菜单。
+  - 聊天输入框基于 `/v1/models` 与已配置厂商构建级联模型目录，选择厂商后模型列表随之收窄，并在每次运行提交时携带厂商。
+
+- **ACP 会话扩展方法**
+  - 新增 `session/fork` 与 `mothx/session/setTitle` 处理、工作区窗口协商（`cwd`/额外目录）、fork 血缘级联删除以及 `available_commands_update` 通知。
+  - 可选的编辑器上下文以有界的不可信上下文块注入；已释放运行时租约的历史会话加载时不再改写持久化绑定。
+
+### 🐛 问题修复
+
+- **后台运行乐观并发**
+  - 在 durable admission 之后重新加载共享会话管理器，使后台协调器将用户消息附加到新叶子，而不是因乐观并发校验失败。
+
+- **微信 iLink 入站连接恢复**
+  - 微信适配器现在发送 iLink 上线/下线生命周期通知；仅在 `getupdates` 轮询成功后报告已连接；采用服务端建议的长轮询超时，并在重启后恢复 iLink 同步游标。
+  - 请求现在携带 MothX 通道版本和 bot agent；iLink 返回畸形响应时会显式报错，不再静默当作空轮询处理。
+
+### ✅ 测试
+
+- 在 `TestResponsesRunAPIAbandonMarksInterruptedToolsWithoutRetry` 中检查废弃工具记录前获取运行时租约，与生产环境的 recovery caller 模式一致。
+- 新增 ACP 测试：已释放租约的历史会话加载不得持久化默认值、运行时租约下的目录更新、历史会话标题修改。
+- 新增 serve 测试：按运行选择厂商、厂商/模型不匹配、限定模型解析。
+
+## v1.2.93
+
+### 🐛 问题修复
+
+- **GHCR 镜像构建改用 Go 1.27**
+  - Docker 构建镜像现在使用 `golang:1.27.0-bookworm`，与 `go.mod` 一致，避免 GHCR 打包时出现 `go.mod requires go >= 1.27 (running go 1.26.1; GOTOOLCHAIN=local)`。
+
+- **桌面端版本跟随 Git Tag**
+  - 桌面端 `package.json` 只保留 `0.0.0` 占位符，不再写死发行号。
+  - 打包时从 `MOTHX_VERSION`（如已设置）或当前 git tag（`git describe --tags --abbrev=0`）解析真实版本，并在构建时写入 `package.json`、`package-lock.json` 和 `mothxRuntime.version`。
+  - 桌面端 CI 不再把分支名当作版本，而是使用显式 tag 覆盖或检出仓库的 git tag。
+
+### 🔧 改进
+
+- **ACP 安装诊断**
+  - `initialize.agentInfo` 现在报告真实的 MothX 身份和构建版本。
+  - 新增无需会话的 `mothx/doctor`、`mothx doctor --json` 和结构化 `MOTHX_ACP_ERROR` 启动诊断，检查结果不包含密钥原文。
+
+- **清理 CI 测试工作流**
+  - 移除了每次提交都会运行的 GitHub Actions 测试工作流，推送不再自动跑测试。
+
+## v1.2.92
+
+### ✨ 新功能
+
+- **会话分叉与消息分支**
+  - 会话现在可以从任意消息分叉并扩展出替代分支；执行意图通过带运行时锁的分叉路径传递。
+  - 会话 schema 与迁移、运行/响应存储、条目处理、ESM 指引、后台运行协调器和 dispatcher 均支持分叉；TUI 会话命令/运行时与 WebUI 聊天/会话视图同步更新。
+
+- **WebUI 轨迹视图与会话日志导出**
+  - Serve WebUI 新增只读轨迹投影，将会话消息、工具事件和运行事件按运行/回合/步骤组织，不复制 Agent/Runtime 状态。
+  - 服务端会话轨迹与导出端点位于现有会话路由下，会话头部新增日志下载操作（可选包含子会话）。
+
+- **WebUI 现代化改造（shadcn-svelte 与 lucide）**
+  - 引入 Tailwind CSS v4 和 shadcn-svelte 风格组件（button、badge、card、dialog、input、switch、tabs、tooltip），并新增 `$lib` 别名与 `cn()` 工具函数。
+  - 用 lucide-svelte 图标替换侧边栏、会话、设置和列表编辑视图中的文本符号；新增品牌标志、工作区筛选菜单（全部/项目/未分组）以及 Ctrl+Shift+K 新建对话快捷键。
+
+- **署名提交 Co-Author 设置**
+  - 新增全局 "authored" 设置（默认关闭），在系统提示中附加 MothX 共同作者标记，引导模型创建 git 提交时包含 `Co-Authored-By: MothX <harness@mothx.net>`。
+  - 已接入配置持久化、TUI 设置对话框和 WebUI 设置表单，并提供双语标签。
+
+- **新增提供商模型**
+  - DeepSeek（anthropic + openai）：新增 `deepseek-v4-flash-vision-exp`，支持 1M 上下文、文本+图片输入，默认不发送 max_tokens。
+  - 火山引擎 codingplan：新增 `doubao-seed-evolving`，支持 1M 上下文和文本+图片输入。
+
+### 🔧 改进
+
+- **默认模式改为 YOLO**
+  - 新安装和空 mode 回退现在使用 `yolo` 而不是 `agent`：包括 `settings.json` 的 `defaultMode`、Serve/API `DefaultMode`、CLI/TUI/ACP/WebUI、公共 SDK `Builder`，以及 `agentruntime` 的策略解析。
+  - 显式 `--mode`、已持久化的会话 mode，以及微信/飞书强制 `yolo` 仍然优先。已有配置中的 `defaultMode: "agent"` 不会被改写。
+
+- **Serve 原生目录选择器**
+  - Serve 现在通过操作系统原生目录选择器（macOS、Windows、Unix）选择工作目录，无需手动输入路径。
+
+- **统一设置组件**
+  - 抽取共享的 `SettingsField`、`SettingsSection`、`SettingsSwitch` 和 `ProviderEditorDetail` 组件，统一 AppSettings、ServeConfig、Channels、Env、Logs、Memory、Overview、SkillHub 和 WorkDir 的设置视图布局与样式。
+
+### 🐛 问题修复
+
+- **WebUI 侧边栏与会话 ID 修复**
+  - 侧边栏折叠状态现在持久化到 localStorage，并补充折叠/展开标签。
+  - 移除未使用的轨迹时间线模式、状态、翻译和布局辅助函数。
+  - 修复 `AllocateSessionID`：`sessions.db` 已存在但 ID 未注册时视为可用，并补充回归测试。
+
 ## v1.2.91
 
 ### ✨ 新功能
@@ -1544,10 +1867,6 @@ Source: https://mothx.net/zh/changelog.md
   - 自动生成的 ID 在冲突时会重试（最多 8 次）；会话头部写入改用普通 INSERT，从而可靠地检测重复 ID。
 
 ### 🔧 改进
-
-- **默认模式改为 YOLO**
-  - 新安装和空 mode 回退现在使用 `yolo` 而不是 `agent`：包括 `settings.json` 的 `defaultMode`、Serve/API `DefaultMode`、CLI/TUI/ACP/WebUI、公共 SDK `Builder`，以及 `agentruntime` 的策略解析。
-  - 显式 `--mode`、已持久化的会话 mode，以及微信/飞书强制 `yolo` 仍然优先。已有配置中的 `defaultMode: "agent"` 不会被改写。
 
 - **统一会话创建**
   - TUI、serve 和 CLI 现在通过 `agentruntime.CreateSession` 创建会话，取代直接的 `session.New(...).Init()`，将会话创建集中到共享运行时。
@@ -5301,7 +5620,7 @@ mothx acp --sandbox --mode agent
 | 变量 | 描述 |
 |------|------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
-| `VIBECODING_DIR` | 覆盖配置目录 |
+| `MOTHX_DIR` | 覆盖配置目录 |
 | `VIBECODING_PROVIDER` | 覆盖默认提供商 |
 | `VIBECODING_MODEL` | 覆盖默认模型 |
 | `VIBECODING_MODE` | 覆盖默认模式 |
@@ -5335,15 +5654,15 @@ MothX 使用两个配置文件:
 | `%APPDATA%\mothx\settings.json` | Windows | 全局 (所有项目) | 低 |
 | `.mothx/settings.json` | 全部 | 项目级 | 高 |
 
-> **提示:** 可以通过 `MOTHX_DIR` 覆盖全局配置目录，同时仍兼容旧环境变量 `VIBECODING_DIR`；两者同时设置时优先使用 `MOTHX_DIR`。
+> **提示:** 可以通过 `MOTHX_DIR` 覆盖全局配置目录。
 
 > **Windows 用户：** `%APPDATA%` 实际展开为 `C:\Users\<用户名>\AppData\Roaming`，所以完整路径通常是 `C:\Users\<用户名>\AppData\Roaming\mothx\settings.json`。
 
 项目级配置会覆盖全局配置。`providers` 先按 provider ID 合并，再按项目文件中显式出现的 provider 字段覆盖；若显式提供 `models`，该数组会替换继承的模型列表。
 
-### 旧版本兼容
+### 旧目录
 
-当前版本使用 `.mothx` 作为项目目录、`~/.mothx`（Windows 为 `%APPDATA%\mothx`）作为全局目录。旧版 `.vibe`、`.vibecoding` 路径不会再自动迁移；如需继续使用旧配置，请手动复制到对应的 `.mothx` 目录，并检查其中的路径与字段。`VIBECODING_DIR`、`VIBECODING_*` 仍作为兼容入口保留，`MOTHX_DIR` 优先级更高。
+当前版本使用 `.mothx` 作为项目目录、`~/.mothx`（Windows 为 `%APPDATA%\mothx`）作为全局目录。旧版 `.vibe`、`.vibecoding` 目录既不会读取，也不会迁移；如需继续使用旧配置，请手动复制到对应的 `.mothx` 目录，并检查其中的路径与字段。
 
 
 ### `tuilang`（TUI 界面语言）
@@ -5693,6 +6012,8 @@ Hosted web search 设置。默认关闭。
 
 `background` 仅可通过 `mothx serve` 使用；普通 CLI/TUI/ACP 请求仍使用流式 agent loop。启用后台运行的 provider 必须同时支持所选模型和 Responses 功能。
 
+`toolControl.choice` 决定发送给 OpenAI Responses provider 的 `tool_choice`：`auto`、`none`、`required`，或填写工具名以强制调用该工具。WebUI 在“设置 > Providers”中提供 Tool Choice、并行工具调用和最大工具调用数三个字段，TUI 在 `/settings` > provider > B. 协议 > Responses 中提供同名字段。TUI 编辑器写入全局 settings 文件；项目级覆盖仍可通过 `.mothx/settings.json` 配置。
+
 Google 原生 provider 可以直接配置：
 
 ```json
@@ -5825,6 +6146,8 @@ Google 原生 provider 可以直接配置：
 | `supportsLongCacheRetention` | bool | 是否支持长 prompt cache retention |
 | `sendSessionAffinityHeaders` | bool | 是否发送 session affinity headers |
 | `supportsEagerToolInputStreaming` | bool | 是否支持 Anthropic eager tool input streaming |
+
+`supportsToolChoice` 和 `supportsParallelToolCalls` 也可在 WebUI 的模型行以及 TUI 的 `/settings` > 模型 > Compatibility 中编辑；其余兼容标志仍需直接编辑配置文件。
 
 ```json
 {
@@ -6531,8 +6854,7 @@ settings.json.bak_20260715-143000
 
 | 环境变量 | 覆盖的设置 | 示例 |
 |---------|-----------|------|
-| `MOTHX_DIR` | 全局配置目录（首选，优先于 `VIBECODING_DIR`） | `export MOTHX_DIR=/custom/config` |
-| `VIBECODING_DIR` | 兼容旧版本的全局配置目录覆盖变量 | `export VIBECODING_DIR=/custom/config` |
+| `MOTHX_DIR` | 全局配置目录 | `export MOTHX_DIR=/custom/config` |
 | `VIBECODING_PROVIDER` | `defaultProvider` | `export VIBECODING_PROVIDER=anthropic` |
 | `VIBECODING_MODEL` | `defaultModel` | `export VIBECODING_MODEL=claude-sonnet-4-20250514` |
 | `VIBECODING_MODE` | `defaultMode` | `export VIBECODING_MODE=yolo` |
@@ -6693,7 +7015,7 @@ Source: https://mothx.net/zh/development.md
 
 ### 系统要求
 
-- Go 1.24+
+- Go 1.27+
 - Git
 - Make (可选)
 - bubblewrap (可选，用于沙箱测试)
@@ -7846,7 +8168,7 @@ Source: https://mothx.net/zh/features-overview.md
 | **DeepSeek**（默认） | deepseek-v4-flash, deepseek-v4-pro | OpenAI Chat / Anthropic Messages |
 | **OpenAI** | GPT-4o, o1 等 | OpenAI Chat |
 | **Anthropic** | Claude Sonnet, Opus 等 | Anthropic Messages |
-| **厂商适配器** | Google Gemini、Google Vertex、小米、火山引擎/豆包、Kimi、MiniMax、Seed、Qianfan、Bailian、Gitee、阶跃星辰、OpenRouter、Together、Groq、Fireworks、Mistral、GitHub Copilot、Cloudflare AI Gateway、Cloudflare Workers AI、Amazon Bedrock、Z.AI、LongCat 等 | OpenAI Chat 或 Anthropic Messages |
+| **厂商适配器** | Google Gemini、Google Vertex、小米、火山引擎/豆包、Kimi、MiniMax、Seed、Qianfan、Bailian、Gitee、阶跃星辰、OpenRouter、Together、Groq、Fireworks、Mistral、GitHub Copilot、Cloudflare AI Gateway、Cloudflare Workers AI、Amazon Bedrock、Z.AI、LongCat、AMD Radeon 等 | OpenAI Chat 或 Anthropic Messages |
 | **自定义** | 任何兼容模型 | 通用 OpenAI Chat 或 Anthropic Messages fallback |
 
 ### 快速切换
@@ -7866,7 +8188,7 @@ mothx --provider anthropic --model claude-3-5-sonnet-20241022
 
 MothX 支持 25+ 厂商适配器，包括：
 
-- **国内**：小米、火山引擎/豆包、Kimi、MiniMax、Seed、Qianfan、Bailian、Gitee、阶跃星辰、Z.AI、LongCat
+- **国内**：小米、火山引擎/豆包、Kimi、MiniMax、Seed、Qianfan、Bailian、Gitee、阶跃星辰、Z.AI、LongCat、AMD Radeon
 - **国际**：Google Gemini、Google Vertex、OpenRouter、Together、Groq、Fireworks、Mistral、GitHub Copilot、Cloudflare AI Gateway、Cloudflare Workers AI、Amazon Bedrock
 
 无需额外配置，只需设置 API 密钥即可使用。
@@ -9576,7 +9898,7 @@ $ mothx --enable-a2a-master --verbose
 ```
 
 ```
-A2A master mode enabled: 2 agents loaded from /home/user/.vibecoding/a2a-list.json
+A2A master mode enabled: 2 agents loaded from /home/user/.mothx/a2a-list.json
 
 > 帮我审查 internal/handler.go 的代码质量，然后运行测试确保没问题
 

@@ -128,21 +128,26 @@ type ActiveSessionInfo struct {
 
 // SessionMessageEntry is a simplified message for the WebUI.
 type SessionMessageEntry struct {
-	ID          string                  `json:"id,omitempty"`
-	Seq         int64                   `json:"seq,omitempty"`
-	Role        string                  `json:"role"`
-	Content     string                  `json:"content,omitempty"`
-	Contents    []provider.ContentBlock `json:"contents,omitempty"`
-	AgentID     string                  `json:"agentId,omitempty"`
-	ToolCallID  string                  `json:"toolCallId,omitempty"`
-	ToolName    string                  `json:"toolName,omitempty"`
-	Arguments   json.RawMessage         `json:"arguments,omitempty"`
-	InvalidArgs string                  `json:"invalidArguments,omitempty"`
-	Plan        *SessionTaskPlan        `json:"plan,omitempty"`
-	IsError     bool                    `json:"isError,omitempty"`
-	Summary     string                  `json:"summary,omitempty"`
-	HasDetail   bool                    `json:"hasDetail,omitempty"`
-	Attachments []provider.Attachment   `json:"attachments,omitempty"`
+	ID                string                  `json:"id,omitempty"`
+	Seq               int64                   `json:"seq,omitempty"`
+	Role              string                  `json:"role"`
+	Content           string                  `json:"content,omitempty"`
+	Contents          []provider.ContentBlock `json:"contents,omitempty"`
+	AgentID           string                  `json:"agentId,omitempty"`
+	MemberID          string                  `json:"memberId,omitempty"`
+	ExpertID          string                  `json:"expertId,omitempty"`
+	MemberDisplayName string                  `json:"memberDisplayName,omitempty"`
+	MemberEmoji       string                  `json:"memberEmoji,omitempty"`
+	MemberRole        string                  `json:"memberRole,omitempty"`
+	ToolCallID        string                  `json:"toolCallId,omitempty"`
+	ToolName          string                  `json:"toolName,omitempty"`
+	Arguments         json.RawMessage         `json:"arguments,omitempty"`
+	InvalidArgs       string                  `json:"invalidArguments,omitempty"`
+	Plan              *SessionTaskPlan        `json:"plan,omitempty"`
+	IsError           bool                    `json:"isError,omitempty"`
+	Summary           string                  `json:"summary,omitempty"`
+	HasDetail         bool                    `json:"hasDetail,omitempty"`
+	Attachments       []provider.Attachment   `json:"attachments,omitempty"`
 }
 
 // SessionToolResultDetail contains the full persisted result for one tool call.
@@ -156,15 +161,20 @@ type SessionToolResultDetail struct {
 
 // SessionSubAgentInfo is the WebUI view of a managed sub-agent.
 type SessionSubAgentInfo struct {
-	ID           string `json:"id"`
-	ParentID     string `json:"parentId,omitempty"`
-	Status       string `json:"status"`
-	Active       bool   `json:"active"`
-	MessageCount int    `json:"messageCount"`
-	LastResponse string `json:"lastResponse,omitempty"`
-	Error        string `json:"error,omitempty"`
-	StartedAt    string `json:"startedAt,omitempty"`
-	UpdatedAt    string `json:"updatedAt,omitempty"`
+	ID                string `json:"id"`
+	ParentID          string `json:"parentId,omitempty"`
+	MemberID          string `json:"memberId,omitempty"`
+	ExpertID          string `json:"expertId,omitempty"`
+	MemberDisplayName string `json:"memberDisplayName,omitempty"`
+	MemberEmoji       string `json:"memberEmoji,omitempty"`
+	MemberRole        string `json:"memberRole,omitempty"`
+	Status            string `json:"status"`
+	Active            bool   `json:"active"`
+	MessageCount      int    `json:"messageCount"`
+	LastResponse      string `json:"lastResponse,omitempty"`
+	Error             string `json:"error,omitempty"`
+	StartedAt         string `json:"startedAt,omitempty"`
+	UpdatedAt         string `json:"updatedAt,omitempty"`
 }
 
 // SessionTaskPlan is the WebUI view of a plan tool call.
@@ -2055,11 +2065,16 @@ func (s *Server) GetSessionSubAgents(id string) ([]SessionSubAgentInfo, error) {
 			continue
 		}
 		info := SessionSubAgentInfo{
-			ID:           string(st.ID),
-			ParentID:     string(st.ParentID),
-			Status:       st.State,
-			LastResponse: st.Result,
-			Error:        st.Error,
+			ID:                string(st.ID),
+			ParentID:          string(st.ParentID),
+			MemberID:          st.MemberID,
+			ExpertID:          st.ExpertID,
+			MemberDisplayName: st.MemberDisplayName,
+			MemberEmoji:       st.MemberEmoji,
+			MemberRole:        st.MemberRole,
+			Status:            st.State,
+			LastResponse:      st.Result,
+			Error:             st.Error,
 		}
 		if info.Status == "" {
 			info.Status = "unknown"
@@ -2491,5 +2506,6 @@ func (s *Server) buildAgentOptionsForSession(sess *APISession, model *provider.M
 		Settings: runtimeSettings, Allow: s.getAllow(), ExtraContext: extraContext,
 		RuleContent: sess.RuleContent, MultiAgent: sess.MultiAgent,
 		DelegateMode: sess.DelegateMode, Workflows: sess.Workflows,
+		GetSteeringMessages: s.esmSteeringMessages(sess.ID),
 	}
 }

@@ -16,7 +16,7 @@ func TestLoadSettingsProjectSupportsFalseAndZeroOverrides(t *testing.T) {
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
-	t.Setenv("VIBECODING_DIR", tmpDir+"/config")
+	t.Setenv("MOTHX_DIR", tmpDir+"/config")
 	t.Setenv("VIBECODING_PROVIDER", "")
 	t.Setenv("VIBECODING_MODEL", "")
 	t.Setenv("VIBECODING_MODE", "")

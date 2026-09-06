@@ -36,17 +36,13 @@ func (s *Server) handleProviderModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
 		return
 	}
-	endpoint, err := provider.ModelsEndpoint(req.BaseURL)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
-		return
-	}
-	client, err := provider.NewHTTPClientWithOptions(30*time.Second, provider.HTTPClientOptions{ProxyURL: req.HTTPProxy, ForceHTTP11: req.ForceHTTP11})
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("configure HTTP client: %v", err), "invalid_request_error")
-		return
-	}
-	models, err := provider.FetchDiscoveredModels(r.Context(), client, endpoint, req.API, provider.ResolveSecretRef(req.APIKey), req.Headers)
+	// Model discovery is a provider concern shared with ACP's management
+	// projection. The WebUI only decodes its draft HTTP payload and renders the
+	// returned drafts; it must not own a second endpoint/client/auth sequence.
+	models, err := provider.DiscoverModels(r.Context(), provider.DiscoverModelsOptions{
+		API: req.API, BaseURL: req.BaseURL, APIKey: req.APIKey, HTTPProxy: req.HTTPProxy,
+		ForceHTTP11: req.ForceHTTP11, Headers: req.Headers,
+	})
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error(), "upstream_error")
 		return

@@ -124,6 +124,8 @@ func writeESMError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrSessionNotFound):
 		status = http.StatusNotFound
+	case errors.Is(err, ErrESMControlRequiresIdle):
+		status = http.StatusConflict
 	case strings.Contains(msg, "changed") || strings.Contains(msg, "already exists") || strings.Contains(msg, "invalid esm status"):
 		status = http.StatusConflict
 	case strings.Contains(msg, "cannot be empty") || strings.Contains(msg, "positive") || strings.Contains(msg, "invalid"):

@@ -2,6 +2,7 @@ package agentruntime
 
 import (
 	"context"
+	"strings"
 
 	"github.com/startvibecoding/mothx/internal/session"
 )
@@ -17,4 +18,13 @@ type ForkResult = session.ForkResult
 // implementing their own copy or Agent lifecycle.
 func Fork(ctx context.Context, sessionDir string, options ForkOptions) (ForkResult, error) {
 	return session.ForkSession(ctx, sessionDir, options)
+}
+
+// ForkWithExpert is the Runtime-owned expert switch operation. It preserves
+// the source session's identity and history while applying expertID only to the
+// child branch; an empty expertID deliberately creates an unbound child.
+func ForkWithExpert(ctx context.Context, sessionDir string, options ForkOptions, expertID string) (ForkResult, error) {
+	expertID = strings.TrimSpace(expertID)
+	options.ExpertID = &expertID
+	return Fork(ctx, sessionDir, options)
 }

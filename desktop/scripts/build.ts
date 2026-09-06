@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-import { mkdirSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { fileURLToPath } from 'node:url';
@@ -30,5 +30,22 @@ await build({
   external: ['electron'],
   sourcemap: false,
 });
+
+// The desktop renderer is a standalone frontend (desktop/renderer) and is
+// intentionally independent from the serve Web UI in ui/.
+const rendererOut = join(out, 'renderer');
+mkdirSync(rendererOut, { recursive: true });
+await build({
+  entryPoints: [join(root, 'renderer', 'src', 'main.ts')],
+  outfile: join(rendererOut, 'main.js'),
+  bundle: true,
+  platform: 'browser',
+  format: 'iife',
+  target: 'chrome120',
+  sourcemap: false,
+});
+cpSync(join(root, 'renderer', 'index.html'), join(rendererOut, 'index.html'));
+cpSync(join(root, 'renderer', 'styles.css'), join(rendererOut, 'styles.css'));
+cpSync(join(root, 'resources', 'mothx.png'), join(rendererOut, 'mothx.png'));
 
 console.log(`Built desktop runtime into ${out}`);

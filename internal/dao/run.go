@@ -100,6 +100,35 @@ func (d *RunDAO) ListRuns(ctx context.Context, sessionID string, limit int) ([]S
 	return records, err
 }
 
+// LatestRunBySessions returns the most recent run row for each of the given
+// sessions in one query, keyed by session ID. "Most recent" is the run with the
+// greatest started_at, ties broken by the greatest rowid so the selection is
+// deterministic. It backs read-only sidebar projections (ACP session/list
+// lastRun); lifecycle writes stay owned by ExecutionRuntime/RunStore.
+func (d *RunDAO) LatestRunBySessions(ctx context.Context, sessionIDs []string) (map[string]SessionRunRecord, error) {
+	result := make(map[string]SessionRunRecord)
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+	var records []SessionRunRecord
+	// Rank the rows of the requested sessions and keep the newest per session.
+	// The window ordering (started_at DESC, rowid DESC) is stable even when two
+	// runs share a timestamp. The outer column list mirrors SessionRunRecord
+	// and drops the ranking helper column.
+	err := d.db.NewRaw(`SELECT id, session_id, intent_id, retry_of, attempt, work_dir, source, model, mode, status,
+		started_at, updated_at, finished_at, error, error_info_json, progress_json, usage_json, context_usage_json
+		FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY started_at DESC, rowid DESC) AS run_rank
+		FROM session_runs WHERE session_id IN (?)) AS ranked
+		WHERE run_rank = 1 ORDER BY session_id ASC`, bun.In(sessionIDs)).Scan(ctx, &records)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range records {
+		result[record.SessionID] = record
+	}
+	return result, nil
+}
+
 func (d *RunDAO) ActiveRun(ctx context.Context, sessionID string, statuses []string) (*SessionRunRecord, error) {
 	record := new(SessionRunRecord)
 	err := d.db.NewSelect().Model(record).Where("session_id = ?", sessionID).Where("status IN (?)", bun.In(statuses)).OrderExpr("started_at DESC").Limit(1).Scan(ctx)

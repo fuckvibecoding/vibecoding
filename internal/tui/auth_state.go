@@ -62,6 +62,8 @@ type compatEditState struct {
 	SupportsReasoningSummary                    *bool
 	SendSessionAffinityHeaders                  bool
 	SupportsEagerToolInputStreaming             *bool
+	SupportsToolChoice                          *bool
+	SupportsParallelToolCalls                   *bool
 
 	// Track whether any compat field was explicitly edited
 	Active bool
@@ -159,6 +161,8 @@ func compatEditStateFrom(mc *config.ModelCompat) compatEditState {
 		SupportsReasoningSummary:                    config.CloneBoolPtr(mc.SupportsReasoningSummary),
 		SendSessionAffinityHeaders:                  mc.SendSessionAffinityHeaders,
 		SupportsEagerToolInputStreaming:             config.CloneBoolPtr(mc.SupportsEagerToolInputStreaming),
+		SupportsToolChoice:                          config.CloneBoolPtr(mc.SupportsToolChoice),
+		SupportsParallelToolCalls:                   config.CloneBoolPtr(mc.SupportsParallelToolCalls),
 		Active:                                      true,
 	}
 	return ce
@@ -258,6 +262,8 @@ func (ce *compatEditState) toConfig() *config.ModelCompat {
 		SupportsReasoningSummary:                    config.CloneBoolPtr(ce.SupportsReasoningSummary),
 		SendSessionAffinityHeaders:                  ce.SendSessionAffinityHeaders,
 		SupportsEagerToolInputStreaming:             config.CloneBoolPtr(ce.SupportsEagerToolInputStreaming),
+		SupportsToolChoice:                          config.CloneBoolPtr(ce.SupportsToolChoice),
+		SupportsParallelToolCalls:                   config.CloneBoolPtr(ce.SupportsParallelToolCalls),
 	}
 }
 
@@ -376,6 +382,7 @@ func (ce *compatEditState) activeCount() int {
 		ce.SupportsDeveloperRole, ce.SupportsStore, ce.SupportsReasoningEffort,
 		ce.SupportsStrictMode, ce.DisableSamplingParams, ce.SupportsCacheControlOnTools, ce.SupportsLongCacheRetention,
 		ce.SupportsPromptCacheKey, ce.SupportsReasoningSummary, ce.SupportsEagerToolInputStreaming,
+		ce.SupportsToolChoice, ce.SupportsParallelToolCalls,
 	}
 	for _, p := range ptrBools {
 		if p != nil {

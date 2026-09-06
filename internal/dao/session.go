@@ -19,6 +19,7 @@ type SessionRecord struct {
 	ForkBoundarySeq int64   `bun:"fork_boundary_seq"`
 	SeedLength      int64   `bun:"seed_length"`
 	ForkKind        string  `bun:"fork_kind"`
+	ExpertID        string  `bun:"expert_id"`
 }
 
 type SessionCapabilityRecord struct {
@@ -69,6 +70,7 @@ type sessionListRow struct {
 	ForkBoundary  int64   `bun:"fork_boundary_seq"`
 	SeedLength    int64   `bun:"seed_length"`
 	ForkKind      string  `bun:"fork_kind"`
+	ExpertID      string  `bun:"expert_id"`
 }
 
 type SessionDetailAggregates struct {
@@ -119,8 +121,24 @@ func (d *SessionDAO) DetailAggregates(ctx context.Context, sessionIDs []string) 
 	return result, nil
 }
 
-func (d *SessionDAO) InsertSession(ctx context.Context, executor bun.IDB, table string, id, cwd, timestamp, parent string, version int, channelType, channelID string, boundary, seed int64, kind string) error {
-	_, err := executor.NewRaw("INSERT INTO "+table+" (id,cwd,timestamp,parent_session,version,channel_type,channel_id,fork_boundary_seq,seed_length,fork_kind) VALUES (?,?,?,?,?,?,?,?,?,?)", id, cwd, timestamp, nullableSessionString(parent), version, channelType, channelID, boundary, seed, kind).Exec(ctx)
+func (d *SessionDAO) InsertSession(ctx context.Context, executor bun.IDB, table string, id, cwd, timestamp, parent string, version int, channelType, channelID string, boundary, seed int64, kind, expertID string) error {
+	_, err := executor.NewRaw("INSERT INTO "+table+" (id,cwd,timestamp,parent_session,version,channel_type,channel_id,fork_boundary_seq,seed_length,fork_kind,expert_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)", id, cwd, timestamp, nullableSessionString(parent), version, channelType, channelID, boundary, seed, kind, expertID).Exec(ctx)
+	return err
+}
+
+// UpdateSessionExpertID persists a session's expert binding (empty string
+// unbinds). It mirrors the channel-binding update pattern.
+func (d *SessionDAO) UpdateSessionExpertID(ctx context.Context, executor bun.IDB, table, sessionID, expertID string) error {
+	_, err := executor.NewUpdate().Table(table).Set("expert_id = ?", expertID).Where("id = ?", sessionID).Exec(ctx)
+	return err
+}
+
+// UpdateSessionCWD persists the working directory owned by a session. The
+// session row is the canonical header source when a session is re-opened;
+// callers must rebuild any runtime resources that were derived from the old
+// directory after this succeeds.
+func (d *SessionDAO) UpdateSessionCWD(ctx context.Context, executor bun.IDB, table, sessionID, cwd string) error {
+	_, err := executor.NewUpdate().Table(table).Set("cwd = ?", cwd).Where("id = ?", sessionID).Exec(ctx)
 	return err
 }
 
@@ -152,7 +170,7 @@ func (d *SessionDAO) ListForDir(ctx context.Context, cwd string) ([]SessionRecor
 }
 func (d *SessionDAO) List(ctx context.Context, filter SessionListFilter) ([]SessionRecord, error) {
 	var rows []sessionListRow
-	q := d.db.NewSelect().TableExpr("sessions AS s").ColumnExpr("s.id, s.cwd, s.timestamp, s.channel_type, s.channel_id, s.parent_session, s.version, s.fork_boundary_seq, s.seed_length, s.fork_kind")
+	q := d.db.NewSelect().TableExpr("sessions AS s").ColumnExpr("s.id, s.cwd, s.timestamp, s.channel_type, s.channel_id, s.parent_session, s.version, s.fork_boundary_seq, s.seed_length, s.fork_kind, s.expert_id")
 	if filter.CWD != "" {
 		q.Where("s.cwd = ?", filter.CWD)
 	}
@@ -175,7 +193,7 @@ func (d *SessionDAO) List(ctx context.Context, filter SessionListFilter) ([]Sess
 	}
 	result := make([]SessionRecord, len(rows))
 	for i, row := range rows {
-		result[i] = SessionRecord{ID: row.ID, CWD: row.CWD, Timestamp: row.Timestamp, ChannelType: row.ChannelType, ChannelID: row.ChannelID, ParentSession: row.ParentSession, Version: row.Version, ForkBoundarySeq: row.ForkBoundary, SeedLength: row.SeedLength, ForkKind: row.ForkKind}
+		result[i] = SessionRecord{ID: row.ID, CWD: row.CWD, Timestamp: row.Timestamp, ChannelType: row.ChannelType, ChannelID: row.ChannelID, ParentSession: row.ParentSession, Version: row.Version, ForkBoundarySeq: row.ForkBoundary, SeedLength: row.SeedLength, ForkKind: row.ForkKind, ExpertID: row.ExpertID}
 	}
 	return result, nil
 }
@@ -211,7 +229,7 @@ func (d *SessionDAO) Timestamp(ctx context.Context, table, id string) (string, e
 }
 func (d *SessionDAO) Header(ctx context.Context, table, id string) (*SessionRecord, error) {
 	row := new(SessionRecord)
-	err := d.db.NewSelect().Table(table).Column("cwd", "timestamp", "parent_session", "version", "channel_type", "channel_id", "fork_boundary_seq", "seed_length", "fork_kind").Where("id = ?", id).Limit(1).Scan(ctx, row)
+	err := d.db.NewSelect().Table(table).Column("cwd", "timestamp", "parent_session", "version", "channel_type", "channel_id", "fork_boundary_seq", "seed_length", "fork_kind", "expert_id").Where("id = ?", id).Limit(1).Scan(ctx, row)
 	return row, err
 }
 func (d *SessionDAO) Entries(ctx context.Context, table, sessionID string) ([]EntryRecord, error) {

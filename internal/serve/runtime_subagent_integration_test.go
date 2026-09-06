@@ -21,7 +21,6 @@ func TestRunWiresSubAgentObserverThroughRealServeRuntime(t *testing.T) {
 	sessionDir := t.TempDir()
 	workDir := t.TempDir()
 	t.Setenv("MOTHX_DIR", configDir)
-	t.Setenv("VIBECODING_DIR", "")
 	t.Setenv("MOTHX_CONFIG_DIR", configDir)
 	if got := config.ConfigDir(); got != configDir {
 		t.Fatalf("config dir = %q, want isolated temp dir %q", got, configDir)

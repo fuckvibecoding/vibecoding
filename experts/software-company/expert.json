@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "name": "software-company",
+  "expertType": "team",
+  "agentName": "software-team-lead",
+  "displayName": { "zh": "一人公司", "en": "Software Company" },
+  "categoryId": "engineering",
+  "quickPrompts": [
+    {
+      "zh": "帮我开发一个待办事项 Web 应用，从 PRD 到测试完整走一遍",
+      "en": "Build a todo web app, running the full pipeline from PRD to QA"
+    },
+    {
+      "zh": "为现有项目写一份 PRD，梳理用户故事和验收标准",
+      "en": "Write a PRD for my existing project with user stories and acceptance criteria"
+    },
+    {
+      "zh": "修复这个 Bug，并安排回归测试",
+      "en": "Fix this bug and arrange regression testing"
+    }
+  ],
+  "defaultInitPrompt": {
+    "zh": "你好，我是「一人公司」的交付总监。告诉我你要交付的软件（新项目、Bug 修复或某个环节的产出），我会判断工作流并调度产品、架构、工程与 QA 成员协作完成。",
+    "en": "Hi, I'm the delivery director of your one-person software company. Tell me what to deliver (a new project, a bug fix, or a single-stage artifact) and I will route the workflow and coordinate the product, architecture, engineering and QA members."
+  },
+  "teamInfo": {
+    "leadAgent": "software-team-lead",
+    "memberAgents": [
+      "software-product-manager",
+      "software-architect",
+      "software-engineer",
+      "software-qa-engineer"
+    ]
+  },
+  "members": [
+    {
+      "id": "software-team-lead",
+      "name": { "zh": "齐活林", "en": "Qi" },
+      "profession": { "zh": "交付总监", "en": "Delivery Director" },
+      "role": "lead"
+    },
+    {
+      "id": "software-product-manager",
+      "name": { "zh": "司南", "en": "Sinan" },
+      "profession": { "zh": "产品经理", "en": "Product Manager" },
+      "role": "member"
+    },
+    {
+      "id": "software-architect",
+      "name": { "zh": "墨矩", "en": "Moju" },
+      "profession": { "zh": "软件架构师", "en": "Software Architect" },
+      "role": "member"
+    },
+    {
+      "id": "software-engineer",
+      "name": { "zh": "柯德", "en": "Kede" },
+      "profession": { "zh": "研发工程师", "en": "Software Engineer" },
+      "role": "member"
+    },
+    {
+      "id": "software-qa-engineer",
+      "name": { "zh": "甄严", "en": "Zhenyan" },
+      "profession": { "zh": "QA 工程师", "en": "QA Engineer" },
+      "role": "member"
+    }
+  ]
+}

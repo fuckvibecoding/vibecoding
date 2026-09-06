@@ -283,5 +283,5 @@ func withTempAllowPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWd) })
-	t.Setenv("VIBECODING_DIR", filepath.Join(tmp, "global"))
+	t.Setenv("MOTHX_DIR", filepath.Join(tmp, "global"))
 }

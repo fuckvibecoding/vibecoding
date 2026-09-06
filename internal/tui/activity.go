@@ -19,20 +19,23 @@ type activityLine struct {
 }
 
 type agentActivity struct {
-	AgentID      agentpkg.AgentID
-	Kind         string
-	State        string
-	LastThink    string
-	LastText     string
-	LastTool     string
-	LastResult   string
-	FullThink    string
-	FullText     string
-	FullResult   string
-	LastToolName string
-	LastToolArgs map[string]any
-	UpdatedAt    time.Time
-	Events       []activityLine
+	AgentID           agentpkg.AgentID
+	MemberID          string
+	MemberDisplayName string
+	MemberEmoji       string
+	Kind              string
+	State             string
+	LastThink         string
+	LastText          string
+	LastTool          string
+	LastResult        string
+	FullThink         string
+	FullText          string
+	FullResult        string
+	LastToolName      string
+	LastToolArgs      map[string]any
+	UpdatedAt         time.Time
+	Events            []activityLine
 }
 
 func (a *App) isBackgroundAgentEvent(event agent.Event) bool {
@@ -72,6 +75,11 @@ func (a *App) recordAgentActivity(event agent.Event) {
 		}
 		a.agentActivities[event.AgentID] = act
 		a.agentActivityOrder = appendUniqueActivityID(a.agentActivityOrder, event.AgentID)
+	}
+	if event.MemberID != "" {
+		act.MemberID = event.MemberID
+		act.MemberDisplayName = event.MemberDisplayName
+		act.MemberEmoji = event.MemberEmoji
 	}
 
 	now := time.Now()

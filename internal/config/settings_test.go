@@ -632,7 +632,7 @@ func TestResolveProviderConfigPreservesFieldPresenceAcrossGlobalAndProject(t *te
 		t.Fatalf("chdir: %v", err)
 	}
 	configDir := filepath.Join(tmpDir, "config")
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		t.Fatalf("mkdir config: %v", err)
 	}
@@ -670,12 +670,12 @@ func TestResolveProviderConfigPreservesFieldPresenceAcrossGlobalAndProject(t *te
 func TestConfigDir(t *testing.T) {
 	// Test with env var
 	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", "/tmp/test-vibecoding")
+	t.Setenv("MOTHX_DIR", "/tmp/test-mothx")
 	dir := ConfigDir()
-	if dir != "/tmp/test-vibecoding" {
-		t.Errorf("expected '/tmp/test-vibecoding', got '%s'", dir)
+	if dir != "/tmp/test-mothx" {
+		t.Errorf("expected '/tmp/test-mothx', got '%s'", dir)
 	}
-	t.Setenv("VIBECODING_DIR", "")
+	t.Setenv("MOTHX_DIR", "")
 
 	// Test default
 	dir = ConfigDir()
@@ -702,7 +702,6 @@ func TestLoadSettingsCreatesMothXConfigDir(t *testing.T) {
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("APPDATA", "")
 	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", "")
 
 	if _, _, err := LoadSettingsWithMeta(); err != nil {
 		t.Fatalf("load settings: %v", err)
@@ -713,6 +712,47 @@ func TestLoadSettingsCreatesMothXConfigDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tmpDir, ".vibecoding")); !os.IsNotExist(err) {
 		t.Fatalf("expected no .vibecoding directory, stat err=%v", err)
+	}
+}
+
+func TestLoadSettingsDoesNotReadVibeCodingConfigDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get wd: %v", err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir temp: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWd); err != nil {
+			t.Fatalf("restore wd: %v", err)
+		}
+	})
+
+	legacyDir := filepath.Join(tmpDir, ".vibecoding")
+	if err := os.MkdirAll(legacyDir, 0700); err != nil {
+		t.Fatalf("mkdir legacy config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(legacyDir, "settings.json"), []byte(`{"defaultModel":"legacy-model"}`), 0600); err != nil {
+		t.Fatalf("write legacy settings: %v", err)
+	}
+
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("APPDATA", "")
+	t.Setenv("MOTHX_DIR", "")
+	t.Setenv("VIBECODING_DIR", legacyDir)
+
+	settings, meta, err := LoadSettingsWithMeta()
+	if err != nil {
+		t.Fatalf("load settings: %v", err)
+	}
+	if settings.DefaultModel == "legacy-model" {
+		t.Fatal("settings loaded from the legacy .vibecoding directory")
+	}
+	wantPath := filepath.Join(tmpDir, ".mothx", "settings.json")
+	if meta.GlobalSettingsPath != wantPath {
+		t.Fatalf("global settings path = %q, want %q", meta.GlobalSettingsPath, wantPath)
 	}
 }
 
@@ -805,8 +845,8 @@ func TestLoadSettingsAppliesProjectOverridesAndEnv(t *testing.T) {
 	}
 
 	configDir := filepath.Join(tmpDir, "config")
-	if err := os.Setenv("VIBECODING_DIR", configDir); err != nil {
-		t.Fatalf("set VIBECODING_DIR: %v", err)
+	if err := os.Setenv("MOTHX_DIR", configDir); err != nil {
+		t.Fatalf("set MOTHX_DIR: %v", err)
 	}
 	if err := os.Setenv("VIBECODING_PROVIDER", "env-provider"); err != nil {
 		t.Fatalf("set VIBECODING_PROVIDER: %v", err)
@@ -821,7 +861,7 @@ func TestLoadSettingsAppliesProjectOverridesAndEnv(t *testing.T) {
 		t.Fatalf("set VIBECODING_THINKING: %v", err)
 	}
 	defer func() {
-		_ = os.Unsetenv("VIBECODING_DIR")
+		_ = os.Unsetenv("MOTHX_DIR")
 		_ = os.Unsetenv("VIBECODING_PROVIDER")
 		_ = os.Unsetenv("VIBECODING_MODEL")
 		_ = os.Unsetenv("VIBECODING_MODE")
@@ -1058,37 +1098,6 @@ func TestGetSessionDir(t *testing.T) {
 	}
 }
 
-func TestGetSessionDirNormalizesLegacyDefault(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", "")
-
-	s := &Settings{SessionDir: "~/.vibecoding/sessions"}
-	want := filepath.Join(home, ".mothx", "sessions")
-	if got := s.GetSessionDir(); got != want {
-		t.Fatalf("GetSessionDir() = %q, want %q", got, want)
-	}
-
-	s.SessionDir = filepath.Join(home, ".vibecoding", "sessions")
-	if got := s.GetSessionDir(); got != want {
-		t.Fatalf("GetSessionDir() absolute legacy = %q, want %q", got, want)
-	}
-}
-
-func TestGetSessionDirPreservesCustomLegacyNamedPath(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", "")
-
-	custom := filepath.Join(home, "projects", ".vibecoding", "sessions")
-	s := &Settings{SessionDir: custom}
-	if got := s.GetSessionDir(); got != custom {
-		t.Fatalf("GetSessionDir() = %q, want custom %q", got, custom)
-	}
-}
-
 func TestGetGlobalSkillsDir(t *testing.T) {
 	s := &Settings{}
 
@@ -1103,19 +1112,6 @@ func TestGetGlobalSkillsDir(t *testing.T) {
 	dir = s.GetGlobalSkillsDir()
 	if dir != "/tmp/skills" {
 		t.Errorf("expected '/tmp/skills', got '%s'", dir)
-	}
-}
-
-func TestGetGlobalSkillsDirNormalizesLegacyDefault(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", "")
-
-	s := &Settings{SkillsDir: "~/.vibecoding/skills"}
-	want := filepath.Join(home, ".mothx", "skills")
-	if got := s.GetGlobalSkillsDir(); got != want {
-		t.Fatalf("GetGlobalSkillsDir() = %q, want %q", got, want)
 	}
 }
 
@@ -1135,8 +1131,8 @@ func TestDefaultSkillHubSettings(t *testing.T) {
 func TestSaveGlobalSettings(t *testing.T) {
 	// Create temp directory
 	tmpDir := t.TempDir()
-	os.Setenv("VIBECODING_DIR", tmpDir)
-	defer os.Unsetenv("VIBECODING_DIR")
+	os.Setenv("MOTHX_DIR", tmpDir)
+	defer os.Unsetenv("MOTHX_DIR")
 
 	s := DefaultSettings()
 	s.DefaultProvider = "test"
@@ -1310,7 +1306,7 @@ func TestTUILangDefaultsAndOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldWd) })
-	t.Setenv("VIBECODING_DIR", filepath.Join(tmpDir, "global"))
+	t.Setenv("MOTHX_DIR", filepath.Join(tmpDir, "global"))
 
 	if err := SaveGlobalSettingsPatch(map[string]any{"tuilang": "en", "theme": "dark"}); err != nil {
 		t.Fatalf("save global patch: %v", err)
@@ -1373,7 +1369,7 @@ func TestToolExecutionSettingsDefaultsAndSparsePatch(t *testing.T) {
 		t.Fatalf("zero concurrency = %d, want %d", got, DefaultToolExecutionMaxConcurrency)
 	}
 
-	t.Setenv("VIBECODING_DIR", filepath.Join(t.TempDir(), "global"))
+	t.Setenv("MOTHX_DIR", filepath.Join(t.TempDir(), "global"))
 	if err := SaveGlobalSettingsPatch(map[string]any{
 		"theme":         "dark",
 		"toolExecution": map[string]any{"mode": "parallel", "maxConcurrency": 4},
@@ -1441,5 +1437,61 @@ func TestIsProjectDir(t *testing.T) {
 	}
 	if !IsProjectDir(plain) {
 		t.Fatal("directory containing go.mod should be recognized as project")
+	}
+}
+
+// TestToolControlSettingsContract pins the settings.json paths that both the TUI
+// /settings Responses form and the WebUI provider editor write, so a schema
+// rename cannot silently desynchronize the two editors from persisted settings.
+func TestToolControlSettingsContract(t *testing.T) {
+	parallel := true
+	choiceUnsupported := false
+	parallelSupported := true
+	s := &Settings{
+		Providers: map[string]*ProviderConfig{
+			"custom": {
+				API: "openai-responses",
+				Responses: ResponsesConfig{ToolControl: ResponsesToolControlConfig{
+					Choice:   "required",
+					Parallel: &parallel,
+					MaxCalls: 3,
+				}},
+				Models: []ModelConfig{{ID: "m1", Compat: &ModelCompat{
+					SupportsToolChoice:        &choiceUnsupported,
+					SupportsParallelToolCalls: &parallelSupported,
+				}}},
+			},
+		},
+	}
+
+	data, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("marshal settings: %v", err)
+	}
+	for _, want := range []string{
+		`"toolControl":{"choice":"required","parallel":true,"maxCalls":3}`,
+		`"supportsToolChoice":false`,
+		`"supportsParallelToolCalls":true`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("serialized settings missing %s in %s", want, data)
+		}
+	}
+
+	var loaded Settings
+	if err := json.Unmarshal(data, &loaded); err != nil {
+		t.Fatalf("unmarshal settings: %v", err)
+	}
+	pc := loaded.Providers["custom"]
+	if pc == nil {
+		t.Fatal("provider custom missing after round trip")
+	}
+	if got := pc.Responses.ToolControl; got.Choice != "required" || got.Parallel == nil || !*got.Parallel || got.MaxCalls != 3 {
+		t.Fatalf("responses.toolControl lost in round trip: %#v", got)
+	}
+	compat := pc.Models[0].Compat
+	if compat == nil || compat.SupportsToolChoice == nil || *compat.SupportsToolChoice ||
+		compat.SupportsParallelToolCalls == nil || !*compat.SupportsParallelToolCalls {
+		t.Fatalf("compat tool flags lost in round trip: %#v", compat)
 	}
 }

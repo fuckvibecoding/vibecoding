@@ -79,7 +79,7 @@ func (a *App) handleBtwCommand(cmd string) tea.Cmd {
 	extra += btwSystemHint
 
 	if a.runtime == nil {
-		runtime := tuiRuntime(a.session, a.registry, a.sandboxInfo, a.extraContext, a.ruleContent, a.skillsMgr)
+		runtime := tuiRuntime(a.session, a.registry, a.sandboxInfo, a.extraContext, a.ruleContent, a.skillsMgr, a.settings)
 		if runtime == nil {
 			a.addCommandError("Failed to build side query agent: TUI session runtime is unavailable")
 			return nil

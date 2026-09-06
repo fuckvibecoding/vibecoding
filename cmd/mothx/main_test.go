@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -9,8 +10,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/startvibecoding/mothx/internal/acp"
+	"github.com/startvibecoding/mothx/internal/agentruntime"
 	"github.com/startvibecoding/mothx/internal/config"
 	"github.com/startvibecoding/mothx/internal/contextfiles"
 	"github.com/startvibecoding/mothx/internal/debugpprof"
@@ -59,6 +62,70 @@ func TestBuildInitialMessageForCreatedGlobalConfig(t *testing.T) {
 	}
 	if !strings.Contains(msg, "Opening /auth") {
 		t.Fatalf("initial message = %q, want /auth prompt", msg)
+	}
+}
+
+func TestSetupAgentRuntimeDefaultMultiAgentDoesNotDeadlock(t *testing.T) {
+	settings := config.DefaultSettings()
+	settings.ContextFiles.Enabled = false
+	p := provider.NewMockProvider("mock", []*provider.Model{{
+		ID:            "model1",
+		ContextWindow: 128000,
+	}}, nil)
+	workDir := t.TempDir()
+
+	type result struct {
+		runtime runtimeSetup
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		runtime, err := setupAgentRuntime(
+			context.Background(), p, "mock", p.Models()[0], settings,
+			runOptions{}, nil, "runtime-hook-test", workDir,
+		)
+		done <- result{runtime: runtime, err: err}
+	}()
+
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("setupAgentRuntime: %v", got.err)
+		}
+		if got.runtime.cleanup != nil {
+			got.runtime.cleanup()
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("setupAgentRuntime deadlocked while registering default sub-agent tools")
+	}
+}
+
+func TestSetupAgentRuntimeBindsRequestedExpertBeforeAgentManagerAssembly(t *testing.T) {
+	settings := config.DefaultSettings()
+	settings.ContextFiles.Enabled = false
+	settings.SessionDir = t.TempDir()
+	settings.SkillsDir = t.TempDir()
+	workDir := t.TempDir()
+	sess, err := agentruntime.CreateSession(agentruntime.CreateSessionOptions{WorkDir: workDir, SessionDir: settings.SessionDir})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	p := provider.NewMockProvider("mock", []*provider.Model{{ID: "model1", ContextWindow: 128000}}, nil)
+
+	runtime, err := setupAgentRuntime(context.Background(), p, "mock", p.Models()[0], settings,
+		runOptions{expert: "software-company"}, sess, sess.GetHeader().ID, workDir)
+	if err != nil {
+		t.Fatalf("setup agent runtime: %v", err)
+	}
+	t.Cleanup(runtime.cleanup)
+	if got := sess.GetExpertID(); got != "software-company" {
+		t.Fatalf("session expert = %q, want software-company", got)
+	}
+	if !runtime.runtime.TeamExpertActive() || runtime.agentManager.Members == nil || runtime.agentManager.ExpertID != "software-company" {
+		t.Fatalf("runtime team assembly = runtime=%#v manager=%#v", runtime.runtime, runtime.agentManager)
+	}
+	if _, ok := runtime.runtime.Registry.Get("subagent_spawn"); !ok {
+		t.Fatal("--expert team must register sub-agent tools through the shared runtime")
 	}
 }
 
@@ -119,6 +186,7 @@ func TestRootParsesSessionFlags(t *testing.T) {
 		"--continue",
 		"--resume", "abc123",
 		"--session", "def456",
+		"--expert", "frontend-developer",
 		"--sandbox",
 		"--web-search",
 	})
@@ -146,6 +214,9 @@ func TestRootParsesSessionFlags(t *testing.T) {
 	}
 	if got.session != "def456" {
 		t.Fatalf("session = %q, want def456", got.session)
+	}
+	if got.expert != "frontend-developer" {
+		t.Fatalf("expert = %q, want frontend-developer", got.expert)
 	}
 	if !got.sandbox {
 		t.Fatal("expected sandbox flag")
@@ -296,7 +367,7 @@ func TestACPParsesSharedFlagsWithoutRootFlags(t *testing.T) {
 
 func TestACPStartupErrorSilencesCobraText(t *testing.T) {
 	configDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "startup-test"
 	settings.DefaultModel = "model"
@@ -361,7 +432,7 @@ func TestACPStartupErrorSilencesCobraText(t *testing.T) {
 }
 
 func TestDoctorJSONWritesOnlyOneJSONResponse(t *testing.T) {
-	t.Setenv("VIBECODING_DIR", t.TempDir())
+	t.Setenv("MOTHX_DIR", t.TempDir())
 	var stdout, stderr bytes.Buffer
 	cmd := newDoctorCommand()
 	cmd.SetOut(&stdout)

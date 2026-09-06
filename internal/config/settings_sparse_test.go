@@ -9,7 +9,7 @@ import (
 
 func TestLoadGlobalSettingsSparseDoesNotExpandDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", tmpDir)
+	t.Setenv("MOTHX_DIR", tmpDir)
 	data := []byte(`{
 		"providers": {
 			"xiaomi": {"api": "openai-chat", "baseUrl": "https://x.test", "models": [{"id": "m"}]}
@@ -34,7 +34,7 @@ func TestLoadGlobalSettingsSparseDoesNotExpandDefaults(t *testing.T) {
 
 func TestSaveGlobalSettingsPatchPreservesSparseFile(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", tmpDir)
+	t.Setenv("MOTHX_DIR", tmpDir)
 	data := []byte(`{
 		"providers": {
 			"xiaomi": {"api": "openai-chat", "baseUrl": "https://x.test", "models": [{"id": "m"}]}
@@ -83,7 +83,7 @@ func TestLoadSettingsWithMetaCreatesSparseDefaultFile(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 	configDir := filepath.Join(tmpDir, "config")
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 
 	s, meta, err := LoadSettingsWithMeta()
 	if err != nil {

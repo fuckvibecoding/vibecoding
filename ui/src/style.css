@@ -337,13 +337,10 @@ label span:first-child { margin-bottom: 2px; }
 /* ─── Layout: App Shell ─── */
 .app-shell {
   display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: 280px minmax(0, 1fr);
   height: 100vh;
   overflow: hidden;
   transition: grid-template-columns 180ms cubic-bezier(.2, .8, .2, 1);
-}
-.app-shell {
-  grid-template-columns: 280px minmax(0, 1fr);
 }
 
 /* ─── Sidebar ─── */
@@ -353,17 +350,12 @@ label span:first-child { margin-bottom: 2px; }
   min-width: 0;
   overflow: hidden;
   border-right: 1px solid var(--border);
-  background: var(--moth-surface-sidebar);
+  background: color-mix(in srgb, var(--moth-surface-sidebar) 88%, var(--bg));
   display: flex;
   flex-direction: column;
-  padding: 8px 12px 10px;
-  gap: 8px;
-  box-shadow: inset -1px 0 color-mix(in srgb, var(--moth-border-subtle) 65%, transparent);
-}
-.sidebar {
   padding: 16px 12px 10px;
   gap: 0;
-  background: color-mix(in srgb, var(--moth-surface-sidebar) 88%, var(--bg));
+  box-shadow: inset -1px 0 color-mix(in srgb, var(--moth-border-subtle) 65%, transparent);
 }
 .sidebar button:not([data-slot]) {
   min-height: 0;

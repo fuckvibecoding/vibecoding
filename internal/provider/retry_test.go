@@ -148,3 +148,80 @@ func TestFormatRetryMessage_OriginTimeout(t *testing.T) {
 		t.Fatalf("message = %q, want origin timeout classification", msg)
 	}
 }
+
+func TestFormatRetryMessage_JSONErrorMessage(t *testing.T) {
+	// Test OpenAI-style error response
+	openAIError := errors.New(`HTTP 400: {"object":"error","message":"\"auto\" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set","type":"BadRequestError","param":null,"code":400}`)
+	msg := FormatRetryMessage(0, 3, time.Second, openAIError)
+	if !strings.Contains(msg, `"auto" tool choice requires --enable-auto-tool-choice`) {
+		t.Fatalf("message = %q, want extracted JSON error message", msg)
+	}
+	if !strings.Contains(msg, "Retrying (1/3)") {
+		t.Fatalf("message = %q, want retry prefix", msg)
+	}
+}
+
+func TestFormatRetryMessage_JSONErrorNested(t *testing.T) {
+	// Test nested error.message format (some providers use this)
+	nestedError := errors.New(`HTTP 400: {"error":{"message":"Invalid API key provided"},"code":400}`)
+	msg := FormatRetryMessage(0, 3, time.Second, nestedError)
+	if !strings.Contains(msg, "Invalid API key provided") {
+		t.Fatalf("message = %q, want extracted nested error.message", msg)
+	}
+}
+
+func TestFormatRetryMessage_JSONErrorInvalid(t *testing.T) {
+	// Test that invalid JSON falls back to default behavior
+	invalidJSON := errors.New("HTTP 400: not valid json {")
+	msg := FormatRetryMessage(0, 3, time.Second, invalidJSON)
+	// Should fall back to the generic error format
+	if !strings.Contains(msg, "error:") {
+		t.Fatalf("message = %q, want fallback error format", msg)
+	}
+}
+
+func TestRetryErrorDetail(t *testing.T) {
+	// A nil error yields no detail.
+	if got := RetryErrorDetail(nil); got != "" {
+		t.Fatalf("detail = %q, want empty for nil error", got)
+	}
+
+	// JSON payloads are extracted without the retry wrapper.
+	openAIError := errors.New(`HTTP 400: {"error":{"message":"\"auto\" tool choice requires --enable-auto-tool-choice"},"code":400}`)
+	if got := RetryErrorDetail(openAIError); got != `"auto" tool choice requires --enable-auto-tool-choice` {
+		t.Fatalf("detail = %q, want extracted JSON message only", got)
+	}
+
+	// Known failures classify into stable friendly reasons.
+	if got := RetryErrorDetail(errors.New("HTTP 503 from upstream")); got != "service unavailable (HTTP 503)" {
+		t.Fatalf("detail = %q, want classified reason", got)
+	}
+
+	// Multi-line raw errors collapse into one bounded line.
+	raw := errors.New("boom\n\tat layer 1\r\n at layer 2")
+	got := RetryErrorDetail(raw)
+	if strings.ContainsAny(got, "\n\r\t") {
+		t.Fatalf("detail = %q, want single-line output", got)
+	}
+	if !strings.Contains(got, "boom at layer 1 at layer 2") {
+		t.Fatalf("detail = %q, want collapsed whitespace", got)
+	}
+}
+
+func TestTruncateErrRuneSafe(t *testing.T) {
+	// Truncation must not split multi-byte runes.
+	s := strings.Repeat("错", 100) // 300 bytes
+	got := truncateErr(s, 50)
+	if len(got) > 50 {
+		t.Fatalf("truncated length = %d, want <= 50", len(got))
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("truncated = %q, want ellipsis suffix", got)
+	}
+	body := strings.TrimSuffix(got, "...")
+	for _, r := range body {
+		if r != '错' {
+			t.Fatalf("truncated body contains broken rune %q", r)
+		}
+	}
+}

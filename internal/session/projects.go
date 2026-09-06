@@ -19,6 +19,9 @@ type Project struct {
 type SessionMetadata struct {
 	ProjectID string `json:"projectId,omitempty"`
 	Pinned    bool   `json:"pinned"`
+	// UpdatedAt is the persisted revision time of the metadata row. It is
+	// read-only output; SetSessionMetadata always stamps the write time itself.
+	UpdatedAt time.Time `json:"updatedAt,omitempty"`
 }
 
 func parseProjectTime(value string) time.Time {
@@ -94,6 +97,12 @@ func DeleteProject(sessionDir, id string) error {
 	if err != nil {
 		return err
 	}
+	// Realize the declared ON DELETE SET NULL reference semantics explicitly so
+	// session assignments never outlive their project, regardless of SQLite
+	// foreign-key enforcement.
+	if err := dao.NewProjectDAO(db.Bun()).ClearMetadataProject(context.Background(), id); err != nil {
+		return err
+	}
 	return dao.NewProjectDAO(db.Bun()).Delete(context.Background(), id)
 }
 
@@ -161,5 +170,42 @@ func GetSessionMetadata(sessionDir, sessionID string) (SessionMetadata, error) {
 		metadata.ProjectID = *record.ProjectID
 	}
 	metadata.Pinned = record.Pinned != 0
+	metadata.UpdatedAt = parseProjectTime(record.UpdatedAt)
 	return metadata, nil
+}
+
+// ListSessionMetadata returns the persisted project/pin metadata of the given
+// sessions in one read-only query, keyed by session ID. Sessions without a
+// metadata row are absent from the result. All SQL stays in the DAO.
+func ListSessionMetadata(sessionDir string, sessionIDs []string) (map[string]SessionMetadata, error) {
+	result := make(map[string]SessionMetadata)
+	if len(sessionIDs) == 0 {
+		return result, nil
+	}
+	db, ok, err := openExistingSessionDB(sessionDir)
+	if err != nil || !ok {
+		return result, err
+	}
+	records, err := dao.NewProjectDAO(db.Bun()).MetadataForSessions(context.Background(), sessionIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, record := range records {
+		metadata := SessionMetadata{Pinned: record.Pinned != 0, UpdatedAt: parseProjectTime(record.UpdatedAt)}
+		if record.ProjectID != nil {
+			metadata.ProjectID = *record.ProjectID
+		}
+		result[record.SessionID] = metadata
+	}
+	return result, nil
+}
+
+// ProjectSessionCounts returns how many sessions are currently assigned to
+// each project. It is a read-only projection for project listings.
+func ProjectSessionCounts(sessionDir string) (map[string]int, error) {
+	db, ok, err := openExistingSessionDB(sessionDir)
+	if err != nil || !ok {
+		return map[string]int{}, err
+	}
+	return dao.NewProjectDAO(db.Bun()).SessionCountsByProject(context.Background())
 }

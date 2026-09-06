@@ -190,6 +190,7 @@ type SessionInfo struct {
 	ForkBoundarySeq int64
 	SeedLength      int64
 	ForkKind        string
+	ExpertID        string
 }
 
 // sessionDirForCwd returns the encoded session directory path for a working directory.
@@ -303,7 +304,7 @@ func ListForDir(cwd, sessionDir string) ([]SessionInfo, error) {
 
 		sessions = append(sessions, SessionInfo{
 			Path: virtualFile, ModTime: ts, Cwd: record.CWD, ChannelType: record.ChannelType, ChannelID: record.ChannelID,
-			ParentSession: stringValue(record.ParentSession), ForkBoundarySeq: record.ForkBoundarySeq, SeedLength: record.SeedLength, ForkKind: record.ForkKind,
+			ParentSession: stringValue(record.ParentSession), ForkBoundarySeq: record.ForkBoundarySeq, SeedLength: record.SeedLength, ForkKind: record.ForkKind, ExpertID: record.ExpertID,
 		})
 	}
 	return sessions, nil
@@ -334,7 +335,7 @@ func ListAll(sessionDir string, opts ...ListOption) ([]SessionInfo, error) {
 		ts := parseSessionTimestamp(record.Timestamp)
 		sessions = append(sessions, SessionInfo{
 			Path: virtualSessionFile(sessionDir, record.ID, ts), ModTime: ts, Cwd: record.CWD, ChannelType: record.ChannelType, ChannelID: record.ChannelID,
-			ParentSession: stringValue(record.ParentSession), ForkBoundarySeq: record.ForkBoundarySeq, SeedLength: record.SeedLength, ForkKind: record.ForkKind,
+			ParentSession: stringValue(record.ParentSession), ForkBoundarySeq: record.ForkBoundarySeq, SeedLength: record.SeedLength, ForkKind: record.ForkKind, ExpertID: record.ExpertID,
 		})
 	}
 	return sessions, nil
@@ -1396,6 +1397,7 @@ func (m *Manager) load() error {
 			ForkBoundarySeq: forkBoundarySeq,
 			SeedLength:      seedLength,
 			ForkKind:        forkKind.String,
+			ExpertID:        record.ExpertID,
 		}
 		m.cwd = cwd.String
 
@@ -2273,7 +2275,7 @@ func (m *Manager) writeEntry(entry interface{}) error {
 
 		// Register session if header is being written
 		if typeStr == string(EntrySession) && m.header != nil {
-			err = sessionDAO.InsertSession(context.Background(), tx, m.sessionTable(), sessionID, m.cwd, m.header.Timestamp.Format(time.RFC3339Nano), m.header.ParentSession, m.header.Version, m.header.ChannelType, m.header.ChannelID, m.header.ForkBoundarySeq, m.header.SeedLength, m.header.ForkKind)
+			err = sessionDAO.InsertSession(context.Background(), tx, m.sessionTable(), sessionID, m.cwd, m.header.Timestamp.Format(time.RFC3339Nano), m.header.ParentSession, m.header.Version, m.header.ChannelType, m.header.ChannelID, m.header.ForkBoundarySeq, m.header.SeedLength, m.header.ForkKind, m.header.ExpertID)
 			if err != nil {
 				if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed: "+strings.ToLower(m.sessionTable())+".id") {
 					return fmt.Errorf("%w: %s", ErrSessionIDExists, err)

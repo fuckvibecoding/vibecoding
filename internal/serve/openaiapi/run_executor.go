@@ -139,7 +139,7 @@ func (e *RunExecutor) Execute(ctx context.Context, sess *APISession, a *agent.Ag
 
 		case agent.EventTextDelta:
 			if e.server != nil {
-				evt := assistantDeltaTranscriptEvent(ev.TextDelta, ev.AgentID)
+				evt := assistantDeltaTranscriptEvent(ev.TextDelta, ev.AgentID, ev)
 				if transcript {
 					e.server.publishTranscriptEvent(sess.ID, evt)
 				} else {

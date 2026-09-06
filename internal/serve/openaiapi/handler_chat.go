@@ -291,7 +291,8 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		ExtraContext: extraContext, ThinkingLevel: thinkingLevel,
 		MaxTokens: maxTokens, MaxTokensSet: true,
 		MultiAgent: sess.MultiAgent, DelegateMode: sess.DelegateMode, Workflows: sess.Workflows,
-		IntentID: chatIntent.ID, RunID: runID, ConversationTurnID: "turn-" + runID,
+		GetSteeringMessages: s.esmSteeringMessages(sess.ID),
+		IntentID:            chatIntent.ID, RunID: runID, ConversationTurnID: "turn-" + runID,
 		ConversationTurn: true, RuntimeOwnsTurnEnd: true,
 	})
 	if err != nil {
@@ -590,7 +591,7 @@ func (s *Server) handleStreamingResponseWithAgent(w http.ResponseWriter, r *http
 			}
 		case agent.EventTextDelta:
 			if transcript {
-				s.writeTranscriptEvent(sse, sessionID, assistantDeltaTranscriptEvent(ev.TextDelta, ev.AgentID))
+				s.writeTranscriptEvent(sse, sessionID, assistantDeltaTranscriptEvent(ev.TextDelta, ev.AgentID, ev))
 			}
 			if ev.AgentID == "" {
 				sse.WriteContentDelta(ev.TextDelta)
@@ -698,7 +699,7 @@ func (s *Server) handleStreamingResponseWithAgent(w http.ResponseWriter, r *http
 		case agent.EventRunFinished:
 			if ev.AgentID != "" {
 				if transcript {
-					s.writeTranscriptEvent(sse, sessionID, subAgentStatusTranscriptEvent(ev.AgentID, subAgentStatusForTaskStatus(ev.Status), errorString(ev.Error)))
+					s.writeTranscriptEvent(sse, sessionID, subAgentStatusTranscriptEvent(ev.AgentID, subAgentStatusForTaskStatus(ev.Status), errorString(ev.Error), ev))
 				}
 				continue
 			}
@@ -731,7 +732,7 @@ func (s *Server) handleStreamingResponseWithAgent(w http.ResponseWriter, r *http
 		case agent.EventDone:
 			if ev.AgentID != "" {
 				if transcript {
-					s.writeTranscriptEvent(sse, sessionID, subAgentStatusTranscriptEvent(ev.AgentID, "done", ""))
+					s.writeTranscriptEvent(sse, sessionID, subAgentStatusTranscriptEvent(ev.AgentID, "done", "", ev))
 				}
 				continue
 			}
@@ -747,7 +748,7 @@ func (s *Server) handleStreamingResponseWithAgent(w http.ResponseWriter, r *http
 		case agent.EventError:
 			if ev.AgentID != "" {
 				if transcript {
-					s.writeTranscriptEvent(sse, sessionID, subAgentStatusTranscriptEvent(ev.AgentID, "error", safeAgentErrorMessage(ev.Error)))
+					s.writeTranscriptEvent(sse, sessionID, subAgentStatusTranscriptEvent(ev.AgentID, "error", safeAgentErrorMessage(ev.Error), ev))
 				}
 				continue
 			}
@@ -811,14 +812,18 @@ func errorString(err error) string {
 	return safeAgentErrorMessage(err)
 }
 
-func assistantDeltaTranscriptEvent(text string, agentID agentpkg.AgentID) TranscriptStreamEvent {
+func assistantDeltaTranscriptEvent(text string, agentID agentpkg.AgentID, memberEvent ...agent.Event) TranscriptStreamEvent {
+	entry := SessionMessageEntry{
+		AgentID: string(agentID),
+		Role:    "assistant",
+		Content: text,
+	}
+	if len(memberEvent) > 0 {
+		applyMemberEventMetadata(&entry, memberEvent[0])
+	}
 	return TranscriptStreamEvent{
-		Type: "assistant_delta",
-		Message: &SessionMessageEntry{
-			AgentID: string(agentID),
-			Role:    "assistant",
-			Content: text,
-		},
+		Type:    "assistant_delta",
+		Message: &entry,
 	}
 }
 
@@ -840,17 +845,32 @@ func messageTranscriptEvent(entry SessionMessageEntry) TranscriptStreamEvent {
 	}
 }
 
-func subAgentStatusTranscriptEvent(agentID agentpkg.AgentID, status string, summary string) TranscriptStreamEvent {
-	return TranscriptStreamEvent{
-		Type: "subagent_status",
-		Message: &SessionMessageEntry{
-			AgentID: string(agentID),
-			Role:    "status",
-			Content: status,
-			Summary: summary,
-			IsError: status == "error",
-		},
+func subAgentStatusTranscriptEvent(agentID agentpkg.AgentID, status string, summary string, memberEvent ...agent.Event) TranscriptStreamEvent {
+	entry := SessionMessageEntry{
+		AgentID: string(agentID),
+		Role:    "status",
+		Content: status,
+		Summary: summary,
+		IsError: status == "error",
 	}
+	if len(memberEvent) > 0 {
+		applyMemberEventMetadata(&entry, memberEvent[0])
+	}
+	return TranscriptStreamEvent{
+		Type:    "subagent_status",
+		Message: &entry,
+	}
+}
+
+func applyMemberEventMetadata(entry *SessionMessageEntry, ev agent.Event) {
+	if entry == nil || ev.MemberID == "" {
+		return
+	}
+	entry.MemberID = ev.MemberID
+	entry.ExpertID = ev.ExpertID
+	entry.MemberDisplayName = ev.MemberDisplayName
+	entry.MemberEmoji = ev.MemberEmoji
+	entry.MemberRole = ev.MemberRole
 }
 
 func transcriptToolCallEntry(name, callID string, ev agent.Event) SessionMessageEntry {
@@ -868,7 +888,7 @@ func transcriptToolCallEntry(name, callID string, ev agent.Event) SessionMessage
 		}
 		invalidArgs = ev.ToolCall.InvalidArguments
 	}
-	return SessionMessageEntry{
+	entry := SessionMessageEntry{
 		Role:        "toolCall",
 		AgentID:     string(ev.AgentID),
 		ToolCallID:  callID,
@@ -877,6 +897,8 @@ func transcriptToolCallEntry(name, callID string, ev agent.Event) SessionMessage
 		InvalidArgs: invalidArgs,
 		Plan:        planFromToolCall(name, args),
 	}
+	applyMemberEventMetadata(&entry, ev)
+	return entry
 }
 
 func transcriptToolResultEntry(name string, ev agent.Event, status string) SessionMessageEntry {
@@ -885,7 +907,7 @@ func transcriptToolResultEntry(name string, ev agent.Event, status string) Sessi
 	if isError {
 		summary = safeToolErrorSummary(ev.ToolResult, ev.ToolError)
 	}
-	return SessionMessageEntry{
+	entry := SessionMessageEntry{
 		Role:       "toolResult",
 		AgentID:    string(ev.AgentID),
 		ToolCallID: ev.ToolCallID,
@@ -894,6 +916,8 @@ func transcriptToolResultEntry(name string, ev agent.Event, status string) Sessi
 		Summary:    summary,
 		HasDetail:  ev.ToolCallID != "",
 	}
+	applyMemberEventMetadata(&entry, ev)
+	return entry
 }
 
 func rawToolArgs(args map[string]any) json.RawMessage {
@@ -1486,11 +1510,13 @@ func (s *Server) getOrCreateSession(sessionID, workDir string) (*APISession, err
 		return nil, err
 	}
 
-	// Create agent manager if sub-agent, delegate, or workflow mode is enabled.
-	if sess.MultiAgent || sess.DelegateMode || sess.Workflows {
-		sess.AgentMgr = s.newAgentManagerForSession(sess)
+	// The runtime resolves a team expert from the persisted session binding.
+	// It forces the sub-agent capability even when the adapter-level toggle is
+	// false, so tool/manager setup must go through the common predicate rather
+	// than only the WebUI capability flags.
+	if err := s.syncSessionTools(sess, false); err != nil {
+		return nil, err
 	}
-	s.registerCronTool(sess)
 
 	if err := s.pool.Put(sess); err != nil {
 		return nil, err
@@ -1639,7 +1665,7 @@ func (s *Server) syncSessionTools(sess *APISession, refreshContext bool) error {
 		sess.Registry.Remove("a2a_dispatch")
 	}
 
-	if sess.MultiAgent || sess.DelegateMode || sess.Workflows {
+	if agentruntime.SubAgentToolsEnabled(sess.Runtime, sess.MultiAgent) || sess.DelegateMode || sess.Workflows {
 		if sess.AgentMgr == nil {
 			sess.AgentMgr = s.newAgentManagerForSession(sess)
 		}
@@ -1647,7 +1673,7 @@ func (s *Server) syncSessionTools(sess *APISession, refreshContext bool) error {
 		sess.AgentMgr = nil
 	}
 
-	if sess.MultiAgent && sess.AgentMgr != nil {
+	if agentruntime.SubAgentToolsEnabled(sess.Runtime, sess.MultiAgent) && sess.AgentMgr != nil {
 		agent.RegisterSubAgentTools(sess.Registry, sess.AgentMgr)
 	} else {
 		removeSubAgentTools(sess.Registry)
@@ -1682,7 +1708,7 @@ func removeSubAgentTools(registry *tools.Registry) {
 	if registry == nil {
 		return
 	}
-	for _, name := range []string{"subagent_spawn", "subagent_status", "subagent_send", "subagent_destroy"} {
+	for _, name := range []string{"subagent_spawn", "subagent_status", "subagent_send", "subagent_destroy", "subagent_wait"} {
 		registry.Remove(name)
 	}
 }
@@ -1730,7 +1756,7 @@ func (s *Server) refreshSessionContext(sess *APISession) error {
 		// created by syncSessionTools keep pointing at the old manager while the
 		// parent agent is registered into the new one, causing "parent agent not
 		// found" errors when sub-agents are spawned.
-		if sess.MultiAgent && sess.AgentMgr != nil {
+		if agentruntime.SubAgentToolsEnabled(sess.Runtime, sess.MultiAgent) && sess.AgentMgr != nil {
 			agent.RegisterSubAgentTools(sess.Registry, sess.AgentMgr)
 		}
 		if sess.DelegateMode && sess.AgentMgr != nil {

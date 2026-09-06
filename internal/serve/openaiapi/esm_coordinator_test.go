@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/startvibecoding/mothx/internal/agentruntime"
 	"github.com/startvibecoding/mothx/internal/esm"
+	"github.com/startvibecoding/mothx/internal/session"
 )
 
 func TestESMCoordinatorStopAllCancelsAndWaits(t *testing.T) {
@@ -53,6 +55,110 @@ func TestESMCoordinatorStopCancelsAndWaits(t *testing.T) {
 	defer cancel()
 	if err := coordinator.stop(ctx, "session-1"); err != nil {
 		t.Fatalf("stop: %v", err)
+	}
+}
+
+func TestESMCoordinatorWaitsForForegroundExecutionInsteadOfDroppingContinuation(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.pool.Stop()
+	const sessionID = "webui-esm-wait-for-foreground"
+	if _, err := srv.getOrCreateSession(sessionID, srv.cfg.GetWorkDir()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.esmStore().Create(context.Background(), sessionID, "continue after the foreground run"); err != nil {
+		t.Fatal(err)
+	}
+	lease, err := agentruntime.AcquireExecutionAdmission(context.Background(), srv.settings.GetSessionDir(), sessionID, agentruntime.ExecutionAdmissionOptions{})
+	if err != nil {
+		t.Fatalf("acquire foreground lease: %v", err)
+	}
+	defer lease.Release()
+
+	srv.startESM(sessionID)
+	coordinator := srv.ensureESMCoordinator()
+	deadline := time.Now().Add(time.Second)
+	for {
+		coordinator.mu.Lock()
+		_, waiting := coordinator.running[sessionID]
+		coordinator.mu.Unlock()
+		if waiting {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("ESM coordinator dropped the continuation while a foreground run owned the execution lease")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Cancellation must unblock the admission wait so a pause/clear or shutdown
+	// never leaves a coordinator goroutine behind.
+	srv.stopESM(sessionID)
+}
+
+// The Serve half of the same idle-continuation contract asserted in TUI:
+// only an auto-runnable objective may reach the role supervisor. A paused
+// objective must return before durable Run creation, even though the
+// coordinator itself is invoked directly by an adapter entry point.
+func TestESMCoordinatorIdleGateRejectsPausedObjective(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.pool.Stop()
+	const sessionID = "webui-esm-paused-idle-gate"
+	if _, err := srv.getOrCreateSession(sessionID, srv.cfg.GetWorkDir()); err != nil {
+		t.Fatal(err)
+	}
+	store := srv.esmStore()
+	if _, err := store.Create(context.Background(), sessionID, "do not continue while paused"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Pause(context.Background(), sessionID); err != nil {
+		t.Fatal(err)
+	}
+
+	srv.runESMCoordinator(context.Background(), sessionID)
+	obj, err := store.Get(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obj.CanAutoRun() {
+		t.Fatalf("paused objective passed the auto-run gate: %#v", obj)
+	}
+	runs, err := session.ListSessionRuns(srv.settings.GetSessionDir(), sessionID, 10)
+	if err != nil {
+		t.Fatalf("list durable runs: %v", err)
+	}
+	if len(runs) != 0 {
+		t.Fatalf("paused objective created ESM role runs: %#v", runs)
+	}
+}
+
+func TestWebSessionAgentOptionsInjectESMObjectiveVersions(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.pool.Stop()
+	const sessionID = "webui-esm-steering-options"
+	sess, err := srv.getOrCreateSession(sessionID, srv.cfg.GetWorkDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := srv.buildAgentOptionsForSession(sess, srv.model, "yolo")
+	if opts.GetSteeringMessages == nil {
+		t.Fatal("normal WebUI agent options are missing ESM steering")
+	}
+	if _, err := srv.esmStore().Create(context.Background(), sessionID, "finish the first objective"); err != nil {
+		t.Fatal(err)
+	}
+	messages := opts.GetSteeringMessages()
+	if len(messages) != 1 || !messages[0].SystemInjected || !strings.Contains(messages[0].Content, "finish the first objective") {
+		t.Fatalf("initial WebUI steering = %#v", messages)
+	}
+	if messages := opts.GetSteeringMessages(); len(messages) != 0 {
+		t.Fatalf("duplicate WebUI steering = %#v, want none", messages)
+	}
+	if _, err := srv.esmStore().Edit(context.Background(), sessionID, "finish the revised objective"); err != nil {
+		t.Fatal(err)
+	}
+	messages = opts.GetSteeringMessages()
+	if len(messages) != 1 || !strings.Contains(messages[0].Content, "finish the revised objective") {
+		t.Fatalf("revised WebUI steering = %#v", messages)
 	}
 }
 

@@ -464,6 +464,7 @@
     <ListEditor
       title={$t('settings.serve.tokens')}
       list={form.api.auth.tokens}
+      type="password"
       onAdd={() => addList('tokens')}
       onRemove={(i) => removeList('tokens', i)}
     />

@@ -70,7 +70,6 @@ func TestOpenStatsDBUsesConfiguredSessionDir(t *testing.T) {
 	configDir := filepath.Join(tmpDir, "config")
 	sessionDir := filepath.Join(tmpDir, "custom-sessions")
 	t.Setenv("MOTHX_DIR", configDir)
-	t.Setenv("VIBECODING_DIR", "")
 
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		t.Fatal(err)

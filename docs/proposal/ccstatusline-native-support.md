@@ -89,7 +89,7 @@ Claude Code 通过 `statusLine` 设置支持自定义底部状态行。它的核
 | `timeoutMs` | 命令超时时间。默认约 `800ms`；命令失败或卡住不能阻塞 TUI。 |
 | `fallback` | `"builtin"` 或 `"empty"`。默认 `"builtin"`，确保命令异常时 TUI 仍可用。 |
 
-这是一个小型 settings schema 增量，不改变现有 provider、model、mode 等字段含义。该配置同时支持全局 settings 和项目 `.vibe/settings.json` 覆盖，沿用现有 settings 加载优先级。该配置只由 TUI 读取和执行；其他模式即使加载了 settings，也必须忽略 `statusLine`。
+这是一个小型 settings schema 增量，不改变现有 provider、model、mode 等字段含义。该配置同时支持全局 settings 和项目 `.mothx/settings.json` 覆盖，沿用现有 settings 加载优先级。该配置只由 TUI 读取和执行；其他模式即使加载了 settings，也必须忽略 `statusLine`。
 
 ### 安装与使用体验
 
@@ -99,7 +99,7 @@ Claude Code 通过 `statusLine` 设置支持自定义底部状态行。它的核
 - `/statusline off`：禁用外部 status line。
 - `/statusline ccstatusline`：向项目或全局 settings 写入 `command: "ccstatusline"`。
 
-该命令不应修改 `~/.claude/settings.json`。MothX 应只管理自己的 `~/.vibecoding/settings.json` 和项目 `.vibe/settings.json`。
+该命令不应修改 `~/.claude/settings.json`。MothX 应只管理自己的 `~/.mothx/settings.json` 和项目 `.mothx/settings.json`。
 
 ## 运行时架构
 

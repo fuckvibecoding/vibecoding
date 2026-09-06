@@ -1,7 +1,7 @@
 # ACP 能力差距清单（vs TUI / WebUI）
 
 > Date: 2026-07-26
-> Status: 互操作性参考（桌面版已改用 serve 单通道，本清单不再阻塞桌面工作；ACP 仅作第三方客户端兼容支持）
+> Status: 互操作性参考（2026-09-06 更新：desktop 已重构回纯 ACP 技术栈，新缺口清单见 `docs/proposal/desktop-acp-frontend-gap-proposal.md`，本文保留作历史对照）
 > 关联: `docs/proposal/desktop-client-packaging-proposal.md`
 > 方法：逐项对照 `internal/acp/acp.go`、`internal/tui/`、`internal/serve/openaiapi/` 源码
 

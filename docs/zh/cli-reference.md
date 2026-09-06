@@ -284,6 +284,15 @@ mothx acp --multi-agent
 
 启用后，MothX 会注册 `subagent_*` 工具，并支持后台委托调查等多 Agent 工作流。Cron 命令入口也依赖多 Agent 模式。
 
+### 专家团
+
+```bash
+# 启动会话时绑定专家或团队
+mothx --expert software-company
+```
+
+`--expert <bundle-id>` 会通过共享 Runtime 解析本地专家包。团队型专家会为该会话启用声明的成员调度能力；单人专家只改变 lead 身份。TUI 中使用 `/expert list|show <id>|bind <id>|unbind|switch <id>`。替换已绑定专家会创建会话分叉，而不会改写源会话。完整行为见[专家团](expert-teams.md)。
+
 ### Delegate 模式
 
 ```bash
@@ -483,7 +492,7 @@ mothx acp --sandbox --mode agent
 | 变量 | 描述 |
 |------|------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
-| `VIBECODING_DIR` | 覆盖配置目录 |
+| `MOTHX_DIR` | 覆盖配置目录 |
 | `VIBECODING_PROVIDER` | 覆盖默认提供商 |
 | `VIBECODING_MODEL` | 覆盖默认模型 |
 | `VIBECODING_MODE` | 覆盖默认模式 |

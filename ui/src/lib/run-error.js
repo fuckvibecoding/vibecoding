@@ -40,6 +40,7 @@ export function normalizeRetryInfo(value) {
     phase: stringValue(firstDefined(source.phase, source.Phase)),
     reasonCode: stringValue(firstDefined(source.reasonCode, source.reason_code, source.ReasonCode)),
     messageKey: stringValue(firstDefined(source.messageKey, source.message_key, source.MessageKey)),
+    message: stringValue(firstDefined(source.message, source.Message)),
     retryAfterMs: positiveNumber(firstDefined(source.retryAfterMs, source.retry_after_ms, source.RetryAfterMs)),
     attempt: positiveNumber(firstDefined(source.attempt, source.Attempt)),
     maxAttempts: positiveNumber(firstDefined(source.maxAttempts, source.max_attempts, source.MaxAttempts)),

@@ -23,7 +23,7 @@ import (
 
 // handleAgentCommand handles /agent subcommands (multi-agent mode).
 func (a *App) handleAgentCommand(parts []string) {
-	if !a.multiAgent {
+	if !a.agentManagementEnabled() {
 		a.addCommandError(a.translator.Text(i18n.MsgMultiAgentDisabled))
 		return
 	}
@@ -797,6 +797,8 @@ func (a *App) handleCommand(cmd string) tea.Cmd {
 		a.handleMCPsCommand()
 	case "/agent":
 		a.handleAgentCommand(parts)
+	case "/expert":
+		a.handleExpertCommand(parts)
 	case "/delegate":
 		a.handleDelegateCommand(parts)
 	case "/browser":

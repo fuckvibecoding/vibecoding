@@ -30,7 +30,7 @@
   <strong>GitHub: <a href="https://github.com/startvibecoding/mothx">海外用户</a></strong>
 </p>
 
-> **改名说明：** MothX 原名 VibeCoding。本过渡版本仍保留 `vibecoding` 命令、旧安装包名以及 `VIBECODING_*` 环境变量作为兼容入口；发现旧 `.vibecoding` 和 `.vibe` 目录时会自动迁移到 `.mothx`。
+> **改名说明：** MothX 原名 VibeCoding。`vibecoding` 命令和旧安装包名仍作为兼容别名保留。配置只会从 `.mothx` 项目目录和 MothX 全局配置目录读取；不会读取或迁移旧目录。
 
 ---
 
@@ -259,7 +259,6 @@ mothx serve   # 部署为微信/飞书机器人
 |------|------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
 | `MOTHX_DIR` | 覆盖全局配置目录（首选） |
-| `VIBECODING_DIR` | 兼容旧版本的配置目录覆盖变量 |
 | `VIBECODING_PROVIDER` | 覆盖默认提供商 |
 | `VIBECODING_MODEL` | 覆盖默认模型 |
 | `VIBECODING_MODE` | 覆盖默认模式 |

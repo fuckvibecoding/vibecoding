@@ -5,9 +5,15 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/startvibecoding/mothx/internal/agentruntime"
 	"github.com/startvibecoding/mothx/internal/esm"
 	"github.com/startvibecoding/mothx/internal/session"
 )
+
+// ErrESMControlRequiresIdle keeps lifecycle-changing ESM controls aligned
+// with the TUI: a running lead may receive a new objective steering update,
+// but pause/resume/clear must not change the contract underneath it.
+var ErrESMControlRequiresIdle = errors.New("ESM pause, resume, and clear require the current run to finish or be cancelled")
 
 // ESMControlRequest contains user-controlled ESM fields exposed by WebUI.
 type ESMControlRequest struct {
@@ -125,7 +131,19 @@ func (s *Server) EditESM(sessionID, objective string) (*ESMSnapshot, error) {
 }
 
 func (s *Server) PauseESM(sessionID string) (*ESMSnapshot, error) {
-	s.stopESM(sessionID)
+	// A control action may explicitly cancel this process's ESM continuation,
+	// but it must never change an objective underneath a foreground or external
+	// run. Check first, stop the owned continuation, then verify the canonical
+	// execution state once more before persisting the transition.
+	if err := s.requireESMControlIdle(sessionID, true); err != nil {
+		return nil, err
+	}
+	if err := s.stopESMForControl(sessionID); err != nil {
+		return nil, err
+	}
+	if err := s.requireESMControlIdle(sessionID, false); err != nil {
+		return nil, err
+	}
 	store := s.esmStore()
 	if store == nil {
 		return nil, ErrSessionNotFound
@@ -140,6 +158,9 @@ func (s *Server) PauseESM(sessionID string) (*ESMSnapshot, error) {
 }
 
 func (s *Server) ResumeESM(sessionID string) (*ESMSnapshot, error) {
+	if err := s.requireESMControlIdle(sessionID, false); err != nil {
+		return nil, err
+	}
 	store := s.esmStore()
 	if store == nil {
 		return nil, ErrSessionNotFound
@@ -155,7 +176,15 @@ func (s *Server) ResumeESM(sessionID string) (*ESMSnapshot, error) {
 }
 
 func (s *Server) ClearESM(sessionID string) error {
-	s.stopESM(sessionID)
+	if err := s.requireESMControlIdle(sessionID, true); err != nil {
+		return err
+	}
+	if err := s.stopESMForControl(sessionID); err != nil {
+		return err
+	}
+	if err := s.requireESMControlIdle(sessionID, false); err != nil {
+		return err
+	}
 	store := s.esmStore()
 	if store == nil {
 		return ErrSessionNotFound
@@ -164,6 +193,34 @@ func (s *Server) ClearESM(sessionID string) error {
 		return err
 	}
 	s.publishESM(sessionID, &ESMSnapshot{SessionID: sessionID, Status: "none"})
+	return nil
+}
+
+// requireESMControlIdle checks both the local adapter projection and the
+// durable Runtime projection. The local check avoids a race before a WebUI
+// foreground run has written its durable row; the durable check covers a run
+// owned by another Serve process. A pause/clear action may cancel the local
+// ESM coordinator it owns, but never an unrelated foreground execution.
+func (s *Server) requireESMControlIdle(sessionID string, allowOwnedCoordinator bool) error {
+	if s == nil || sessionID == "" {
+		return ErrSessionNotFound
+	}
+	ownedCoordinator := allowOwnedCoordinator && s.esmCoordinatorRunning(sessionID)
+	if s.pool != nil {
+		if sess, err := s.pool.getExact(sessionID); err == nil && sess != nil && sess.IsRunning() && !ownedCoordinator {
+			return ErrESMControlRequiresIdle
+		}
+	}
+	if s.settings == nil || s.settings.GetSessionDir() == "" {
+		return nil
+	}
+	snapshot, err := agentruntime.InspectSessionExecution(s.settings.GetSessionDir(), sessionID)
+	if err != nil {
+		return err
+	}
+	if snapshot.Busy && !ownedCoordinator {
+		return ErrESMControlRequiresIdle
+	}
 	return nil
 }
 

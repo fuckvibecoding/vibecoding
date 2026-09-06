@@ -50,6 +50,9 @@ type Header struct {
 	ForkBoundarySeq int64     `json:"forkBoundarySeq,omitempty"`
 	SeedLength      int64     `json:"seedLength,omitempty"`
 	ForkKind        string    `json:"forkKind,omitempty"`
+	// ExpertID is the bound expert bundle name (empty = no expert identity).
+	// Persisted like the channel binding fields so reloads restore identity.
+	ExpertID string `json:"expertId,omitempty"`
 }
 
 // MessageEntry contains a conversation message.

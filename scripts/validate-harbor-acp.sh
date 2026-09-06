@@ -33,7 +33,7 @@ mkdir -p "${workspace}" "${logs_dir}"
 export HARBOR_ACP_PERMISSION_MODE="${HARBOR_ACP_PERMISSION_MODE:-allow}"
 export HARBOR_ACP_AUTH_POLICY="${HARBOR_ACP_AUTH_POLICY:-auto}"
 export HARBOR_ACP_MCP_SERVERS_JSON="${HARBOR_ACP_MCP_SERVERS_JSON:-[]}"
-export VIBECODING_DIR="${VIBECODING_DIR:-${workspace}/mothx-config}"
+export MOTHX_DIR="${MOTHX_DIR:-${workspace}/mothx-config}"
 
 launcher="${MOTHX_ACP_LAUNCHER:-${mothx_bin} acp}"
 printf 'Harbor ACP validation\n  harbor: %s\n  workspace: %s\n  logs: %s\n' \

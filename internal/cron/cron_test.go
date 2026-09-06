@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -12,6 +13,46 @@ import (
 	"github.com/startvibecoding/mothx/internal/provider"
 	"github.com/startvibecoding/mothx/internal/session"
 )
+
+func TestSchedulerHandlerUsesCanonicalCronCompletionLifecycle(t *testing.T) {
+	store := NewSQLiteCronStore(t.TempDir())
+	if _, err := store.Create(CronJob{ID: "maintenance", Name: "maintenance", Prompt: "ignored", Schedule: "@hourly", Mode: "yolo", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	called := make(chan CronJob, 1)
+	scheduler := NewSchedulerWithSessionDirAndHandler(store, nil, time.Hour, "", func(ctx context.Context, job CronJob) (bool, string, error) {
+		called <- job
+		return true, "maintained", nil
+	})
+	if err := scheduler.RunNow("maintenance"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-called:
+		if got.ID != "maintenance" {
+			t.Fatalf("handler job = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("custom cron handler was not invoked")
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		job, err := store.Get("maintenance")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.LastStatus == "success" {
+			if job.RunCount != 1 || job.NextRun.IsZero() {
+				t.Fatalf("completed job = %#v", job)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("handler completion was not persisted: %#v", job)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
 
 func TestSQLiteCronStoreCreate(t *testing.T) {
 	tmp := t.TempDir()

@@ -16,11 +16,45 @@ import (
 // Runtime run. It is created by SessionRuntime before Agent construction so
 // publish_artifact participates in the frozen, canonical tool registry.
 type ArtifactCollector struct {
-	runtime *SessionRuntime
-	runID   string
-	mu      sync.Mutex
-	items   []SessionAttachment
-	closed  bool
+	runtime  *SessionRuntime
+	runID    string
+	mu       sync.Mutex
+	items    []SessionAttachment
+	closed   bool
+	observer func(SessionAttachment)
+}
+
+// SetObserver installs an optional adapter projection hook. The observer is
+// called with each artifact record after it has been successfully copied and
+// persisted, so projections never announce content that does not exist. It is
+// additive and nil-safe: a nil observer removes any previously installed hook,
+// and an observer panic is contained so it can never affect the registration
+// flow that owns the durable artifact state.
+func (c *ArtifactCollector) SetObserver(observer func(SessionAttachment)) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.observer = observer
+	c.mu.Unlock()
+}
+
+// notifyObserver projects one persisted artifact through the optional
+// observer. The collector lock is not held while the observer runs, and a
+// panic inside adapter projection code is deliberately recovered: the durable
+// registration has already succeeded and must stay authoritative.
+func (c *ArtifactCollector) notifyObserver(record SessionAttachment) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	observer := c.observer
+	c.mu.Unlock()
+	if observer == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	observer(record)
 }
 
 // BeginArtifactCollection installs the Runtime-owned publication tool for one
@@ -165,6 +199,7 @@ func (c *ArtifactCollector) Register(ctx context.Context, sourcePath, filename, 
 	}
 	c.items = append(c.items, record)
 	c.mu.Unlock()
+	c.notifyObserver(record)
 	return record, nil
 }
 

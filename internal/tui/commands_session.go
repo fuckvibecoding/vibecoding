@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
+	agentpkg "github.com/startvibecoding/mothx/agent"
 	"github.com/startvibecoding/mothx/internal/agentruntime"
 	"github.com/startvibecoding/mothx/internal/config"
 	"github.com/startvibecoding/mothx/internal/platform"
@@ -362,6 +363,8 @@ func (a *App) switchToSession(detail session.SessionDetail) error {
 		return fmt.Errorf("bind session runtime: %w", err)
 	}
 	a.cwd = newSess.GetHeader().Cwd
+	a.agentActivities = make(map[agentpkg.AgentID]*agentActivity)
+	a.agentActivityOrder = nil
 	a.historyLoaded = false
 	a.agentHistoryLoaded = false
 

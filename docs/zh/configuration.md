@@ -10,15 +10,15 @@ MothX 使用两个配置文件:
 | `%APPDATA%\mothx\settings.json` | Windows | 全局 (所有项目) | 低 |
 | `.mothx/settings.json` | 全部 | 项目级 | 高 |
 
-> **提示:** 可以通过 `MOTHX_DIR` 覆盖全局配置目录，同时仍兼容旧环境变量 `VIBECODING_DIR`；两者同时设置时优先使用 `MOTHX_DIR`。
+> **提示:** 可以通过 `MOTHX_DIR` 覆盖全局配置目录。
 
 > **Windows 用户：** `%APPDATA%` 实际展开为 `C:\Users\<用户名>\AppData\Roaming`，所以完整路径通常是 `C:\Users\<用户名>\AppData\Roaming\mothx\settings.json`。
 
 项目级配置会覆盖全局配置。`providers` 先按 provider ID 合并，再按项目文件中显式出现的 provider 字段覆盖；若显式提供 `models`，该数组会替换继承的模型列表。
 
-### 旧版本兼容
+### 旧目录
 
-当前版本使用 `.mothx` 作为项目目录、`~/.mothx`（Windows 为 `%APPDATA%\mothx`）作为全局目录。旧版 `.vibe`、`.vibecoding` 路径不会再自动迁移；如需继续使用旧配置，请手动复制到对应的 `.mothx` 目录，并检查其中的路径与字段。`VIBECODING_DIR`、`VIBECODING_*` 仍作为兼容入口保留，`MOTHX_DIR` 优先级更高。
+当前版本使用 `.mothx` 作为项目目录、`~/.mothx`（Windows 为 `%APPDATA%\mothx`）作为全局目录。旧版 `.vibe`、`.vibecoding` 目录既不会读取，也不会迁移；如需继续使用旧配置，请手动复制到对应的 `.mothx` 目录，并检查其中的路径与字段。
 
 
 ### `tuilang`（TUI 界面语言）
@@ -368,6 +368,8 @@ Hosted web search 设置。默认关闭。
 
 `background` 仅可通过 `mothx serve` 使用；普通 CLI/TUI/ACP 请求仍使用流式 agent loop。启用后台运行的 provider 必须同时支持所选模型和 Responses 功能。
 
+`toolControl.choice` 决定发送给 OpenAI Responses provider 的 `tool_choice`：`auto`、`none`、`required`，或填写工具名以强制调用该工具。WebUI 在“设置 > Providers”中提供 Tool Choice、并行工具调用和最大工具调用数三个字段，TUI 在 `/settings` > provider > B. 协议 > Responses 中提供同名字段。TUI 编辑器写入全局 settings 文件；项目级覆盖仍可通过 `.mothx/settings.json` 配置。
+
 Google 原生 provider 可以直接配置：
 
 ```json
@@ -500,6 +502,8 @@ Google 原生 provider 可以直接配置：
 | `supportsLongCacheRetention` | bool | 是否支持长 prompt cache retention |
 | `sendSessionAffinityHeaders` | bool | 是否发送 session affinity headers |
 | `supportsEagerToolInputStreaming` | bool | 是否支持 Anthropic eager tool input streaming |
+
+`supportsToolChoice` 和 `supportsParallelToolCalls` 也可在 WebUI 的模型行以及 TUI 的 `/settings` > 模型 > Compatibility 中编辑；其余兼容标志仍需直接编辑配置文件。
 
 ```json
 {
@@ -1206,8 +1210,7 @@ settings.json.bak_20260715-143000
 
 | 环境变量 | 覆盖的设置 | 示例 |
 |---------|-----------|------|
-| `MOTHX_DIR` | 全局配置目录（首选，优先于 `VIBECODING_DIR`） | `export MOTHX_DIR=/custom/config` |
-| `VIBECODING_DIR` | 兼容旧版本的全局配置目录覆盖变量 | `export VIBECODING_DIR=/custom/config` |
+| `MOTHX_DIR` | 全局配置目录 | `export MOTHX_DIR=/custom/config` |
 | `VIBECODING_PROVIDER` | `defaultProvider` | `export VIBECODING_PROVIDER=anthropic` |
 | `VIBECODING_MODEL` | `defaultModel` | `export VIBECODING_MODEL=claude-sonnet-4-20250514` |
 | `VIBECODING_MODE` | `defaultMode` | `export VIBECODING_MODE=yolo` |

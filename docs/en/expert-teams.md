@@ -1,0 +1,91 @@
+# Expert Teams
+
+Expert Teams let a session use a reusable expert identity or a coordinated
+team. An expert bundle defines the lead persona, optional member personas,
+and their declared capabilities. The Runtime resolves the bundle once for the
+session; TUI, WebUI, Desktop/ACP, and channels only display that shared state.
+
+## Start with an expert
+
+Use `--expert` when starting MothX, or manage the binding from the TUI:
+
+```bash
+# Start a new session with the built-in software team
+mothx --expert software-company
+
+# Inspect the available expert bundles in an existing TUI session
+/expert list
+/expert show software-company
+
+# Bind or remove an expert identity
+/expert bind software-company
+/expert unbind
+```
+
+`/expert bind` can bind an unbound session and `/expert unbind` removes the
+identity from the current session. Neither operation rewrites previous
+conversation history.
+
+## Switch experts by forking
+
+Changing from one non-empty expert to another creates a new session branch:
+
+```text
+/expert switch frontend-developer
+```
+
+The source session keeps its original expert, history, and identity prompt.
+The fork receives the requested expert at the current conversation boundary.
+This prevents two expert identities from being mixed into one history.
+
+The WebUI expert panel and Desktop's **Expert** session option follow the
+same rule. Initial binding and unbinding update the current idle session;
+switching an existing expert creates and opens a fork.
+
+## Team behavior
+
+Team bundles automatically enable the session's multi-agent capability. You
+do not need to add `--multi-agent` just to use a team. The lead receives the
+team roster and may dispatch declared members by ID:
+
+```text
+subagent_spawn(member: "software-engineer", task: "Implement the focused fix and run its tests.")
+subagent_wait(timeout_ms: 30000)
+```
+
+Members are still normal sub-agents: their tool/mode limits come from the
+bundle and the session policy, nested member spawning is unavailable, and
+high-risk command protection remains in force. A single-persona expert only
+changes the lead identity; it does not force team tools.
+
+Member lifecycle cards are projections of canonical child events. A member
+completion updates its own status and is delivered to an active lead at an
+agent-loop boundary. It never starts a new lead run by itself.
+
+## ESM interaction
+
+Expert Teams work with Enable Supervisor Mode (ESM) without creating a second
+task scheduler. Only a user creates, edits, resumes, or clears an ESM
+objective. When a session is truly idle and the objective is still runnable,
+the normal ESM continuation path may start the next lead run; member terminal
+events are not continuation triggers.
+
+For a team-bound ESM worker, the lead identity and roster are retained. ESM
+critic, audit, and recovery roles remain isolated and do not receive member
+scheduling tools.
+
+## Add local bundles
+
+Expert bundles are discovered lazily from the built-in catalog, the user
+configuration directory's `experts/` folder, and the project folder:
+
+```text
+<config-dir>/experts/<bundle-name>/
+<project>/.mothx/experts/<bundle-name>/
+```
+
+Project bundles override global bundles with the same name, which override
+built-in bundles. A bundle contains `expert.json` and one or more persona
+files under `agents/`; invalid bundles are shown as unavailable and cannot be
+bound. See [the expert-team implementation proposal](../proposal/expert-team-mothx-proposal.md)
+for the bundle schema and architecture rationale.

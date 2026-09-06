@@ -22,7 +22,7 @@
   <a href="https://github.com/startvibecoding/mothx/network/dependencies"><img src="https://img.shields.io/librariesio/release/github/startvibecoding/mothx" alt="Dependencies"></a>
 </p>
 
-> **改名说明：** MothX 原名 VibeCoding。本过渡版本仍保留 `vibecoding` 命令、旧安装包名以及 `VIBECODING_*` 环境变量作为兼容入口；发现旧 `.vibecoding` 和 `.vibe` 目录时会自动迁移到 `.mothx`。
+> **改名说明：** MothX 原名 VibeCoding。`vibecoding` 命令和旧安装包名仍作为兼容别名保留。配置只会从 `.mothx` 项目目录和 MothX 全局配置目录读取；不会读取或迁移旧目录。
 
 ## 功能特性
 
@@ -165,7 +165,7 @@ mothx --no-sandbox
 | `%APPDATA%\mothx\settings.json` | Windows | 全局（所有项目） |
 | `.mothx/settings.json` | 所有 | 项目（覆盖全局） |
 
-发现旧 `.vibecoding` 和 `.vibe` 目录且新 `.mothx` 目录不存在时会自动迁移。`VIBECODING_*` 环境变量会继续作为改名过渡期的兼容接口保留；新的自定义配置目录优先使用 `MOTHX_DIR`。
+MothX 只从上述 `.mothx` 位置读取配置，不会读取或迁移旧的 `.vibecoding`、`.vibe` 目录。使用 `MOTHX_DIR` 指定自定义全局配置目录。
 
 > **Windows 用户：** `%APPDATA%` 解析为 `C:\Users\<用户名>\AppData\Roaming`。
 
@@ -210,7 +210,6 @@ mothx --no-sandbox
 |------|------|
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 |
 | `MOTHX_DIR` | 覆盖配置目录 |
-| `VIBECODING_DIR` | 覆盖配置目录（兼容旧变量） |
 | `VIBECODING_PROVIDER` | 覆盖默认提供商 |
 | `VIBECODING_MODEL` | 覆盖默认模型 |
 | `VIBECODING_MODE` | 覆盖默认模式 |

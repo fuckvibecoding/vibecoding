@@ -193,3 +193,32 @@ func cronFieldIsWildcard(field string) bool {
 	field = strings.TrimSpace(field)
 	return field == "*"
 }
+
+// NormalizeJobSchedule validates a job's mode and schedule and computes its
+// NextRun. It is the canonical normalization for management surfaces that
+// create or update jobs: an empty mode defaults to yolo, only agent/yolo are
+// accepted, and an empty (or @once) schedule marks the job one-shot with no
+// next run.
+func NormalizeJobSchedule(job *CronJob) error {
+	if job == nil {
+		return fmt.Errorf("cron job required")
+	}
+	if job.Mode == "" {
+		job.Mode = "yolo"
+	}
+	if job.Mode != "agent" && job.Mode != "yolo" {
+		return fmt.Errorf("mode must be agent or yolo")
+	}
+
+	next, isOneShot, err := ParseSchedule(job.Schedule, time.Now())
+	if err != nil {
+		return err
+	}
+	if job.OneShot || isOneShot {
+		job.OneShot = true
+		job.NextRun = time.Time{}
+		return nil
+	}
+	job.NextRun = next
+	return nil
+}

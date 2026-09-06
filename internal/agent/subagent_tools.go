@@ -13,6 +13,7 @@ func RegisterSubAgentTools(registry *tools.Registry, manager *AgentManager) {
 	registry.Register(NewSubAgentStatusTool(manager))
 	registry.Register(NewSubAgentSendTool(manager))
 	registry.Register(NewSubAgentDestroyTool(manager))
+	registry.Register(NewSubAgentWaitTool(manager))
 }
 
 // RegisterDelegateSubAgentTool registers the blocking single sub-agent

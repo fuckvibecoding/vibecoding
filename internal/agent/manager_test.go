@@ -76,6 +76,44 @@ func TestAgentManagerUpdateRuntimeConfigAffectsFutureAgents(t *testing.T) {
 	}
 }
 
+func TestManagerCreatedLeadReceivesTeamToolsAndMailboxSteering(t *testing.T) {
+	model := &provider.Model{ID: "m1", Name: "M1"}
+	p := provider.NewMockProvider("mock", []*provider.Model{model}, nil)
+	factory := NewAgentFactoryWithOptions(p, model, config.DefaultSettings(), nil, "", "", nil, compactionSettings(), nil, AgentFactoryOptions{MultiAgentEnabled: true})
+	manager := NewAgentManager(factory)
+	mailbox := NewMemberMailbox()
+	manager.SetMemberContext(NewMemberDefRegistry([]*MemberDef{{ID: "engineer"}}), mailbox, "team")
+	yes := true
+	created, err := manager.Create(AgentOptions{ID: "esm-worker", MultiAgent: &yes})
+	if err != nil {
+		t.Fatalf("create ESM lead: %v", err)
+	}
+	adapter, ok := created.(*AgentAdapter)
+	if !ok || adapter.inner == nil {
+		t.Fatalf("created agent = %#v, want AgentAdapter", created)
+	}
+	if _, ok := adapter.inner.registry.Get("subagent_spawn"); !ok {
+		t.Fatal("manager-created team lead missing subagent_spawn")
+	}
+	if adapter.inner.config.GetSteeringMessages == nil {
+		t.Fatal("manager-created team lead missing mailbox steering")
+	}
+	mailbox.Enqueue(MemberCompletion{MemberID: "engineer", Status: "done", Payload: "completed work"})
+	if messages := adapter.inner.config.GetSteeringMessages(); len(messages) != 1 || !messages[0].SystemInjected {
+		t.Fatalf("mailbox steering = %#v, want one system-injected completion", messages)
+	}
+
+	no := false
+	critic, err := manager.Create(AgentOptions{ID: "esm-critic", MultiAgent: &no, Tools: []string{"read"}})
+	if err != nil {
+		t.Fatalf("create critic: %v", err)
+	}
+	criticAdapter := critic.(*AgentAdapter)
+	if _, ok := criticAdapter.inner.registry.Get("subagent_spawn"); ok {
+		t.Fatal("isolated critic unexpectedly received subagent_spawn")
+	}
+}
+
 func TestAgentManagerCreateWithParent(t *testing.T) {
 	m := newTestManager()
 
@@ -465,6 +503,11 @@ func TestEventToPublic(t *testing.T) {
 	e := Event{
 		AgentID:                   "test-agent",
 		Type:                      EventTextDelta,
+		MemberID:                  "engineer",
+		ExpertID:                  "software-company",
+		MemberDisplayName:         "工程师",
+		MemberEmoji:               "🛠️",
+		MemberRole:                "member",
 		TextDelta:                 "hello",
 		ToolCallID:                "tc1",
 		ToolName:                  "bash",
@@ -486,6 +529,9 @@ func TestEventToPublic(t *testing.T) {
 	}
 	if pub.Type != agentpkg.EventTextDelta {
 		t.Errorf("expected EventTextDelta, got %d", pub.Type)
+	}
+	if pub.MemberID != "engineer" || pub.ExpertID != "software-company" || pub.MemberDisplayName != "工程师" || pub.MemberEmoji != "🛠️" || pub.MemberRole != "member" {
+		t.Errorf("expert member metadata = %#v", pub)
 	}
 	if pub.TextDelta != "hello" {
 		t.Errorf("expected 'hello', got %q", pub.TextDelta)

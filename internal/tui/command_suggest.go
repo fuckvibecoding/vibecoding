@@ -135,6 +135,10 @@ func commandArgumentSuggestionItems(value string) []suggest.Item {
 		if argIndex == 1 {
 			return commandArgumentItems(cmd, []string{"ls", "set", "clear", "del"})
 		}
+	case "/expert":
+		if argIndex == 1 {
+			return commandArgumentItems(cmd, []string{"list", "show", "bind", "unbind", "switch"})
+		}
 	case "/delegate":
 		if argIndex == 1 {
 			return commandArgumentItems(cmd, []string{"on", "off", "status"})

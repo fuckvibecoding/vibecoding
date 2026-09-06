@@ -16,6 +16,7 @@ const (
 	MsgCommandClearDescription         MessageID = "commands.clear.description"
 	MsgCommandCompactDescription       MessageID = "commands.compact.description"
 	MsgCommandSessionsDescription      MessageID = "commands.sessions.description"
+	MsgCommandExpertDescription        MessageID = "commands.expert.description"
 	MsgCommandInitMCPDescription       MessageID = "commands.init_mcp.description"
 	MsgCommandMCPsDescription          MessageID = "commands.mcps.description"
 	MsgCommandDelegateDescription      MessageID = "commands.delegate.description"

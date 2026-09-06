@@ -13,7 +13,7 @@ import (
 func TestRunReportsMissingProviderKeyWithoutLeakingConfiguredValue(t *testing.T) {
 	configDir := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "doctor-test"
 	settings.DefaultModel = "model"
@@ -44,7 +44,7 @@ func TestRunReportsMissingProviderKeyWithoutLeakingConfiguredValue(t *testing.T)
 func TestRunUsesProjectSettingsForRequestedCWD(t *testing.T) {
 	configDir := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	projectDir := filepath.Join(workDir, config.ProjectDirName)
 	if err := os.MkdirAll(projectDir, 0700); err != nil {
 		t.Fatal(err)
@@ -90,7 +90,7 @@ func TestValidateProviderReportsMissingModelWhenNoModelCanBeSelected(t *testing.
 func TestRunNeverSerializesAPIKey(t *testing.T) {
 	configDir := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	const apiKey = "doctor-test-secret-value"
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "doctor-secret"

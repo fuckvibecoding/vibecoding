@@ -2,11 +2,15 @@ package skills
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/startvibecoding/mothx/internal/config"
 )
@@ -19,6 +23,7 @@ type SkillReference struct {
 	AutoLoad bool   // true if marked [已加载], false if [待按需加载]
 	Loaded   bool   // whether this reference has been loaded
 	Content  string // loaded content
+	fsys     fs.FS
 }
 
 // Skill represents a loaded skill.
@@ -30,6 +35,8 @@ type Skill struct {
 	Content     string            // full SKILL.md content
 	Source      string            // "global" or "project"
 	References  []*SkillReference // parsed references
+	fsys        fs.FS
+	fsDir       string
 }
 
 // Manager manages skill discovery and loading.
@@ -38,6 +45,12 @@ type Manager struct {
 	projectDir  string   // highest-priority project skills dir
 	projectDirs []string // project skills dirs, highest priority first
 	skills      map[string]*Skill
+
+	// disabled holds the skill enable/disable toggles (settings.skills.disabled).
+	// It is guarded by its own mutex because management surfaces may update the
+	// toggles while prompt construction reads the discovery methods.
+	disabledMu sync.RWMutex
+	disabled   map[string]bool
 }
 
 // NewManager creates a new skills manager.
@@ -103,7 +116,58 @@ func (m *Manager) Load() error {
 		}
 	}
 
+	m.applyConfiguredDisabledSkills()
+
 	return nil
+}
+
+// applyConfiguredDisabledSkills reads the global settings.skills.disabled list
+// so every adapter that loads skills (TUI, serve, ACP, agent runtime) shares
+// one enable/disable source without constructor changes.
+func (m *Manager) applyConfiguredDisabledSkills() {
+	settings, err := config.LoadGlobalSettingsSparse()
+	if err != nil || settings == nil {
+		return
+	}
+	m.SetDisabledSkills(settings.SkillsDisabled())
+}
+
+// SetDisabledSkills replaces the disabled-skill set. Management surfaces call
+// it after persisting settings.skills.disabled so the live process reflects
+// the toggle without reloading skill content.
+func (m *Manager) SetDisabledSkills(names []string) {
+	next := make(map[string]bool, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name != "" {
+			next[name] = true
+		}
+	}
+	m.disabledMu.Lock()
+	m.disabled = next
+	m.disabledMu.Unlock()
+}
+
+// DisabledSkills returns the sorted disabled-skill names.
+func (m *Manager) DisabledSkills() []string {
+	m.disabledMu.RLock()
+	defer m.disabledMu.RUnlock()
+	if len(m.disabled) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(m.disabled))
+	for name := range m.disabled {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// IsSkillDisabled reports whether a skill name is toggled off.
+func (m *Manager) IsSkillDisabled(name string) bool {
+	m.disabledMu.RLock()
+	defer m.disabledMu.RUnlock()
+	return m.disabled[name]
 }
 
 func dedupeDirs(dirs []string) []string {
@@ -164,8 +228,8 @@ func (m *Manager) loadFromDir(dir string, source string) error {
 		// Extract description from first heading or first non-empty line
 		skill.Description = extractDescription(string(data))
 
-		// Parse references from SKILL.md
-		skill.References = parseReferences(string(data), skillDir)
+		// Parse references from SKILL.md.
+		skill.References = parseReferences(string(data), skillDir, nil)
 
 		m.skills[entry.Name()] = skill
 	}
@@ -173,14 +237,90 @@ func (m *Manager) loadFromDir(dir string, source string) error {
 	return nil
 }
 
-// Get returns a skill by name.
+// LoadFS discovers skills below dir in fsys. It is used for embedded or other
+// non-OS skill sources while preserving the same name-shadowing behavior as
+// directory-backed project skills: later loads replace earlier names.
+func (m *Manager) LoadFS(fsys fs.FS, dir, source string) error {
+	if m == nil {
+		return fmt.Errorf("skills manager is nil")
+	}
+	if fsys == nil {
+		return fmt.Errorf("skills filesystem is nil")
+	}
+	dir = path.Clean(dir)
+	if dir == "." || strings.HasPrefix(dir, "../") || path.IsAbs(dir) {
+		return fmt.Errorf("invalid skills filesystem directory %q", dir)
+	}
+	return m.loadFromFS(fsys, dir, source)
+}
+
+func (m *Manager) loadFromFS(fsys fs.FS, dir, source string) error {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("read skills filesystem directory %s: %w", dir, err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		skillDir := path.Join(dir, entry.Name())
+		skillFile := path.Join(skillDir, "SKILL.md")
+		data, err := fs.ReadFile(fsys, skillFile)
+		if err != nil {
+			skillFile = path.Join(skillDir, "skill.md")
+			data, err = fs.ReadFile(fsys, skillFile)
+			if err != nil {
+				continue
+			}
+		}
+		skill := &Skill{
+			Name:        entry.Name(),
+			Path:        skillFile,
+			Dir:         skillDir,
+			Content:     string(data),
+			Source:      source,
+			fsys:        fsys,
+			fsDir:       skillDir,
+			Description: extractDescription(string(data)),
+		}
+		skill.References = parseReferences(string(data), skillDir, fsys)
+		m.skills[entry.Name()] = skill
+	}
+	return nil
+}
+
+// Get returns a skill by name. Disabled skills are hidden so every runtime
+// consumer (prompt context, /skill commands, skill_ref) honors the toggle.
 func (m *Manager) Get(name string) *Skill {
+	if m.IsSkillDisabled(name) {
+		return nil
+	}
 	return m.skills[name]
 }
 
-// List returns all loaded skills sorted by name.
+// List returns all enabled skills sorted by name.
 func (m *Manager) List() []*Skill {
 	var result []*Skill
+	for _, s := range m.skills {
+		if m.IsSkillDisabled(s.Name) {
+			continue
+		}
+		result = append(result, s)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+	return result
+}
+
+// ListAll returns every discovered skill sorted by name, including disabled
+// ones. Management surfaces use it to project the enabled flag and to allow
+// re-enabling a disabled skill.
+func (m *Manager) ListAll() []*Skill {
+	result := make([]*Skill, 0, len(m.skills))
 	for _, s := range m.skills {
 		result = append(result, s)
 	}
@@ -190,11 +330,11 @@ func (m *Manager) List() []*Skill {
 	return result
 }
 
-// ListBySource returns skills filtered by source.
+// ListBySource returns enabled skills filtered by source.
 func (m *Manager) ListBySource(source string) []*Skill {
 	var result []*Skill
 	for _, s := range m.skills {
-		if s.Source == source {
+		if s.Source == source && !m.IsSkillDisabled(s.Name) {
 			result = append(result, s)
 		}
 	}
@@ -204,10 +344,13 @@ func (m *Manager) ListBySource(source string) []*Skill {
 	return result
 }
 
-// Names returns a list of all skill names.
+// Names returns a list of all enabled skill names.
 func (m *Manager) Names() []string {
 	var names []string
 	for name := range m.skills {
+		if m.IsSkillDisabled(name) {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -283,17 +426,28 @@ func (m *Manager) LoadReference(skillName, refPath string) (string, bool) {
 		}
 	}
 
-	// Try loading directly from the skill directory
-	fullPath := filepath.Join(skill.Dir, refPath)
-	fullPath = filepath.Clean(fullPath)
-
-	// Validate: path must not escape the skill directory
-	skillDir := filepath.Clean(skill.Dir)
-	if !strings.HasPrefix(fullPath, skillDir) {
-		return "", false
+	var (
+		data     []byte
+		fullPath string
+		err      error
+	)
+	if skill.fsys != nil {
+		refPath = path.Clean(filepath.ToSlash(refPath))
+		if refPath == "." || refPath == ".." || strings.HasPrefix(refPath, "../") || path.IsAbs(refPath) {
+			return "", false
+		}
+		fullPath = path.Join(skill.fsDir, refPath)
+		data, err = fs.ReadFile(skill.fsys, fullPath)
+	} else {
+		// Try loading directly from the skill directory.
+		fullPath = filepath.Join(skill.Dir, refPath)
+		fullPath = filepath.Clean(fullPath)
+		rel, relErr := filepath.Rel(filepath.Clean(skill.Dir), fullPath)
+		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return "", false
+		}
+		data, err = os.ReadFile(fullPath)
 	}
-
-	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		return "", false
 	}
@@ -307,6 +461,7 @@ func (m *Manager) LoadReference(skillName, refPath string) (string, bool) {
 		AutoLoad: false,
 		Loaded:   true,
 		Content:  content,
+		fsys:     skill.fsys,
 	})
 	return content, true
 }
@@ -322,7 +477,18 @@ func (m *Manager) ListReferences(skillName string) []*SkillReference {
 
 // loadReferenceContent reads the content of a reference file.
 func loadReferenceContent(ref *SkillReference) string {
-	data, err := os.ReadFile(ref.FullPath)
+	if ref == nil {
+		return ""
+	}
+	var (
+		data []byte
+		err  error
+	)
+	if ref.fsys != nil {
+		data, err = fs.ReadFile(ref.fsys, ref.FullPath)
+	} else {
+		data, err = os.ReadFile(ref.FullPath)
+	}
 	if err != nil {
 		return ""
 	}
@@ -333,7 +499,7 @@ func loadReferenceContent(ref *SkillReference) string {
 // It looks for patterns like:
 //   - Section headers: "### N. Label (references/file.md) [已加载]" or "[待按需加载]"
 //   - Markdown links: "- [Label](references/file.md)"
-func parseReferences(content, skillDir string) []*SkillReference {
+func parseReferences(content, skillDir string, fsys fs.FS) []*SkillReference {
 	var refs []*SkillReference
 	seen := make(map[string]bool)
 
@@ -349,7 +515,7 @@ func parseReferences(content, skillDir string) []*SkillReference {
 			if pathStart > 0 && pathEnd > pathStart {
 				path := line[pathStart+1 : pathEnd]
 				if strings.HasSuffix(path, ".md") || strings.HasSuffix(path, ".txt") {
-					fullPath := filepath.Join(skillDir, path)
+					fullPath := skillReferencePath(skillDir, path, fsys)
 					if !seen[path] {
 						seen[path] = true
 						label := strings.TrimPrefix(line, "#")
@@ -366,6 +532,7 @@ func parseReferences(content, skillDir string) []*SkillReference {
 							FullPath: fullPath,
 							Label:    label,
 							AutoLoad: autoLoad,
+							fsys:     fsys,
 						})
 					}
 				}
@@ -381,7 +548,7 @@ func parseReferences(content, skillDir string) []*SkillReference {
 				path := line[linkStart+2 : linkStart+2+linkEnd]
 				if (strings.HasSuffix(path, ".md") || strings.HasSuffix(path, ".txt")) && !seen[path] {
 					seen[path] = true
-					fullPath := filepath.Join(skillDir, path)
+					fullPath := skillReferencePath(skillDir, path, fsys)
 					// Extract label
 					labelStart := strings.Index(line, "[")
 					label := ""
@@ -395,6 +562,7 @@ func parseReferences(content, skillDir string) []*SkillReference {
 						FullPath: fullPath,
 						Label:    label,
 						AutoLoad: false,
+						fsys:     fsys,
 					})
 				}
 			}
@@ -402,6 +570,13 @@ func parseReferences(content, skillDir string) []*SkillReference {
 	}
 
 	return refs
+}
+
+func skillReferencePath(skillDir, referencePath string, fsys fs.FS) string {
+	if fsys != nil {
+		return path.Join(skillDir, filepath.ToSlash(referencePath))
+	}
+	return filepath.Join(skillDir, referencePath)
 }
 
 // BuildAllSkillsContext returns a summary of all available skills for the system prompt.

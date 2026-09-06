@@ -296,7 +296,7 @@ func TestSettingsRootProvidersBranchReturnsToRoot(t *testing.T) {
 
 func TestSettingsFieldPatchSavesGlobalTopLevelOnly(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", tmpDir)
+	t.Setenv("MOTHX_DIR", tmpDir)
 	path := filepath.Join(tmpDir, "settings.json")
 	if err := os.WriteFile(path, []byte(`{"defaultProvider":"deepseek-openai"}`), 0600); err != nil {
 		t.Fatalf("write settings: %v", err)
@@ -342,7 +342,7 @@ func TestSettingsFieldPatchSavesGlobalTopLevelOnly(t *testing.T) {
 
 func TestSettingsAuthoredToggleSavesGlobalValue(t *testing.T) {
 	tmpDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", tmpDir)
+	t.Setenv("MOTHX_DIR", tmpDir)
 	path := filepath.Join(tmpDir, "settings.json")
 	if err := os.WriteFile(path, []byte(`{"defaultProvider":"deepseek-openai"}`), 0600); err != nil {
 		t.Fatalf("write settings: %v", err)
@@ -1066,7 +1066,7 @@ func TestSaveAuthProviderReloadsEffectiveProjectOverride(t *testing.T) {
 	if err := os.Chdir(tmpDir); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
-	t.Setenv("VIBECODING_DIR", filepath.Join(tmpDir, "config"))
+	t.Setenv("MOTHX_DIR", filepath.Join(tmpDir, "config"))
 
 	if err := os.MkdirAll(filepath.Dir(config.ProjectSettingsPath()), 0700); err != nil {
 		t.Fatalf("mkdir project config dir: %v", err)
@@ -1641,5 +1641,158 @@ func TestDefaultThinkingLevelCycle(t *testing.T) {
 	got := cycleString("medium", []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}, "medium")
 	if got != "high" {
 		t.Fatalf("default thinking level cycle = %q, want high", got)
+	}
+}
+
+func TestAuthResponsesToolControlInput(t *testing.T) {
+	a := &App{
+		translator: i18n.New(i18n.LanguageEN),
+		auth: authDialogState{
+			Open: true,
+			View: authViewResponsesEdit,
+			Provider: providerEditState{Responses: responsesEditState{
+				ToolControl: config.ResponsesToolControlConfig{
+					Choice:   "required",
+					Parallel: config.BoolPtr(false),
+					MaxCalls: 5,
+				},
+			}},
+		},
+	}
+
+	seen := map[string]bool{}
+	for _, opt := range a.authResponsesOptions() {
+		seen[opt.Value] = true
+	}
+	for _, want := range []string{"toolChoice", "toolParallel", "toolMaxCalls"} {
+		if !seen[want] {
+			t.Fatalf("responses form is missing field %q", want)
+		}
+	}
+
+	a.auth.ParamField = "toolChoice"
+	if got := a.authProviderInputValue(); got != "required" {
+		t.Fatalf("tool choice input seed = %q, want required", got)
+	}
+	a.authInput = editor.New(80).SetValue("none")
+	if err := a.authProviderSubmitInput(); err != nil {
+		t.Fatalf("submit tool choice: %v", err)
+	}
+	if a.auth.Provider.Responses.ToolControl.Choice != "none" {
+		t.Fatalf("tool choice = %q, want none", a.auth.Provider.Responses.ToolControl.Choice)
+	}
+	if a.auth.Provider.Responses.ToolControl.MaxCalls != 5 {
+		t.Fatalf("unrelated tool control field changed: %d", a.auth.Provider.Responses.ToolControl.MaxCalls)
+	}
+
+	// A forced tool name must not contain whitespace or quotes.
+	a.auth.ParamField = "toolChoice"
+	a.authInput = editor.New(80).SetValue("bash tool")
+	if err := a.authProviderSubmitInput(); err == nil {
+		t.Fatal("expected invalid tool choice error")
+	}
+
+	a.auth.ParamField = "toolMaxCalls"
+	if got := a.authProviderInputValue(); got != "5" {
+		t.Fatalf("max calls input seed = %q, want 5", got)
+	}
+	a.authInput = editor.New(80).SetValue("12")
+	if err := a.authProviderSubmitInput(); err != nil {
+		t.Fatalf("submit max calls: %v", err)
+	}
+	if a.auth.Provider.Responses.ToolControl.MaxCalls != 12 {
+		t.Fatalf("max calls = %d, want 12", a.auth.Provider.Responses.ToolControl.MaxCalls)
+	}
+
+	a.auth.ParamField = "toolMaxCalls"
+	a.authInput = editor.New(80).SetValue("-1")
+	if err := a.authProviderSubmitInput(); err == nil {
+		t.Fatal("expected invalid max calls error")
+	}
+
+	if cfg := a.auth.Provider.Responses.toConfig(); cfg.ToolControl.Choice != "none" || cfg.ToolControl.MaxCalls != 12 {
+		t.Fatalf("tool control lost on write-back: %#v", cfg.ToolControl)
+	}
+}
+
+func TestAuthResponsesToolParallelTriStateDoesNotEnterInputMode(t *testing.T) {
+	a := &App{
+		translator: i18n.New(i18n.LanguageEN),
+		auth:       authDialogState{Open: true, View: authViewResponsesEdit},
+	}
+
+	a.selectProviderFieldValue("toolParallel")
+	p := a.auth.Provider.Responses.ToolControl.Parallel
+	if p == nil || !*p {
+		t.Fatalf("toolParallel = %#v, want enabled", p)
+	}
+	if a.auth.ParamField != "" || a.authInputActive() {
+		t.Fatalf("tri-state toggle left input active: field=%q", a.auth.ParamField)
+	}
+
+	a.selectProviderFieldValue("toolParallel")
+	if p := a.auth.Provider.Responses.ToolControl.Parallel; p == nil || *p {
+		t.Fatalf("toolParallel = %#v, want disabled", p)
+	}
+	a.selectProviderFieldValue("toolParallel")
+	if a.auth.Provider.Responses.ToolControl.Parallel != nil {
+		t.Fatal("toolParallel should return to auto")
+	}
+}
+
+func TestModelCompatToolChoiceRoundTripAndToggle(t *testing.T) {
+	mc := &config.ModelConfig{ID: "m1", Compat: &config.ModelCompat{
+		SupportsToolChoice:        config.BoolPtr(false),
+		SupportsParallelToolCalls: config.BoolPtr(true),
+	}}
+	me := modelEditStateFromMC(mc)
+	if me.Compat.SupportsToolChoice == nil || *me.Compat.SupportsToolChoice {
+		t.Fatalf("supportsToolChoice = %#v, want false", me.Compat.SupportsToolChoice)
+	}
+	if me.Compat.SupportsParallelToolCalls == nil || !*me.Compat.SupportsParallelToolCalls {
+		t.Fatalf("supportsParallelToolCalls = %#v, want true", me.Compat.SupportsParallelToolCalls)
+	}
+	out := me.toConfig()
+	if out.Compat == nil {
+		t.Fatal("compat lost on write-back")
+	}
+	if out.Compat.SupportsToolChoice == nil || *out.Compat.SupportsToolChoice {
+		t.Fatalf("written supportsToolChoice = %#v, want false", out.Compat.SupportsToolChoice)
+	}
+	if *out.Compat.SupportsParallelToolCalls != *me.Compat.SupportsParallelToolCalls {
+		t.Fatal("written supportsParallelToolCalls changed")
+	}
+
+	a := &App{
+		translator: i18n.New(i18n.LanguageEN),
+		auth: authDialogState{
+			Open:           true,
+			View:           authViewModelCompat,
+			CurrentModelID: "m1",
+			Models:         map[string]*modelEditState{"m1": me},
+		},
+	}
+	seen := map[string]bool{}
+	for _, opt := range a.authModelCompatOptions() {
+		seen[opt.Value] = true
+	}
+	for _, want := range []string{"supportsToolChoice", "supportsParallelToolCalls"} {
+		if !seen[want] {
+			t.Fatalf("compat form is missing field %q", want)
+		}
+	}
+
+	// Cycle is auto → enabled → disabled → auto, so a stored false first
+	// returns to auto before it becomes enabled again.
+	a.selectModelFieldValue("supportsToolChoice")
+	if me.Compat.SupportsToolChoice != nil {
+		t.Fatalf("supportsToolChoice = %#v, want auto after toggling disabled", me.Compat.SupportsToolChoice)
+	}
+	a.selectModelFieldValue("supportsToolChoice")
+	if p := me.Compat.SupportsToolChoice; p == nil || !*p {
+		t.Fatalf("supportsToolChoice = %#v, want enabled after toggle", p)
+	}
+	if a.auth.ParamField != "" || a.authInputActive() {
+		t.Fatalf("compat toggle left input active: field=%q", a.auth.ParamField)
 	}
 }

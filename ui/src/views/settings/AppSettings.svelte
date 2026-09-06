@@ -232,7 +232,10 @@
           reasoningSummary: stringValue(provider?.responses?.reasoningSummary, ''),
           promptCacheEnabled: triBool(provider?.responses?.promptCacheEnabled),
           promptCacheKey: stringValue(provider?.responses?.promptCacheKey, ''),
-          promptCacheRetention: stringValue(provider?.responses?.promptCacheRetention, '')
+          promptCacheRetention: stringValue(provider?.responses?.promptCacheRetention, ''),
+          toolChoice: stringValue(provider?.responses?.toolControl?.choice, ''),
+          toolParallel: triBool(provider?.responses?.toolControl?.parallel),
+          toolMaxCalls: optionalNumber(provider?.responses?.toolControl?.maxCalls)
         },
         models: arrayValue(provider?.models).map((model) => modelFromConfig(model)).filter((model) => model.id || model.name)
       }));
@@ -249,7 +252,9 @@
       input: arrayValue(model?.input).join(', '),
       temperature: optionalNumber(model?.temperature),
       topP: optionalNumber(model?.top_p),
-      allowSampling: model?.compat?.disableSamplingParams === false
+      allowSampling: model?.compat?.disableSamplingParams === false,
+      supportsToolChoice: triBool(model?.compat?.supportsToolChoice),
+      supportsParallelToolCalls: triBool(model?.compat?.supportsParallelToolCalls)
     };
   }
 
@@ -361,6 +366,11 @@
       writeTriBool(raw.responses, 'promptCacheEnabled', provider.responses.promptCacheEnabled);
       writeString(raw.responses, 'promptCacheKey', provider.responses.promptCacheKey);
       writeString(raw.responses, 'promptCacheRetention', provider.responses.promptCacheRetention);
+      const toolControl = ensureObject(raw.responses, 'toolControl');
+      writeString(toolControl, 'choice', provider.responses.toolChoice);
+      writeTriBool(toolControl, 'parallel', provider.responses.toolParallel);
+      writeOptionalNumber(toolControl, 'maxCalls', provider.responses.toolMaxCalls);
+      if (Object.keys(toolControl).length === 0) delete raw.responses.toolControl;
       if (Object.keys(raw.responses).length === 0) delete raw.responses;
       raw.models = provider.models.map(modelToConfig).filter((model) => model.id);
       out[id] = raw;
@@ -381,13 +391,13 @@
     else delete raw.input;
     writeOptionalFloat(raw, 'temperature', model.temperature);
     writeOptionalFloat(raw, 'top_p', model.topP);
-    if (model.allowSampling) {
-      raw.compat = ensureObject(raw, 'compat');
-      raw.compat.disableSamplingParams = false;
-    } else if (raw.compat) {
-      delete raw.compat.disableSamplingParams;
-      if (Object.keys(raw.compat).length === 0) delete raw.compat;
-    }
+    // Compat flags are copied so editing one never mutates the loaded raw object.
+    const compat = raw.compat && typeof raw.compat === 'object' && !Array.isArray(raw.compat) ? { ...raw.compat } : {};
+    writeTriBool(compat, 'disableSamplingParams', model.allowSampling ? 'false' : '');
+    writeTriBool(compat, 'supportsToolChoice', model.supportsToolChoice);
+    writeTriBool(compat, 'supportsParallelToolCalls', model.supportsParallelToolCalls);
+    if (Object.keys(compat).length > 0) raw.compat = compat;
+    else delete raw.compat;
     return raw;
   }
 
@@ -423,7 +433,7 @@
       thinkingFormat: '',
       cacheControl: '',
       headers: [],
-      responses: { reasoningSummary: '', promptCacheEnabled: '', promptCacheKey: '', promptCacheRetention: '' },
+      responses: { reasoningSummary: '', promptCacheEnabled: '', promptCacheKey: '', promptCacheRetention: '', toolChoice: '', toolParallel: '', toolMaxCalls: '' },
       models: []
     }];
     selectedProviderID = id;
@@ -487,7 +497,9 @@
       input: 'text',
       temperature: '',
       topP: '',
-      allowSampling: false
+      allowSampling: false,
+      supportsToolChoice: '',
+      supportsParallelToolCalls: ''
     }];
     form = form;
   }
@@ -534,7 +546,9 @@
         input: Array.isArray(discovered.input) && discovered.input.length ? discovered.input.join(', ') : 'text',
         temperature: '',
         topP: '',
-        allowSampling: false
+        allowSampling: false,
+        supportsToolChoice: '',
+        supportsParallelToolCalls: ''
       }]
     };
     form.providers = form.providers.map((p) => (p === provider ? nextProvider : p));

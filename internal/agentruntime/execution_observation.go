@@ -320,12 +320,13 @@ func (r *ExecutionRuntime) persistRetryProgress(run DurableRun, facts executionF
 		RetryAfterMS int             `json:"retryAfterMs,omitempty"`
 		Continue     bool            `json:"continue,omitempty"`
 		MessageKey   string          `json:"messageKey,omitempty"`
+		Message      string          `json:"message,omitempty"`
 		SideEffects  SideEffectState `json:"sideEffectState"`
 		Partial      bool            `json:"partialOutput"`
 	}{
 		State: "retrying", Attempt: retry.Attempt, MaxAttempts: retry.MaxAttempts, Phase: retry.Phase,
 		ReasonCode: retry.ReasonCode, RetryAfterMS: retry.RetryAfterMS, Continue: retry.Continue,
-		MessageKey: retry.MessageKey, SideEffects: facts.sideEffects, Partial: facts.partialOutput,
+		MessageKey: retry.MessageKey, Message: retry.Message, SideEffects: facts.sideEffects, Partial: facts.partialOutput,
 	})
 	if err != nil {
 		return fmt.Errorf("encode retry event: %w", err)
@@ -380,6 +381,10 @@ func retryInfoFromAgentEvent(ev agent.Event, phase RunPhase) RetryInfo {
 		ReasonCode:   retryReasonCode(ev.RetryReason, ev.RetryContinue),
 		RetryAfterMS: ev.RetryAfterMS,
 		Continue:     ev.RetryContinue,
+		// EventRetry.StatusMessage carries the provider diagnostic. Redact and
+		// bound it like terminal error diagnostics before it enters durable
+		// run records; adapters keep rendering the friendly MessageKey first.
+		Message: diagnosticMessage(nil, ev.StatusMessage),
 	}
 	if info.Continue {
 		info.MessageKey = "run.retry.continuing"

@@ -189,23 +189,13 @@ func TestHomeDir(t *testing.T) {
 }
 
 func TestConfigDir(t *testing.T) {
-	// Test with new env var
 	t.Setenv("MOTHX_DIR", "/tmp/test-mothx")
 	dir := ConfigDir()
 	if dir != "/tmp/test-mothx" {
 		t.Errorf("expected '/tmp/test-mothx', got '%s'", dir)
 	}
 
-	// Test legacy env var fallback
 	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", "/tmp/test-vibecoding")
-	dir = ConfigDir()
-	if dir != "/tmp/test-vibecoding" {
-		t.Errorf("expected '/tmp/test-vibecoding', got '%s'", dir)
-	}
-	t.Setenv("VIBECODING_DIR", "")
-
-	// Test default
 	dir = ConfigDir()
 	if dir == "" {
 		t.Error("expected non-empty config dir")
@@ -217,7 +207,7 @@ func TestConfigDir(t *testing.T) {
 	}
 }
 
-func TestConfigDirIgnoresLegacyDefaultEnvDir(t *testing.T) {
+func TestConfigDirIgnoresVibeCodingDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("MOTHX_DIR", "")
@@ -228,37 +218,7 @@ func TestConfigDirIgnoresLegacyDefaultEnvDir(t *testing.T) {
 		t.Fatalf("ConfigDir() = %q, want %q", got, want)
 	}
 	if ConfigDirOverridden() {
-		t.Fatal("default legacy VIBECODING_DIR should not count as a custom override")
-	}
-}
-
-func TestConfigDirIgnoresTildeLegacyDefaultEnvDir(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", "~/.vibecoding")
-
-	want := filepath.Join(home, ".mothx")
-	if got := ConfigDir(); got != want {
-		t.Fatalf("ConfigDir() = %q, want %q", got, want)
-	}
-	if ConfigDirOverridden() {
-		t.Fatal("tilde legacy VIBECODING_DIR should not count as a custom override")
-	}
-}
-
-func TestConfigDirHonorsCustomLegacyEnvDir(t *testing.T) {
-	home := t.TempDir()
-	custom := filepath.Join(home, "custom-vibecoding")
-	t.Setenv("HOME", home)
-	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", custom)
-
-	if got := ConfigDir(); got != custom {
-		t.Fatalf("ConfigDir() = %q, want %q", got, custom)
-	}
-	if !ConfigDirOverridden() {
-		t.Fatal("custom VIBECODING_DIR should count as a config override")
+		t.Fatal("VIBECODING_DIR must not override the MothX configuration directory")
 	}
 }
 

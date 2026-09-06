@@ -2,7 +2,8 @@ appId: net.mothx.desktop
 productName: MothX
 copyright: Copyright © 2026 MothX
 
-# The desktop app wraps the Go serve runtime and loads its embedded Web UI.
+# The desktop app is a pure ACP client: it spawns the vendored `mothx acp`
+# runtime over stdio and renders the standalone desktop/renderer frontend.
 # Keep the runtime unpacked so the vendored executable can be spawned directly.
 asar: false
 compression: maximum

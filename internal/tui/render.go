@@ -309,6 +309,9 @@ func (a *App) renderBuiltinFooter() string {
 	if a.esmFooter != "" {
 		rightParts = append(rightParts, a.esmFooter)
 	}
+	if expertStatus := a.expertFooter(); expertStatus != "" {
+		rightParts = append(rightParts, expertStatus)
+	}
 	rightStr := strings.Join(rightParts, " | ")
 	rightWidth := lipgloss.Width(rightStr)
 
@@ -362,6 +365,32 @@ func (a *App) renderBuiltinFooter() string {
 	leftLines[len(leftLines)-1] += strings.Repeat(" ", rightPadding) + rightStr
 
 	return footerStyle.Width(a.width).Render(strings.Join(leftLines, "\n"))
+}
+
+// expertFooter is a compact projection of Runtime-owned expert identity and
+// the member lifecycle evidence already observed by this TUI. It does not
+// resolve packages or maintain member state independently.
+func (a *App) expertFooter() string {
+	if a == nil || a.runtime == nil {
+		return ""
+	}
+	binding, _ := a.runtime.ExpertState()
+	if binding == nil {
+		return ""
+	}
+	if !binding.Team {
+		return "Expert:" + binding.ID
+	}
+	running := 0
+	for _, activity := range a.agentActivities {
+		if activity != nil && activity.MemberID != "" && activity.State == "running" {
+			running++
+		}
+	}
+	if running > 0 {
+		return fmt.Sprintf("Team:%s %d/%d active", binding.ID, running, len(binding.MemberDefs))
+	}
+	return fmt.Sprintf("Team:%s %d members", binding.ID, len(binding.MemberDefs))
 }
 
 func (a *App) renderApprovalFooterAlert() string {

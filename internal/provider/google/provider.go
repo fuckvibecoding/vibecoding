@@ -355,6 +355,7 @@ func sendRetryEventAndWait(ctx context.Context, ch chan<- provider.StreamEvent, 
 		RetryMaxAttempts: maxRetries,
 		RetryAfterMS:     int(delay.Milliseconds()),
 		Error:            fmt.Errorf("%s", provider.FormatRetryMessage(attempt, maxRetries, delay, err)),
+		RetryDetail:      provider.RetryErrorDetail(err),
 	}
 	return sleepOrAbort(ctx, delay, ch)
 }

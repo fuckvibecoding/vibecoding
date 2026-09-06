@@ -3,6 +3,7 @@ package dao
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/uptrace/bun"
 )
@@ -38,6 +39,30 @@ func (d *AttachmentDAO) Find(ctx context.Context, sessionID, attachmentID string
 	record := new(AttachmentRecord)
 	err := d.db.NewSelect().Model(record).Where("session_id = ? AND id = ?", sessionID, attachmentID).Limit(1).Scan(ctx)
 	return record, err
+}
+
+// ListBySessionStatus returns every attachment row of one session filtered by
+// lifecycle status in durable creation order. It backs read-only replay
+// projections such as generated-artifact listing; content stays in the
+// Runtime-owned private store.
+func (d *AttachmentDAO) ListBySessionStatus(ctx context.Context, sessionID, status string) ([]AttachmentRecord, error) {
+	var records []AttachmentRecord
+	err := d.db.NewSelect().Model(&records).Where("session_id = ? AND status = ?", sessionID, status).OrderExpr("created_at ASC, id ASC").Scan(ctx)
+	return records, err
+}
+
+// ListBySession returns attachment rows of one session in durable creation
+// order, optionally filtered by lifecycle status. An empty status returns
+// every row of the session. It backs metadata-only listing projections; the
+// content bytes stay in the Runtime-owned private store.
+func (d *AttachmentDAO) ListBySession(ctx context.Context, sessionID, status string) ([]AttachmentRecord, error) {
+	var records []AttachmentRecord
+	query := d.db.NewSelect().Model(&records).Where("session_id = ?", sessionID)
+	if status = strings.TrimSpace(status); status != "" {
+		query = query.Where("status = ?", status)
+	}
+	err := query.OrderExpr("created_at ASC, id ASC").Scan(ctx)
+	return records, err
 }
 
 func (d *AttachmentDAO) Expired(ctx context.Context, executor bun.IDB, now string) ([]AttachmentRecord, error) {

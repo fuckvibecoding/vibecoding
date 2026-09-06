@@ -28,7 +28,7 @@ func TestACPStdioProcessInitializeNewPromptClose(t *testing.T) {
 	}))
 	defer providerServer.Close()
 
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "process-test"
 	settings.DefaultModel = "process-model"
@@ -47,7 +47,7 @@ func TestACPStdioProcessInitializeNewPromptClose(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestACPStdioProcessHelper$")
-	cmd.Env = append(os.Environ(), "MOTHX_ACP_PROCESS_HELPER=1", "VIBECODING_DIR="+configDir)
+	cmd.Env = append(os.Environ(), "MOTHX_ACP_PROCESS_HELPER=1", "MOTHX_DIR="+configDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)

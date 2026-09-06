@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-P" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; script-src 'self'">
+<title>MothX Desktop</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <!-- 标题栏 -->
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <span class="app-logo" id="app-logo"></span>
+      <span class="app-name">MothX</span>
+      <span class="app-ver" id="app-ver">dev</span>
+      <button class="workspace-chip" id="workspace-chip" title="">
+        <span class="wc-icon" id="workspace-chip-icon"></span>
+        <span class="wc-name" id="workspace-chip-name">…</span>
+      </button>
+    </div>
+    <div class="win-controls" id="win-controls">
+      <button class="win-btn" id="win-min" data-i18n-title="win.minimize"><span class="wi" data-icon="minus"></span></button>
+      <button class="win-btn" id="win-max" data-i18n-title="win.maximize"><span class="wi" data-icon="square"></span></button>
+      <button class="win-btn close" id="win-close" data-i18n-title="win.close"><span class="wi" data-icon="x"></span></button>
+    </div>
+  </header>
+
+  <div class="app-body">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-scroll">
+        <button class="btn-new-task" id="btn-new-task"><span class="wi" data-icon="plus"></span><span data-i18n="nav.newTask">新建任务</span></button>
+        <div class="search-box">
+          <span class="wi sm" data-icon="search"></span>
+          <input id="task-search" data-i18n-placeholder="nav.searchPlaceholder" placeholder="搜索任务">
+        </div>
+
+        <div class="nav-item" data-nav="home"><span class="wi" data-icon="sparkle"></span><span class="nav-label" data-i18n="nav.home">首页</span></div>
+        <div class="nav-item" data-nav="skills"><span class="wi" data-icon="zap"></span><span class="nav-label" data-i18n="nav.skills">技能</span><span class="nav-sub" data-i18n="nav.skillsSub">/指令</span></div>
+        <div class="nav-item" data-nav="history"><span class="wi" data-icon="list"></span><span class="nav-label" data-i18n="nav.history">历史</span><span class="nav-sub" data-i18n="nav.historySub">全部会话</span></div>
+        <div class="nav-item" data-nav="automation"><span class="wi" data-icon="clock"></span><span class="nav-label" data-i18n="nav.automation">自动化</span><span class="nav-sub" data-i18n="nav.automationSub">定时任务</span></div>
+        <div class="nav-item" data-nav="library"><span class="wi" data-icon="book"></span><span class="nav-label" data-i18n="nav.library">资料库</span><span class="nav-sub" data-i18n="nav.gapSub">ACP 缺口</span></div>
+
+        <div class="nav-sep"></div>
+        <div class="section-title"><span data-i18n="nav.tasks">任务</span><span class="section-title-actions"><button id="task-history" title=""><span class="wi sm" data-icon="list"></span></button><button id="btn-new-task2" title=""><span class="wi sm" data-icon="plus"></span></button></span></div>
+        <section class="task-tree-section">
+          <div class="task-tree-label"><span data-i18n="tree.projects">项目</span><button id="btn-new-project" title=""><span class="wi sm" data-icon="plus"></span></button></div>
+          <div id="task-project-tree"></div>
+        </section>
+        <section class="task-tree-section">
+          <div class="task-tree-label" data-i18n="tree.recent">最近</div>
+          <div id="task-recent-list"></div>
+        </section>
+        <section class="task-tree-section">
+          <div class="task-tree-label" data-i18n="tree.ungrouped">未分组</div>
+          <div id="task-ungrouped-list"></div>
+        </section>
+        <div id="task-empty" class="task-empty" hidden></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span class="local-hint" id="local-hint" data-i18n="nav.localMode">本地模式 · ACP</span>
+        <button class="icon-btn" id="theme-toggle" title=""><span class="wi" data-icon="moon"></span></button>
+        <button class="icon-btn" id="settings-btn" title=""><span class="wi" data-icon="settings"></span></button>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="content">
+
+      <!-- 首页视图 -->
+      <section class="view active" id="view-home">
+        <div class="home-scroll">
+          <div class="home-inner">
+            <div class="hero">
+              <span class="hero-logo" id="hero-logo"></span>
+              <h1 class="hero-title">MothX<span class="accent-text" data-i18n="home.heroAccent"> : Make OSCHINA Tokens Harness eXecution</span></h1>
+              <div class="hero-subtitle" data-i18n="home.heroSubtitle">MothX用中国词元赋能你的任何工作</div>
+              <div class="hero-slogan" id="hero-conn"></div>
+            </div>
+
+            <div class="mode-tabs" id="mode-tabs">
+              <button class="mode-tab" data-preset="working" data-i18n="home.presetWorking">日常办公</button>
+              <button class="mode-tab active" data-preset="coding" data-i18n="home.presetCoding">代码开发</button>
+              <button class="mode-tab" data-preset="design" data-i18n="home.presetDesign">设计创意</button>
+            </div>
+            <div class="mode-desc" id="mode-desc"></div>
+            <div class="quick-actions" id="quick-actions"></div>
+
+            <div class="composer-wrap">
+              <div class="composer">
+                <div class="attach-row" id="attach-row-home" hidden></div>
+                <textarea id="home-input" rows="2" data-i18n-placeholder="home.composerPlaceholder" placeholder="今天帮你做些什么？ / 调用技能与指令"></textarea>
+                <div class="composer-bar">
+                  <button class="composer-tool" id="plus-btn" title=""><span class="wi sm" data-icon="plus"></span></button>
+                  <button class="composer-tool" id="knowledge-btn" data-knowledge-base-menu title=""><span class="wi sm" data-icon="book"></span></button>
+                  <button class="composer-tool" id="caps-btn" title=""><span class="wi sm" data-icon="shield"></span></button>
+                  <button class="composer-tool" id="mode-btn"><span class="wi sm" data-icon="sliders"></span><span id="mode-label">yolo</span></button>
+                  <button class="composer-tool model" id="model-btn"><span class="wi sm" data-icon="cpu"></span><span id="model-label">…</span><span class="wi sm" data-icon="chevron"></span></button>
+                  <div class="composer-spacer"></div>
+                  <button class="btn-send" id="send-home" title=""><span class="wi" data-icon="send"></span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 聊天/任务视图 -->
+      <section class="view" id="view-chat">
+        <div class="chat-header">
+          <span class="status-chip st-completed" id="chat-status"><span class="dot"></span><span id="chat-status-label">…</span></span>
+          <div class="chat-title" id="chat-title">…</div>
+          <div class="chat-header-actions">
+            <button class="icon-btn" id="chat-fork" title=""><span class="wi sm" data-icon="share"></span></button>
+            <button class="icon-btn" id="chat-rename" title=""><span class="wi sm" data-icon="edit"></span></button>
+            <button class="icon-btn" id="chat-delete" title=""><span class="wi sm" data-icon="trash"></span></button>
+          </div>
+        </div>
+        <div class="chat-stream" id="chat-stream">
+          <div class="chat-inner" id="chat-inner"></div>
+        </div>
+        <div class="chat-footer">
+          <div class="composer-inner">
+            <div class="composer">
+              <div class="attach-row" id="attach-row-chat" hidden></div>
+              <textarea id="chat-input" rows="1" data-i18n-placeholder="chat.inputPlaceholder" placeholder="输入消息..."></textarea>
+              <div class="composer-bar">
+                  <button class="composer-tool" id="plus-btn2" title=""><span class="wi sm" data-icon="plus"></span></button>
+                  <button class="composer-tool" id="knowledge-btn2" data-knowledge-base-menu title=""><span class="wi sm" data-icon="book"></span></button>
+                  <button class="composer-tool" id="caps-btn2" title=""><span class="wi sm" data-icon="shield"></span></button>
+                <button class="composer-tool" id="mode-btn2"><span class="wi sm" data-icon="sliders"></span><span class="mode-label2">yolo</span></button>
+                <button class="composer-tool model" id="model-btn2"><span class="wi sm" data-icon="cpu"></span><span class="model-label2">…</span><span class="wi sm" data-icon="chevron"></span></button>
+                <div class="composer-spacer"></div>
+                <button class="btn-send stop" id="cancel-chat" hidden title=""><span class="wi" data-icon="stop"></span></button>
+                <button class="btn-send" id="send-chat" title=""><span class="wi" data-icon="send"></span></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 技能视图 -->
+      <section class="view" id="view-skills">
+        <div class="page-scroll"><div class="page-inner">
+          <div class="page-head">
+            <div>
+              <div class="page-title" data-i18n="skills.title">技能 · 指令</div>
+              <div class="page-subtitle" data-i18n="skills.subtitle">来自 ACP available_commands_update：项目技能与内置指令，点击注入到输入框。</div>
+            </div>
+          </div>
+          <div class="card-grid" id="skills-grid"></div>
+          <div class="empty" id="skills-empty" hidden>
+            <span class="wi lg" data-icon="zap"></span>
+            <div class="empty-title" data-i18n="skills.empty">当前会话还没有可用技能</div>
+          </div>
+        </div></div>
+      </section>
+
+      <!-- 历史管理视图：项目仅作为查询/组织维度，不再拥有独立管理页。 -->
+      <section class="view" id="view-history">
+        <div class="page-scroll"><div class="page-inner">
+          <div class="page-head">
+            <div>
+              <div class="page-title" data-i18n="history.title">历史任务</div>
+              <div class="page-subtitle" data-i18n="history.subtitle">搜索所有会话；项目仅用于组织，工作目录属于每个会话。</div>
+            </div>
+          </div>
+          <div class="history-controls">
+            <label class="history-search"><span class="wi sm" data-icon="search"></span><input id="history-search" data-i18n-placeholder="history.searchPlaceholder" placeholder="搜索 ID、标题、目录或项目"></label>
+            <select id="history-scope" aria-label="History scope">
+              <option value="all" data-i18n="history.scopeAll">全部对话</option>
+              <option value="ungrouped" data-i18n="history.scopeUngrouped">未分组</option>
+              <option value="project" data-i18n="history.scopeProject">项目</option>
+            </select>
+            <select id="history-project" aria-label="Project" hidden></select>
+          </div>
+          <div class="row-list" id="history-list"></div>
+          <div class="history-more"><button class="btn-ghost" id="history-load-more" hidden data-i18n="history.loadMore">加载更多</button></div>
+          <div class="empty" id="history-empty" hidden>
+            <span class="wi lg" data-icon="search"></span>
+            <div class="empty-title" data-i18n="history.noResults">没有匹配的历史会话</div>
+          </div>
+        </div></div>
+      </section>
+
+      <!-- 自动化视图（Phase 3 实体化；无 manageCron 能力时显示缺口卡片） -->
+      <section class="view" id="view-automation">
+        <div class="page-scroll"><div class="page-inner">
+          <div class="page-head">
+            <div>
+              <div class="page-title" data-i18n="automation.title">自动化 · 定时任务</div>
+              <div class="page-subtitle" data-i18n="automation.subtitle">让 Agent 按计划自动运行（cron 调度随桌面在线生效）。</div>
+            </div>
+            <div class="spacer"></div>
+            <button class="btn-primary" id="automation-new"><span class="wi sm" data-icon="plus"></span><span data-i18n="automation.new">新建自动化</span></button>
+          </div>
+          <div class="gap-card" id="automation-gap">
+            <span class="wi lg" data-icon="clock"></span>
+            <div class="gap-title" data-i18n="gap.title">当前运行时未声明该能力</div>
+            <div class="gap-desc" data-i18n="gap.automationDesc">当前 MothX runtime 没有通过 ACP 声明 cron/自动化能力。升级或切换到支持该能力的 runtime 后可直接使用。</div>
+            <div class="gap-meta" id="gap-automation-meta"></div>
+          </div>
+          <div class="row-list" id="automation-list" hidden></div>
+        </div></div>
+      </section>
+
+      <!-- 资料库占位视图（ACP 能力缺口） -->
+      <section class="view" id="view-library">
+        <div class="page-scroll"><div class="page-inner">
+          <div class="page-head">
+            <div>
+              <div class="page-title" data-i18n="gap.libraryTitle">资料库 · 制品</div>
+              <div class="page-subtitle" data-i18n="gap.librarySubtitle">任务产生的制品与引用的资产文件统一沉淀。</div>
+            </div>
+          </div>
+          <div class="gap-card" id="library-gap">
+            <span class="wi lg" data-icon="book"></span>
+            <div class="gap-title" data-i18n="gap.libraryTitleShort">制品库依赖 ACP 制品投影</div>
+            <div class="gap-desc" data-i18n="gap.libraryDesc">当前 MothX runtime 没有通过 ACP 声明制品清单能力。支持 attachment ID 的制品仍可在对应对话中查看。</div>
+          </div>
+          <div class="row-list" id="library-list" hidden></div>
+        </div></div>
+      </section>
+
+      <!-- 设置视图 -->
+      <section class="view" id="view-settings">
+        <div class="settings-three-pane">
+          <aside class="settings-category-pane" id="settings-category-nav" aria-label="Settings categories"></aside>
+          <aside class="settings-tab-pane" id="settings-tab-nav" aria-label="Settings sections"></aside>
+          <div class="settings-detail-pane">
+            <div class="page-scroll"><div class="page-inner settings-page-inner">
+              <div class="page-head settings-detail-head">
+                <div>
+                  <div class="page-title" id="settings-detail-title">设置</div>
+                  <div class="page-subtitle" id="settings-detail-subtitle">工作区、外观、运行时诊断与关于。</div>
+                </div>
+              </div>
+
+          <section class="settings-panel" data-settings-panel="workspace">
+          <div class="group-label" data-i18n="settings.workspace">工作区</div>
+          <div class="row-list">
+            <div class="row-item">
+              <div class="row-icon" id="settings-ws-icon"></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.currentWorkspace">新会话默认工作目录</div>
+                <div class="row-desc" id="settings-ws-path">…</div>
+              </div>
+              <button class="btn-ghost" id="settings-ws-choose"><span class="wi sm" data-icon="folder"></span><span data-i18n="settings.choose">选择目录</span></button>
+            </div>
+            <div id="settings-ws-recent"></div>
+            <div class="row-item">
+              <div class="row-icon"><span class="wi sm" data-icon="folder"></span></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.sessionWorkDir">会话独立工作目录</div>
+                <div class="row-desc" data-i18n="settings.sessionWorkDirDesc">每个会话保存自己的工作目录；更改默认目录不会重启 ACP、筛选任务或影响已有会话。默认不限制目录选择。</div>
+              </div>
+            </div>
+          </div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="appearance">
+          <div class="group-label" data-i18n="settings.appearance">外观</div>
+          <div class="row-list">
+            <div class="row-item">
+              <div class="row-icon" id="settings-theme-icon"></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.theme">主题</div>
+                <div class="row-desc" data-i18n="settings.themeDesc">IDE Light / IDE Night</div>
+              </div>
+              <div class="seg-toggle" id="settings-theme-toggle">
+                <button data-theme-value="light" data-i18n="settings.light">浅色</button>
+                <button data-theme-value="dark" data-i18n="settings.dark">深色</button>
+              </div>
+            </div>
+            <div class="row-item">
+              <div class="row-icon" id="settings-lang-icon"></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.language">语言</div>
+                <div class="row-desc" data-i18n="settings.languageDesc">界面语言</div>
+              </div>
+              <div class="seg-toggle" id="settings-lang-toggle">
+                <button data-lang-value="zh">中文</button>
+                <button data-lang-value="en">English</button>
+              </div>
+            </div>
+            <div class="row-item appearance-background-row">
+              <div class="row-icon" id="settings-home-bg-icon"></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.homeBackground">首页背景图片</div>
+                <div class="row-desc" id="settings-home-bg-path" data-i18n="settings.homeBackgroundNone">未设置，将使用默认首页背景</div>
+              </div>
+              <div class="appearance-actions">
+                <button class="btn-ghost" id="settings-home-bg-choose"><span class="wi sm" data-icon="image"></span><span data-i18n="settings.homeBackgroundChoose">选择图片</span></button>
+                <button class="btn-ghost" id="settings-home-bg-clear"><span class="wi sm" data-icon="x"></span><span data-i18n="settings.homeBackgroundClear">清除</span></button>
+              </div>
+            </div>
+            <div class="row-item appearance-range-row">
+              <div class="row-icon" id="settings-home-opacity-icon"></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.homeBackgroundOpacity">图片透明度</div>
+                <div class="row-desc" data-i18n="settings.homeBackgroundOpacityDesc">降低透明度可提高首页文字的可读性</div>
+              </div>
+              <div class="appearance-range-control">
+                <input type="range" id="settings-home-bg-opacity" min="0" max="100" step="1" value="32" aria-label="Home background image opacity">
+                <output id="settings-home-bg-opacity-value">32%</output>
+              </div>
+            </div>
+            <div class="row-item appearance-range-row">
+              <div class="row-icon" id="settings-home-blur-icon"></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.homeBackgroundBlur">图片模糊</div>
+                <div class="row-desc" data-i18n="settings.homeBackgroundBlurDesc">为背景增加轻微模糊，避免干扰内容</div>
+              </div>
+              <div class="appearance-range-control">
+                <input type="range" id="settings-home-bg-blur" min="0" max="24" step="1" value="0" aria-label="Home background image blur">
+                <output id="settings-home-bg-blur-value">0px</output>
+              </div>
+            </div>
+          </div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="application">
+          <div class="group-label" data-i18n="settings.application">Agent 应用配置</div>
+          <div class="application-settings-root" id="manage-application"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="env">
+          <div class="group-label" data-i18n="settings.envGroup">环境变量</div>
+          <div class="application-settings-root" id="manage-env"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="runtime">
+          <div class="group-label" data-i18n="settings.runtime">运行时（ACP）</div>
+          <div class="row-list">
+            <div class="row-item">
+              <div class="row-icon" id="settings-conn-icon"></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.connection">连接状态</div>
+                <div class="row-desc" id="settings-conn-detail">…</div>
+              </div>
+              <button class="btn-ghost" id="settings-restart"><span class="wi sm" data-icon="refresh"></span><span data-i18n="settings.restart">重启运行时</span></button>
+            </div>
+            <div class="row-item">
+              <div class="row-icon" id="settings-doctor-icon"></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.doctor">诊断（mothx/doctor）</div>
+                <div class="row-desc" data-i18n="settings.doctorDesc">检查 provider / model / 配置可用性</div>
+              </div>
+              <button class="btn-ghost" id="settings-run-doctor"><span class="wi sm" data-icon="shield"></span><span data-i18n="settings.run">运行</span></button>
+            </div>
+          </div>
+          <div id="doctor-result"></div>
+          <div class="group-label" data-i18n="settings.diagnosticLogs">本地诊断日志</div>
+          <div class="diagnostic-logs-root" id="diagnostic-logs">
+            <div class="diagnostic-logs-toolbar">
+              <input type="text" id="diagnostic-logs-filter" class="diagnostic-logs-filter settings-input" data-i18n-placeholder="settings.diagnosticLogsFilter" placeholder="过滤日志内容" />
+              <span class="diagnostic-logs-count" id="diagnostic-logs-count"></span>
+              <button class="btn-ghost" id="diagnostic-logs-refresh"><span class="wi sm" data-icon="refresh"></span><span data-i18n="common.refresh">刷新</span></button>
+            </div>
+            <div class="diagnostic-logs-frame">
+              <div class="diagnostic-logs-list" id="diagnostic-logs-list"></div>
+              <div class="diagnostic-logs-empty" id="diagnostic-logs-empty" data-i18n="settings.diagnosticLogsEmpty">暂无日志</div>
+            </div>
+          </div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="providers">
+          <div class="group-label" data-i18n="settings.providers">供应商与模型</div>
+          <div class="provider-settings-root" id="manage-providers"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="knowledge">
+          <div class="group-label" data-i18n="settings.knowledgeGroup">知识库</div>
+          <div class="application-settings-root" id="manage-knowledge-bases"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="skills">
+          <div class="group-label" data-i18n="settings.skillsGroup">技能启停</div>
+          <div class="row-list" id="manage-skills"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="skillhub">
+          <div class="group-label" data-i18n="settings.skillhubGroup">SkillHub 市场</div>
+          <div class="application-settings-root" id="manage-skillhub"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="mcp">
+          <div class="group-label" data-i18n="settings.mcpGroup">MCP 服务器</div>
+          <div class="row-list" id="manage-mcp"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="memory">
+          <div class="group-label" data-i18n="settings.memoryGroup">记忆（memory.md）</div>
+          <div class="row-list">
+            <div class="row-item" style="align-items:flex-start">
+              <div class="row-main">
+                <textarea class="modal-input" id="manage-memory-input" rows="6" style="width:100%;resize:vertical"></textarea>
+              </div>
+              <button class="btn-ghost" id="manage-memory-save"><span class="wi sm" data-icon="edit"></span><span data-i18n="settings.memorySave">保存</span></button>
+            </div>
+          </div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="cron">
+          <div class="group-label" data-i18n="settings.cronGroup">自动化 / Cron</div>
+          <div class="application-settings-root" id="manage-cron"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="channels">
+          <div class="group-label" data-i18n="settings.channelsGroup">Channels</div>
+          <div class="application-settings-root" id="manage-channels"></div>
+          </section>
+          <section class="settings-panel" data-settings-panel="serve">
+          <div class="group-label" data-i18n="settings.serveGroup">Serve 配置</div>
+          <div class="application-settings-root" id="manage-serve"></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="stats">
+          <div class="group-label" data-i18n="settings.statsGroup">用量统计</div>
+          <div class="card-grid" id="manage-stats"></div>
+          <div class="group-label" data-i18n="stats.days">近 14 天运行</div>
+          <div class="row-list"><div class="row-item" style="display:block"><div id="manage-stats-chart" style="display:flex;align-items:flex-end;gap:4px;height:90px;padding:8px 4px"></div></div></div>
+          </section>
+
+          <section class="settings-panel" data-settings-panel="about">
+          <div class="group-label" data-i18n="settings.about">关于</div>
+          <div class="row-list">
+            <div class="row-item">
+              <div class="row-icon" id="settings-about-icon"></div>
+              <div class="row-main">
+                <div class="row-title">MothX Desktop</div>
+                <div class="row-desc" id="settings-about-detail">…</div>
+              </div>
+            </div>
+          </div>
+          </section>
+            </div></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- 状态栏 -->
+  <footer class="statusbar">
+    <div class="sb-left">
+      <span class="sb-item" id="sb-conn"><span class="sb-dot"></span><span id="sb-conn-label">…</span></span>
+      <span class="sb-item" id="sb-version">MothX Desktop</span>
+    </div>
+    <div class="sb-right">
+      <span class="sb-item" id="sb-usage" hidden></span>
+      <span class="sb-item" id="sb-mode"><span class="wi sm" data-icon="sliders"></span><span id="sb-mode-label">…</span></span>
+      <span class="sb-item" id="sb-model"><span class="wi sm" data-icon="cpu"></span><span id="sb-model-label">…</span></span>
+      <span class="sb-item" id="sb-workspace"><span class="wi sm" data-icon="folder"></span><span id="sb-workspace-label">…</span></span>
+    </div>
+  </footer>
+</div>
+
+<!-- 弹出菜单 -->
+<div class="pop-menu" id="plus-menu">
+  <div class="pop-item" id="plus-attach"><span class="wi sm" data-icon="clip"></span><span class="p-label" data-i18n="menu.addFiles">添加文件</span></div>
+  <div class="pop-sep"></div>
+  <div class="pop-head" data-i18n="menu.skillsHead">技能与指令</div>
+  <div id="plus-commands"></div>
+</div>
+
+<div class="pop-menu" id="knowledge-menu"></div>
+<div class="pop-menu" id="model-menu"></div>
+<div class="pop-menu" id="mode-menu"></div>
+<div class="pop-menu" id="caps-menu"></div>
+
+<!-- 重命名对话框 -->
+<div class="modal-backdrop" id="rename-modal" hidden>
+  <div class="modal">
+    <div class="modal-title" data-i18n="modal.renameTitle">重命名任务</div>
+    <input class="modal-input" id="rename-input" type="text" maxlength="120">
+    <div class="modal-actions">
+      <button class="btn-ghost" id="rename-cancel" data-i18n="modal.cancel">取消</button>
+      <button class="btn-primary" id="rename-ok" data-i18n="modal.ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 图片预览 -->
+<div class="modal-backdrop" id="preview-modal" hidden>
+  <div class="modal preview">
+    <img id="preview-image" alt="">
+    <div class="modal-actions">
+      <button class="btn-ghost" id="preview-close" data-i18n="modal.close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新建自动化对话框 -->
+<div class="modal-backdrop" id="cron-modal" hidden>
+  <div class="modal">
+    <div class="modal-title" data-i18n="automation.new">新建自动化</div>
+    <input class="modal-input" id="cron-name" type="text" data-i18n-placeholder="automation.name" placeholder="名称">
+    <input class="modal-input" id="cron-schedule" type="text" placeholder="0 9 * * *" data-i18n-placeholder="automation.schedule">
+    <textarea class="modal-input" id="cron-prompt" rows="3" data-i18n-placeholder="automation.prompt" placeholder="任务提示词"></textarea>
+    <select class="modal-input" id="cron-mode">
+      <option value="yolo">yolo</option>
+      <option value="agent">agent</option>
+      <option value="plan">plan</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn-ghost" id="cron-cancel" data-i18n="modal.cancel">取消</button>
+      <button class="btn-primary" id="cron-ok" data-i18n="modal.ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="main.js"></script>
+</body>
+</html>

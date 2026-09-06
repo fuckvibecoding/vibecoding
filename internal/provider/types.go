@@ -488,6 +488,7 @@ type StreamEvent struct {
 	RetryMax          int            // Deprecated: use RetryMaxAttempts.
 	RetryMaxAttempts  int            // for StreamRetry: maximum retry attempts
 	RetryAfterMS      int            // for StreamRetry: delay before the next attempt, in milliseconds
+	RetryDetail       string         // for StreamRetry: sanitized single-line provider diagnostic for optional UI display; never affects retry behavior
 	ProviderEventType string         // provider-native event type, sanitized
 	ItemID            string         // protocol item id, when provider-neutral
 	CallID            string         // protocol tool/function call id, when provider-neutral

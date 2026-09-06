@@ -850,6 +850,7 @@ func (s *Server) executeBackgroundRun(sess *APISession, runID, intentID string, 
 		ConversationTurn: true, RuntimeOwnsTurnEnd: true,
 		ThinkingLevel: provider.ThinkingLevel(s.cfg.DefaultThinkingLevel),
 		MultiAgent:    sess.MultiAgent, DelegateMode: sess.DelegateMode, Workflows: sess.Workflows,
+		GetSteeringMessages: s.esmSteeringMessages(sess.ID),
 	})
 	if err != nil {
 		terminalErrMsg = err.Error()

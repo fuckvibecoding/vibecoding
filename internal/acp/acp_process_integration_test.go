@@ -19,7 +19,7 @@ import (
 func TestACPStdioProcessInitializeLoadResumeClose(t *testing.T) {
 	configDir := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "process-test"
 	settings.DefaultModel = "process-model"
@@ -54,7 +54,7 @@ func TestACPStdioProcessInitializeLoadResumeClose(t *testing.T) {
 	}
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestACPStdioProcessHelper$")
-	cmd.Env = append(os.Environ(), "MOTHX_ACP_PROCESS_HELPER=1", "VIBECODING_DIR="+configDir)
+	cmd.Env = append(os.Environ(), "MOTHX_ACP_PROCESS_HELPER=1", "MOTHX_DIR="+configDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestACPStdioProcessInitializeLoadResumeClose(t *testing.T) {
 func TestACPStdioProcessInitializeDoctorWithoutSession(t *testing.T) {
 	configDir := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "doctor-process"
 	settings.DefaultModel = "doctor-model"
@@ -137,7 +137,7 @@ func TestACPStdioProcessInitializeDoctorWithoutSession(t *testing.T) {
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestACPStdioProcessHelper$")
 	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), "MOTHX_ACP_PROCESS_HELPER=1", "VIBECODING_DIR="+configDir)
+	cmd.Env = append(os.Environ(), "MOTHX_ACP_PROCESS_HELPER=1", "MOTHX_DIR="+configDir)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -190,7 +190,7 @@ func TestACPStdioProcessInitializeDoctorWithoutSession(t *testing.T) {
 
 func TestACPStartupFailureEmitsStructuredErrorLine(t *testing.T) {
 	configDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "doctor-missing-key"
 	settings.DefaultModel = "doctor-model"
@@ -208,7 +208,7 @@ func TestACPStartupFailureEmitsStructuredErrorLine(t *testing.T) {
 
 	cmd := exec.Command(os.Args[0], "-test.run=^TestACPStartupFailureProcessHelper$")
 	cmd.Dir = t.TempDir()
-	cmd.Env = append(os.Environ(), "MOTHX_ACP_STARTUP_FAILURE_HELPER=1", "VIBECODING_DIR="+configDir)
+	cmd.Env = append(os.Environ(), "MOTHX_ACP_STARTUP_FAILURE_HELPER=1", "MOTHX_DIR="+configDir)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -242,7 +242,24 @@ func TestACPStdioProcessHelper(t *testing.T) {
 	if os.Getenv("MOTHX_ACP_PROCESS_HELPER") != "1" {
 		return
 	}
-	if err := Run(RunOptions{}); err != nil {
+	// Phase 1 wire tests drive the same helper with additive scenario options;
+	// the defaults keep every pre-existing process test unchanged.
+	opts := RunOptions{}
+	if os.Getenv("MOTHX_ACP_HELPER_MULTI_AGENT") == "1" {
+		opts.MultiAgent = true
+		opts.Delegate = true
+	}
+	if value := os.Getenv("MOTHX_ACP_HELPER_QUESTION_TIMEOUT"); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
+			opts.QuestionTimeout = parsed
+		}
+	}
+	if value := os.Getenv("MOTHX_ACP_HELPER_PERMISSION_TIMEOUT"); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
+			opts.PermissionTimeout = parsed
+		}
+	}
+	if err := Run(opts); err != nil {
 		t.Fatal(err)
 	}
 }

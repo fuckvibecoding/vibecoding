@@ -192,6 +192,11 @@ func EventToPublic(e Event) agentpkg.Event {
 	return agentpkg.Event{
 		AgentID:                   agentpkg.AgentID(e.AgentID),
 		Type:                      EventTypeToPublic(e.Type),
+		MemberID:                  e.MemberID,
+		ExpertID:                  e.ExpertID,
+		MemberDisplayName:         e.MemberDisplayName,
+		MemberEmoji:               e.MemberEmoji,
+		MemberRole:                e.MemberRole,
 		Messages:                  MessagesToPublic(e.Messages),
 		TurnMessage:               MessageToPublic(e.TurnMessage),
 		TurnToolResults:           MessagesToPublic(e.TurnToolResults),
@@ -207,6 +212,7 @@ func EventToPublic(e Event) agentpkg.Event {
 		ToolDiff:                  FileDiffToPublic(e.ToolDiff),
 		ToolError:                 e.ToolError,
 		ToolExecutionState:        e.ToolExecutionState,
+		ToolImages:                ToolImagesToPublic(e.ToolImages),
 		PartialResult:             e.PartialResult,
 		Plan:                      TaskPlanToPublic(e.Plan),
 		StatusMessage:             e.StatusMessage,
@@ -235,6 +241,19 @@ func EventToPublic(e Event) agentpkg.Event {
 		Attachments:               AttachmentsToPublic(e.Attachments),
 		ContextUsage:              ContextUsageToPublic(e.ContextUsage),
 	}
+}
+
+// ToolImagesToPublic converts internal tool result images to the public SDK
+// type. The base64 payload is passed through unchanged.
+func ToolImagesToPublic(images []ToolImage) []agentpkg.ToolImage {
+	if len(images) == 0 {
+		return nil
+	}
+	result := make([]agentpkg.ToolImage, 0, len(images))
+	for _, image := range images {
+		result = append(result, agentpkg.ToolImage{MimeType: image.MimeType, Data: image.Data})
+	}
+	return result
 }
 
 // EventTypeToPublic converts the internal event enum to the public enum.

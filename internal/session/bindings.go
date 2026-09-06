@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/startvibecoding/mothx/internal/dao"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -203,4 +204,76 @@ func (m *Manager) SetSessionBinding(channelType, channelID string) error {
 	}
 	m.header.ChannelType, m.header.ChannelID = channelType, channelID
 	return nil
+}
+
+// SetExpertBinding updates the session's expert binding (empty string
+// unbinds). It patches the in-memory header and persists the sessions row so
+// reloads restore the identity; callers rebuild the Agent afterwards (same
+// lifecycle as capability toggles such as /delegate).
+func (m *Manager) SetExpertBinding(expertID string) error {
+	m.mu.Lock()
+	if m.header == nil {
+		m.mu.Unlock()
+		return fmt.Errorf("session is not initialized")
+	}
+	sessionID := m.header.ID
+	m.header.ExpertID = expertID
+	m.mu.Unlock()
+	return m.withDB(func(db *dao.Database) error {
+		return dao.NewSessionDAO(db.Bun()).UpdateSessionExpertID(context.Background(), db.Bun(), m.sessionTable(), sessionID, expertID)
+	})
+}
+
+// SetWorkDir changes the persisted working directory of an idle session. The
+// caller is responsible for ensuring that the new directory is authorized and
+// for rebuilding any Runtime resources that were assembled for the old one.
+func (m *Manager) SetWorkDir(cwd string) error {
+	cwd = strings.TrimSpace(cwd)
+	if cwd == "" || !filepath.IsAbs(cwd) {
+		return fmt.Errorf("session work directory must be an absolute path")
+	}
+	cwd = filepath.Clean(cwd)
+
+	m.mu.Lock()
+	if m.header == nil {
+		m.mu.Unlock()
+		return fmt.Errorf("session is not initialized")
+	}
+	if m.header.Cwd == cwd {
+		m.cwd = cwd
+		m.mu.Unlock()
+		return nil
+	}
+	sessionID, previousCwd := m.header.ID, m.header.Cwd
+	m.header.Cwd = cwd
+	m.cwd = cwd
+	m.mu.Unlock()
+
+	err := m.withDB(func(db *dao.Database) error {
+		return dao.NewSessionDAO(db.Bun()).UpdateSessionCWD(context.Background(), db.Bun(), m.sessionTable(), sessionID, cwd)
+	})
+	if err == nil {
+		return nil
+	}
+
+	// Keep the in-memory manager truthful when persistence failed. Do not
+	// overwrite a newer concurrent update if this manager was deliberately
+	// changed again while the DB operation was in flight.
+	m.mu.Lock()
+	if m.header != nil && m.header.ID == sessionID && m.header.Cwd == cwd {
+		m.header.Cwd = previousCwd
+		m.cwd = previousCwd
+	}
+	m.mu.Unlock()
+	return err
+}
+
+// GetExpertID returns the bound expert bundle name ("" when unbound).
+func (m *Manager) GetExpertID() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.header == nil {
+		return ""
+	}
+	return m.header.ExpertID
 }

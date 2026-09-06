@@ -23,6 +23,7 @@ import (
 	"github.com/startvibecoding/mothx/internal/config"
 	"github.com/startvibecoding/mothx/internal/cron"
 	"github.com/startvibecoding/mothx/internal/dao"
+	"github.com/startvibecoding/mothx/internal/esm"
 	"github.com/startvibecoding/mothx/internal/messaging"
 	"github.com/startvibecoding/mothx/internal/provider"
 	"github.com/startvibecoding/mothx/internal/sandbox"
@@ -1135,6 +1136,46 @@ func TestToolCatalogMultiAgentFlagControlsDefaultOnly(t *testing.T) {
 	}
 }
 
+func TestResolveSessionBoundTeamExpertUsesSessionManager(t *testing.T) {
+	workDir := t.TempDir()
+	settings := config.DefaultSettings()
+	settings.SessionDir = t.TempDir()
+	settings.ContextFiles.Enabled = false
+	cfg := DefaultConfig()
+	cfg.WorkDir = workDir
+	cfg.MultiAgent = false
+	p := newRecordingChannelProvider()
+	d := &Dispatcher{
+		cfg: cfg, settings: settings, allow: &config.AllowConfig{}, sessionDir: settings.SessionDir,
+		security: NewSecurity(cfg), hooksMgr: hooks.NewManager("", ""), provider: p, model: p.models[0],
+		sessions: make(map[string]*ChannelSession), identityLocks: session.NewIdentityLocks(),
+	}
+	bound, err := session.CreateBound(workDir, settings.SessionDir, "wechat", "team-manager")
+	if err != nil {
+		t.Fatalf("create bound session: %v", err)
+	}
+	if err := bound.SetExpertBinding("software-company"); err != nil {
+		t.Fatalf("bind team expert: %v", err)
+	}
+
+	sess, err := d.resolveSession("wechat", "team-manager")
+	if err != nil {
+		t.Fatalf("resolve expert session: %v", err)
+	}
+	if sess.AgentMgr == nil || sess.AgentMgr.Members == nil {
+		t.Fatal("team channel session did not receive a session-scoped agent manager")
+	}
+	if d.agentMgr != nil && sess.AgentMgr == d.agentMgr {
+		t.Fatal("team channel session reused the dispatcher-wide agent manager")
+	}
+	if _, ok := sess.AgentMgr.Members.Get("software-engineer"); !ok {
+		t.Fatalf("team manager members = %v, missing software-engineer", sess.AgentMgr.Members.IDs())
+	}
+	if _, ok := sess.Registry.Get("subagent_spawn"); !ok {
+		t.Fatal("team channel registry missing subagent_spawn")
+	}
+}
+
 func TestToolCatalogEveryAvailableSelectionMatchesRegistry(t *testing.T) {
 	workDir := t.TempDir()
 	settings := config.DefaultSettings()
@@ -1245,6 +1286,42 @@ func TestBuildAgentLoadsReplayState(t *testing.T) {
 	if !foundRecentUser {
 		t.Fatal("channel agent lost recent user message from replay state")
 	}
+}
+
+func TestBuildAgentInjectsChangedESMObjective(t *testing.T) {
+	workDir := t.TempDir()
+	settings := config.DefaultSettings()
+	settings.SessionDir = t.TempDir()
+	mgr := session.New(workDir, settings.SessionDir)
+	if err := mgr.Init(); err != nil {
+		t.Fatal(err)
+	}
+	p := newRecordingChannelProvider()
+	d := &Dispatcher{
+		cfg: DefaultConfig(), settings: settings, sessionDir: settings.SessionDir,
+		hooksMgr: hooks.NewManager("", ""), provider: p, model: p.models[0],
+	}
+	sess := &ChannelSession{
+		ID: mgr.GetHeader().ID, Platform: "ws", UserID: "steering-user", WorkDir: workDir,
+		Manager: mgr, Registry: tools.NewRegistry(workDir, sandbox.NewNoneSandbox()), Mode: "yolo",
+	}
+	if _, err := esm.NewStore(settings.SessionDir).Create(context.Background(), sess.ID, "finish the channel objective"); err != nil {
+		t.Fatal(err)
+	}
+
+	a, cleanup := d.buildAgent(context.Background(), sess, nil)
+	defer cleanup(nil)
+	for range a.Run(context.Background(), "continue") {
+	}
+	if len(p.calls) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(p.calls))
+	}
+	for _, message := range p.calls[0].Messages {
+		if message.SystemInjected && strings.Contains(message.Content, "finish the channel objective") {
+			return
+		}
+	}
+	t.Fatalf("channel provider messages missing ESM steering: %#v", p.calls[0].Messages)
 }
 
 func TestBuildAgentUsesCompactionSettings(t *testing.T) {

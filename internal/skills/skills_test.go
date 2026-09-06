@@ -3,7 +3,9 @@ package skills
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func TestNewManager(t *testing.T) {
@@ -19,6 +21,37 @@ func TestNewManager(t *testing.T) {
 
 	if m.projectDir != "/project" {
 		t.Errorf("expected projectDir '/project', got '%s'", m.projectDir)
+	}
+}
+
+func TestLoadFSLoadsEmbeddedSkillAndReference(t *testing.T) {
+	fsys := fstest.MapFS{
+		"bundle/skills/embedded/SKILL.md": {
+			Data: []byte("# Embedded Skill\n### Guide (references/guide.md) [已加载]\n"),
+		},
+		"bundle/skills/embedded/references/guide.md": {
+			Data: []byte("# Embedded Guide\nUse the shared runtime."),
+		},
+	}
+	m := NewManager("", "")
+	if err := m.LoadFS(fsys, "bundle/skills", "expert"); err != nil {
+		t.Fatalf("load embedded skills: %v", err)
+	}
+
+	skill := m.Get("embedded")
+	if skill == nil {
+		t.Fatal("embedded skill missing")
+	}
+	if skill.Source != "expert" {
+		t.Fatalf("skill source = %q, want expert", skill.Source)
+	}
+	context := m.BuildSkillContext("embedded")
+	if !strings.Contains(context, "Embedded Guide") {
+		t.Fatalf("auto-loaded embedded reference missing from context: %q", context)
+	}
+	content, ok := m.LoadReference("embedded", "references/guide.md")
+	if !ok || !strings.Contains(content, "shared runtime") {
+		t.Fatalf("embedded reference = %q, %v", content, ok)
 	}
 }
 
@@ -427,7 +460,7 @@ func TestParseReferences(t *testing.T) {
 - [概述](references/overview.md)
 `
 
-	refs := parseReferences(content, tmpDir)
+	refs := parseReferences(content, tmpDir, nil)
 	if len(refs) != 3 {
 		t.Fatalf("expected 3 references, got %d", len(refs))
 	}
@@ -462,14 +495,14 @@ func TestParseReferencesDedup(t *testing.T) {
 ### 1. Base (references/base.md) [已加载]
 - [Base](references/base.md)
 `
-	refs := parseReferences(content, tmpDir)
+	refs := parseReferences(content, tmpDir, nil)
 	if len(refs) != 1 {
 		t.Errorf("expected 1 reference (deduped), got %d", len(refs))
 	}
 }
 
 func TestParseReferencesEmpty(t *testing.T) {
-	refs := parseReferences("# No references here", "/tmp")
+	refs := parseReferences("# No references here", "/tmp", nil)
 	if len(refs) != 0 {
 		t.Errorf("expected 0 references, got %d", len(refs))
 	}

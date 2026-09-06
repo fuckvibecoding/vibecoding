@@ -25,7 +25,7 @@ func TestServeHTTPProcessHealthShutdownAndOrphanRecovery(t *testing.T) {
 	}
 	configDir := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "process-test"
 	settings.DefaultModel = "process-model"
@@ -55,7 +55,7 @@ func TestServeHTTPProcessHealthShutdownAndOrphanRecovery(t *testing.T) {
 		"MOTHX_SERVE_PROCESS_HELPER=1",
 		"MOTHX_SERVE_PROCESS_ADDR="+addr,
 		"MOTHX_SERVE_PROCESS_WORKDIR="+workDir,
-		"VIBECODING_DIR="+configDir,
+		"MOTHX_DIR="+configDir,
 	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -98,7 +98,7 @@ func TestServeHTTPProcessDoesNotReplayHistoricalESMObjective(t *testing.T) {
 	}
 	configDir := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "process-test"
 	settings.DefaultModel = "process-model"
@@ -124,7 +124,7 @@ func TestServeHTTPProcessDoesNotReplayHistoricalESMObjective(t *testing.T) {
 		"MOTHX_SERVE_PROCESS_HELPER=1",
 		"MOTHX_SERVE_PROCESS_ADDR="+addr,
 		"MOTHX_SERVE_PROCESS_WORKDIR="+workDir,
-		"VIBECODING_DIR="+configDir,
+		"MOTHX_DIR="+configDir,
 	)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -182,7 +182,7 @@ func TestServeHTTPProcessRecoversRemoteResponsesRun(t *testing.T) {
 
 	configDir := t.TempDir()
 	workDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "responses-process-test"
 	settings.DefaultModel = "responses-process-model"
@@ -214,7 +214,7 @@ func TestServeHTTPProcessRecoversRemoteResponsesRun(t *testing.T) {
 
 	addr := reserveProcessTestAddress(t)
 	cmd := exec.Command(os.Args[0], "-test.run=^TestServeHTTPProcessHelper$")
-	cmd.Env = append(os.Environ(), "MOTHX_SERVE_PROCESS_HELPER=1", "MOTHX_SERVE_PROCESS_ADDR="+addr, "MOTHX_SERVE_PROCESS_WORKDIR="+workDir, "MOTHX_SERVE_PROCESS_PROVIDER=responses-process-test", "MOTHX_SERVE_PROCESS_MODEL=responses-process-model", "VIBECODING_DIR="+configDir)
+	cmd.Env = append(os.Environ(), "MOTHX_SERVE_PROCESS_HELPER=1", "MOTHX_SERVE_PROCESS_ADDR="+addr, "MOTHX_SERVE_PROCESS_WORKDIR="+workDir, "MOTHX_SERVE_PROCESS_PROVIDER=responses-process-test", "MOTHX_SERVE_PROCESS_MODEL=responses-process-model", "MOTHX_DIR="+configDir)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {

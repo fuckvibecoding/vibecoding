@@ -38,6 +38,10 @@ const (
 	ConfigOptionSandbox       = "sandbox"
 	ConfigOptionBrowser       = "browser"
 	ConfigOptionWebSearch     = "web_search"
+	// ConfigOptionExpert selects the Runtime-owned expert bundle for a
+	// session. Replacing one non-empty value is deliberately rejected by
+	// SetExpert; adapters must create a fork with ForkWithExpert instead.
+	ConfigOptionExpert = "expert"
 )
 
 // ProviderCatalog is the set of providers available to a session runtime.

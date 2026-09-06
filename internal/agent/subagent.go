@@ -230,6 +230,7 @@ func (t *SubAgentSpawnTool) PromptGuidelines() []string {
 		"Spawn multiple sub-agents in parallel for independent investigation or review work, then reconcile their results in the main agent",
 		"Use subagent_status to poll results and verify important claims before acting on them",
 		"Use subagent_destroy to clean up finished sub-agents",
+		"When an expert team roster is present in the system prompt, dispatch members by their id via the member parameter instead of restating personas in the task",
 	}
 }
 
@@ -238,6 +239,7 @@ func (t *SubAgentSpawnTool) Parameters() json.RawMessage {
 		"type": "object",
 		"properties": {
 			"task": {"type": "string", "description": "Focused task for the sub-agent, including scope, relevant paths/context, expected artifact, and stop conditions"},
+			"member": {"type": "string", "description": "Member definition id from the bound expert team roster (see system prompt roster). Resolves the member persona and capability overrides."},
 			"mode": {"type": "string", "enum": ["plan", "agent", "yolo", "os"], "description": "Sub-agent execution mode. Defaults to the parent agent's mode; if unavailable, falls back to 'yolo'."},
 			"work_dir": {"type": "string", "description": "Working directory for the sub-agent (defaults to current)"},
 			"tools": {"type": "array", "items": {"type": "string"}, "description": "Allowed tools (empty = all)"},
@@ -254,7 +256,30 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 		return tools.ToolResult{}, fmt.Errorf("task is required")
 	}
 
+	// Resolve the optional expert-team member. The roster registry is
+	// installed by the runtime assembly layer; without a binding the member
+	// parameter is a tool error rather than a silent fallback.
+	memberID, _ := params["member"].(string)
+	memberID = strings.TrimSpace(memberID)
+	var memberDef *MemberDef
+	if memberID != "" {
+		if t.manager == nil || t.manager.Members == nil {
+			return tools.ToolResult{}, fmt.Errorf("no expert team is bound to this session")
+		}
+		def, ok := t.manager.Members.Get(memberID)
+		if !ok {
+			return tools.ToolResult{}, fmt.Errorf("unknown member %q; known members: %v", memberID, t.manager.Members.IDs())
+		}
+		memberDef = def
+	}
+
+	// Capability composition priority: explicit tool parameters > MemberDef
+	// overrides > existing inheritance logic. Mode still flows through the
+	// existing ParentMode inheritance and AllowedModes validation unchanged.
 	mode, _ := params["mode"].(string)
+	if mode == "" && memberDef != nil {
+		mode = memberDef.Mode
+	}
 	if mode == "" {
 		// Inherit parent agent's mode (yolo/agent/plan) instead of hardcoding "agent"
 		if parentMode, ok := ParentModeFromContext(ctx); ok && parentMode != "" {
@@ -263,13 +288,32 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 	}
 
 	workDir, _ := params["work_dir"].(string)
+	if workDir == "" && memberDef != nil {
+		workDir = memberDef.WorkDir
+	}
 
-	maxIter := 50
+	maxIter := 0
+	maxIterSet := false
 	if v, ok := params["max_iterations"].(float64); ok && v > 0 {
 		maxIter = int(v)
+		maxIterSet = true
+	}
+	if !maxIterSet && memberDef != nil && memberDef.MaxIterations > 0 {
+		maxIter = memberDef.MaxIterations
+		maxIterSet = true
+	}
+	if !maxIterSet {
+		maxIter = 50
 	}
 
 	extra, _ := params["system_prompt_extra"].(string)
+	if memberDef != nil && memberDef.Prompt != "" {
+		if extra != "" {
+			extra = memberDef.Prompt + "\n\n" + extra
+		} else {
+			extra = memberDef.Prompt
+		}
+	}
 
 	var toolFilter []string
 	if ts, ok := params["tools"].([]any); ok {
@@ -278,6 +322,16 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 				toolFilter = append(toolFilter, s)
 			}
 		}
+	}
+	if len(toolFilter) == 0 && memberDef != nil && len(memberDef.Tools) > 0 {
+		toolFilter = append([]string(nil), memberDef.Tools...)
+	}
+
+	memberDisplayName, memberEmoji, memberRole := "", "", ""
+	if memberDef != nil {
+		memberDisplayName = memberDef.DisplayName
+		memberEmoji = memberDef.Emoji
+		memberRole = memberDef.Role
 	}
 
 	// Extract parent agent ID from context (injected by executeTool)
@@ -296,6 +350,11 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 
 	a, err := t.manager.Create(AgentOptions{
 		ParentID:          parentID,
+		MemberID:          memberID,
+		ExpertID:          t.manager.ExpertID,
+		MemberDisplayName: memberDisplayName,
+		MemberEmoji:       memberEmoji,
+		MemberRole:        memberRole,
 		Mode:              mode,
 		WorkDir:           workDir,
 		Tools:             toolFilter,
@@ -315,40 +374,75 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 			cancel()
 			t.manager.SetCancel(a.ID(), nil)
 		}()
+		// Terminal completions of spawned sub-agents are queued into the
+		// session mailbox (when one is bound) so the lead receives them at
+		// the next iteration boundary without polling. The blocking
+		// delegate path returns results synchronously and never enqueues.
+		notifier := &memberNotifier{
+			mailbox:     t.manager.Mailbox,
+			memberID:    memberID,
+			displayName: memberDisplayName,
+		}
+		eventMeta := ChildEventMeta{
+			MemberID:          memberID,
+			ExpertID:          t.manager.ExpertID,
+			MemberDisplayName: memberDisplayName,
+			MemberEmoji:       memberEmoji,
+			MemberRole:        memberRole,
+		}
 		ch := a.Run(runCtx, buildSubAgentTask(task))
 		for e := range ch {
 			// Forward approval events to parent so the UI can handle them
 			if e.Type == agentpkg.EventToolApprovalRequest && parentEventCh != nil {
 				_ = sendParentEvent(runCtx, parentEventCh, Event{
-					Type:         EventToolApprovalRequest,
-					AgentID:      a.ID(),
-					ApprovalID:   e.ApprovalID,
-					ApprovalTool: e.ApprovalTool,
-					ApprovalArgs: e.ApprovalArgs,
+					Type:              EventToolApprovalRequest,
+					AgentID:           a.ID(),
+					ApprovalID:        e.ApprovalID,
+					ApprovalTool:      e.ApprovalTool,
+					ApprovalArgs:      e.ApprovalArgs,
+					MemberID:          memberID,
+					ExpertID:          t.manager.ExpertID,
+					MemberDisplayName: memberDisplayName,
+					MemberEmoji:       memberEmoji,
+					MemberRole:        memberRole,
 				})
 			}
-			ForwardChildAgentEvent(runCtx, parentEventCh, a.ID(), e)
+			ForwardChildAgentEvent(runCtx, parentEventCh, a.ID(), e, eventMeta)
 			switch e.Type {
 			case agentpkg.EventRunFinished:
 				switch e.Status {
 				case agentpkg.TaskFailed:
-					t.manager.MarkError(a.ID(), normalizeSubAgentRunError(a.ID(), runCtx, e.Error))
+					runErr := normalizeSubAgentRunError(a.ID(), runCtx, e.Error)
+					t.manager.MarkError(a.ID(), runErr)
+					notifier.notify(MemberStatusError, memberTerminalPayload(runErr, a))
 				case agentpkg.TaskIncomplete:
-					t.manager.MarkIncomplete(a.ID(), normalizeSubAgentRunError(a.ID(), runCtx, e.Error))
+					runErr := normalizeSubAgentRunError(a.ID(), runCtx, e.Error)
+					t.manager.MarkIncomplete(a.ID(), runErr)
+					notifier.notify(MemberStatusIncomplete, memberTerminalPayload(runErr, a))
 				case agentpkg.TaskCanceled:
-					t.manager.MarkCanceled(a.ID(), normalizeSubAgentRunError(a.ID(), runCtx, e.Error))
+					runErr := normalizeSubAgentRunError(a.ID(), runCtx, e.Error)
+					t.manager.MarkCanceled(a.ID(), runErr)
+					notifier.notify(MemberStatusCanceled, memberTerminalPayload(runErr, a))
 				default:
-					t.manager.MarkDone(a.ID(), lastAssistantResponse(a))
+					response := lastAssistantResponse(a)
+					t.manager.MarkDone(a.ID(), response)
+					notifier.notify(MemberStatusDone, response)
 				}
 			case agentpkg.EventDone:
-				t.manager.MarkDone(a.ID(), lastAssistantResponse(a))
+				response := lastAssistantResponse(a)
+				t.manager.MarkDone(a.ID(), response)
+				notifier.notify(MemberStatusDone, response)
 			case agentpkg.EventError:
-				t.manager.MarkError(a.ID(), normalizeSubAgentRunError(a.ID(), runCtx, e.Error))
+				runErr := normalizeSubAgentRunError(a.ID(), runCtx, e.Error)
+				t.manager.MarkError(a.ID(), runErr)
+				notifier.notify(MemberStatusError, memberTerminalPayload(runErr, a))
 			}
 		}
 		if runCtx.Err() != nil {
 			if st, ok := t.manager.Status(a.ID()); !ok || !isTerminalManagedState(st.State) {
-				t.manager.MarkError(a.ID(), normalizeSubAgentRunError(a.ID(), runCtx, runCtx.Err()))
+				runErr := normalizeSubAgentRunError(a.ID(), runCtx, runCtx.Err())
+				t.manager.MarkError(a.ID(), runErr)
+				notifier.notify(MemberStatusError, memberTerminalPayload(runErr, a))
 			}
 		}
 	}()
@@ -383,10 +477,22 @@ func sendParentEvent(ctx context.Context, ch chan<- Event, ev Event) (ok bool) {
 	}
 }
 
+// ChildEventMeta carries optional expert-team metadata for forwarded child
+// events. The zero value adds no metadata, keeping existing call sites
+// behavior-identical.
+type ChildEventMeta struct {
+	MemberID          string
+	ExpertID          string
+	MemberDisplayName string
+	MemberEmoji       string
+	MemberRole        string
+}
+
 // ForwardChildAgentEvent forwards child-agent activity to the parent event
 // stream so frontends can render background progress without mixing child
-// output into the main transcript.
-func ForwardChildAgentEvent(ctx context.Context, ch chan<- Event, childID agentpkg.AgentID, e agentpkg.Event) bool {
+// output into the main transcript. The optional meta attaches expert-team
+// member/expert identity to the projected event.
+func ForwardChildAgentEvent(ctx context.Context, ch chan<- Event, childID agentpkg.AgentID, e agentpkg.Event, meta ...ChildEventMeta) bool {
 	if ch == nil {
 		return false
 	}
@@ -405,6 +511,18 @@ func ForwardChildAgentEvent(ctx context.Context, ch chan<- Event, childID agentp
 		StopReason:    e.StopReason,
 		Error:         e.Error,
 		Status:        TaskStatus(e.Status),
+	}
+	if len(meta) > 0 {
+		ev.MemberID = meta[0].MemberID
+		ev.ExpertID = meta[0].ExpertID
+		ev.MemberDisplayName = meta[0].MemberDisplayName
+		ev.MemberEmoji = meta[0].MemberEmoji
+		ev.MemberRole = meta[0].MemberRole
+	}
+	// Tool result images ride along so adapters projecting child tool events
+	// on the parent stream keep their image content blocks.
+	for _, image := range e.ToolImages {
+		ev.ToolImages = append(ev.ToolImages, ToolImage{MimeType: image.MimeType, Data: image.Data})
 	}
 	if ev.ToolName == "" && e.ToolCall != nil {
 		ev.ToolName = e.ToolCall.Name
@@ -641,6 +759,40 @@ func lastAssistantResponse(a agentpkg.Agent) string {
 		}
 	}
 	return ""
+}
+
+// memberNotifier enqueues at most one terminal MemberCompletion per spawned
+// sub-agent run into the session mailbox. It lives entirely inside the spawn
+// monitoring goroutine, so the once flag needs no synchronization. A nil
+// mailbox (no expert team bound) makes notify a no-op.
+type memberNotifier struct {
+	mailbox     *MemberMailbox
+	memberID    string
+	displayName string
+	notified    bool
+}
+
+func (n *memberNotifier) notify(status, payload string) {
+	if n == nil || n.mailbox == nil || n.notified {
+		return
+	}
+	n.notified = true
+	n.mailbox.Enqueue(MemberCompletion{
+		MemberID:    n.memberID,
+		DisplayName: n.displayName,
+		Status:      status,
+		Payload:     payload,
+	})
+}
+
+// memberTerminalPayload returns the error text for a failed/canceled/incomplete
+// run, falling back to the partial assistant response when the run produced no
+// error text.
+func memberTerminalPayload(runErr error, a agentpkg.Agent) string {
+	if runErr != nil {
+		return runErr.Error()
+	}
+	return lastAssistantResponse(a)
 }
 
 // SubAgentDestroyTool destroys a sub-agent and releases resources.

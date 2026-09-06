@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/startvibecoding/mothx/internal/config"
+	"github.com/startvibecoding/mothx/internal/provider"
+	"github.com/startvibecoding/mothx/internal/session"
 )
 
 // This is a wire-level Go ACP client. It intentionally uses only the standard
@@ -19,7 +21,7 @@ func TestACPStdioProcessSessionModelOptions(t *testing.T) {
 	configDir := t.TempDir()
 	workDir := t.TempDir()
 	extraDir := t.TempDir()
-	t.Setenv("VIBECODING_DIR", configDir)
+	t.Setenv("MOTHX_DIR", configDir)
 	settings := config.DefaultSettings()
 	settings.DefaultProvider = "process-test"
 	settings.DefaultModel = "process-model-1"
@@ -50,7 +52,7 @@ func TestACPStdioProcessSessionModelOptions(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestACPConfigProcessHelper$")
 	cmd.Env = append(os.Environ(),
 		"MOTHX_ACP_CONFIG_PROCESS_HELPER=1",
-		"VIBECODING_DIR="+configDir,
+		"MOTHX_DIR="+configDir,
 		"HARBOR_ACP_REQUESTED_MODEL=process-test/process-model-2",
 	)
 	stdin, err := cmd.StdinPipe()
@@ -145,6 +147,70 @@ func TestACPStdioProcessSessionModelOptions(t *testing.T) {
 		t.Fatalf("invalid model error code = %#v, want -32602", code)
 	}
 
+	// Expert selection is a Runtime config option: binding a fresh session is
+	// in-place, while replacing that non-empty identity must fork a child.
+	sendACPRequest(t, stdin, map[string]any{
+		"jsonrpc": "2.0", "id": 37, "method": "session/set_config_option",
+		"params": map[string]any{"sessionId": first, "configId": "expert", "value": "software-company"},
+	})
+	expertBound := assertACPResponseID(t, reader, 37)
+	if got := configOptionCurrent(expertBound["result"].(map[string]any)["configOptions"].([]any), "expert"); got != "software-company" {
+		t.Fatalf("bound expert option = %q, want software-company", got)
+	}
+	sendACPRequest(t, stdin, map[string]any{
+		"jsonrpc": "2.0", "id": 38, "method": "session/set_config_option",
+		"params": map[string]any{"sessionId": first, "configId": "expert", "value": "frontend-developer"},
+	})
+	switchRejected := readACPResponse(t, reader, 38)
+	if code := switchRejected["error"].(map[string]any)["code"]; code != float64(-32602) {
+		t.Fatalf("in-place expert switch code = %#v, want -32602", code)
+	}
+	// Forking deliberately requires a completed conversation turn. Seed the
+	// parent through the canonical session API so this process test exercises
+	// the ACP expertId fork projection rather than a rejected empty branch.
+	// First release ACP's idle runtime lease; the persisted parent remains
+	// available for a later fork exactly as it would after an app restart.
+	sendACPRequest(t, stdin, map[string]any{"jsonrpc": "2.0", "id": 381, "method": "session/close", "params": map[string]any{"sessionId": first}})
+	assertACPResponseID(t, reader, 381)
+	parent, err := session.OpenByIDExact(settings.SessionDir, first)
+	if err != nil {
+		t.Fatalf("open fork parent: %v", err)
+	}
+	guard, err := session.AcquireExecutionAdmission(settings.SessionDir, first)
+	if err != nil {
+		t.Fatalf("acquire fork parent admission: %v", err)
+	}
+	const forkTurnID = "expert-config-fork-turn"
+	if err := session.StartConversationTurn(settings.SessionDir, session.ConversationTurn{ID: forkTurnID, SessionID: first, IntentID: "expert-config-fork-intent", RunID: "expert-config-fork-run"}); err != nil {
+		guard.Release()
+		t.Fatalf("start fork parent turn: %v", err)
+	}
+	if err := parent.Reload(); err != nil {
+		guard.Release()
+		t.Fatalf("reload fork parent: %v", err)
+	}
+	if _, err := parent.AppendMessage(provider.NewUserMessage("fork expert identity")); err != nil {
+		guard.Release()
+		t.Fatalf("append fork parent message: %v", err)
+	}
+	if err := session.EndConversationTurn(settings.SessionDir, first, forkTurnID, "completed", "end_turn", time.Now()); err != nil {
+		guard.Release()
+		t.Fatalf("finish fork parent turn: %v", err)
+	}
+	guard.Release()
+	sendACPRequest(t, stdin, map[string]any{
+		"jsonrpc": "2.0", "id": 39, "method": "session/fork",
+		"params": map[string]any{"sessionId": first, "cwd": workDir, "expertId": "frontend-developer", "_meta": map[string]any{"mothx": map[string]any{"workspace": map[string]any{"cwd": workDir}, "parentSessionId": first}}},
+	})
+	forked := assertACPResponseID(t, reader, 39)["result"].(map[string]any)
+	forkedID, _ := forked["sessionId"].(string)
+	if forkedID == "" || forkedID == first {
+		t.Fatalf("expert fork result = %#v", forked)
+	}
+	if got := configOptionCurrent(forked["configOptions"].([]any), "expert"); got != "frontend-developer" {
+		t.Fatalf("forked expert option = %q, want frontend-developer", got)
+	}
+
 	sendACPRequest(t, stdin, map[string]any{"jsonrpc": "2.0", "id": 6, "method": "session/resume", "params": map[string]any{"sessionId": second, "cwd": workDir, "additionalDirectories": []string{extraDir}}})
 	secondResume := assertACPResponseID(t, reader, 6)
 	options := secondResume["result"].(map[string]any)["configOptions"].([]any)
@@ -152,7 +218,7 @@ func TestACPStdioProcessSessionModelOptions(t *testing.T) {
 		t.Fatalf("second session model = %q, want requested model process-test/process-model-2", got)
 	}
 
-	for id, sessionID := range map[float64]string{7: first, 8: second} {
+	for id, sessionID := range map[float64]string{8: second, 40: forkedID} {
 		sendACPRequest(t, stdin, map[string]any{"jsonrpc": "2.0", "id": id, "method": "session/close", "params": map[string]any{"sessionId": sessionID}})
 		assertACPResponseID(t, reader, id)
 	}

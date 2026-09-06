@@ -197,6 +197,15 @@ func (a *App) authProviderResponsesSummary(re *responsesEditState) string {
 	if re.PromptCacheRetention != "" {
 		parts = append(parts, a.translator.Text(i18n.MsgAuthSummaryRetention, re.PromptCacheRetention))
 	}
+	if re.ToolControl.Choice != "" {
+		parts = append(parts, a.translator.Text(i18n.MsgAuthSummaryToolChoice, re.ToolControl.Choice))
+	}
+	if re.ToolControl.Parallel != nil {
+		parts = append(parts, a.translator.Text(i18n.MsgAuthSummaryParallelTools, a.authBool(*re.ToolControl.Parallel)))
+	}
+	if re.ToolControl.MaxCalls > 0 {
+		parts = append(parts, a.translator.Text(i18n.MsgAuthSummaryMaxToolCalls, re.ToolControl.MaxCalls))
+	}
 	if len(parts) == 0 {
 		return a.translator.Text(i18n.MsgAuthSummaryDefaults)
 	}
@@ -221,6 +230,25 @@ func (a *App) imageLimitSummary(limit int) string {
 	}
 }
 
+// toolMaxCallsSummary describes responses.toolControl.maxCalls, where zero or
+// a negative value leaves the limit to the provider.
+func (a *App) toolMaxCallsSummary(calls int) string {
+	if calls <= 0 {
+		return a.translator.Text(i18n.MsgAuthValueProviderDefault)
+	}
+	return strconv.Itoa(calls)
+}
+
+// toolParallelState describes the Responses parallel_tool_calls tri-state.
+// Unlike other compat flags, parallel tool calls default to enabled for
+// OpenAI Responses, so nil shows "auto (enabled)" rather than just "auto".
+func (a *App) toolParallelState(v *bool) string {
+	if v == nil {
+		return a.translator.Text(i18n.MsgAuthValueAutoEnabled)
+	}
+	return a.authBool(*v)
+}
+
 // --- Responses sub-form ---
 
 func (a *App) authResponsesOptions() []authOption {
@@ -230,6 +258,9 @@ func (a *App) authResponsesOptions() []authOption {
 		{Title: a.translator.Text(i18n.MsgAuthLabelPromptCacheEnabled), Description: a.authCacheControlSummary(re.PromptCacheEnabled), Value: "promptCacheEnabled"},
 		{Title: a.translator.Text(i18n.MsgAuthLabelPromptCacheKey), Description: valueOrDefault(re.PromptCacheKey, a.translator.Text(i18n.MsgAuthValueAuto)), Value: "promptCacheKey"},
 		{Title: a.translator.Text(i18n.MsgAuthLabelPromptCacheRetention), Description: valueOrDefault(re.PromptCacheRetention, a.translator.Text(i18n.MsgAuthValueProviderDefault)), Value: "promptCacheRetention"},
+		{Title: a.translator.Text(i18n.MsgAuthLabelToolChoice), Description: valueOrDefault(re.ToolControl.Choice, a.translator.Text(i18n.MsgAuthValueProviderDefault)), Value: "toolChoice"},
+		{Title: a.translator.Text(i18n.MsgAuthLabelToolParallel), Description: a.toolParallelState(re.ToolControl.Parallel), Value: "toolParallel"},
+		{Title: a.translator.Text(i18n.MsgAuthLabelToolMaxCalls), Description: a.toolMaxCallsSummary(re.ToolControl.MaxCalls), Value: "toolMaxCalls"},
 	}
 	opts = append(opts, authOption{Title: a.translator.Text(i18n.MsgAuthDone), Description: a.translator.Text(i18n.MsgAuthLabelConfirm), Value: "done"})
 	return opts
@@ -305,6 +336,10 @@ func (a *App) authProviderInputPrompt() string {
 		return a.translator.Text(i18n.MsgAuthPromptPromptCacheKey)
 	case "promptCacheRetention":
 		return a.translator.Text(i18n.MsgAuthPromptPromptCacheRetention)
+	case "toolChoice":
+		return a.translator.Text(i18n.MsgAuthPromptToolChoice)
+	case "toolMaxCalls":
+		return a.translator.Text(i18n.MsgAuthPromptToolMaxCalls)
 	case "headerKey":
 		return a.translator.Text(i18n.MsgAuthPromptHeaderName)
 	case "headerValue":
@@ -357,6 +392,21 @@ func (a *App) authProviderSubmitInput() error {
 		pe.Responses.PromptCacheKey = value
 	case "promptCacheRetention":
 		pe.Responses.PromptCacheRetention = value
+	case "toolChoice":
+		if strings.ContainsAny(value, " \t\n\"'") {
+			return errors.New(a.translator.Text(i18n.MsgAuthErrorToolChoiceInvalid))
+		}
+		pe.Responses.ToolControl.Choice = value
+	case "toolMaxCalls":
+		if value == "" {
+			pe.Responses.ToolControl.MaxCalls = 0
+			break
+		}
+		v, err := strconv.Atoi(value)
+		if err != nil || v < 0 {
+			return errors.New(a.translator.Text(i18n.MsgAuthErrorToolMaxCallsInvalid))
+		}
+		pe.Responses.ToolControl.MaxCalls = v
 	case "headerKey":
 		if value == "" {
 			return errors.New(a.translator.Text(i18n.MsgAuthErrorHeaderRequired))
@@ -416,6 +466,12 @@ func (a *App) authProviderInputValue() string {
 		return pe.Responses.PromptCacheKey
 	case "promptCacheRetention":
 		return pe.Responses.PromptCacheRetention
+	case "toolChoice":
+		return pe.Responses.ToolControl.Choice
+	case "toolMaxCalls":
+		if pe.Responses.ToolControl.MaxCalls > 0 {
+			return strconv.Itoa(pe.Responses.ToolControl.MaxCalls)
+		}
 	case "headerValue":
 		if v, ok := pe.Headers[a.auth.ParamFieldKey]; ok {
 			return v
@@ -445,6 +501,10 @@ func (a *App) selectProviderFieldValue(value string) {
 		return
 	case "promptCacheEnabled":
 		a.auth.Provider.Responses.PromptCacheEnabled = cycleTriState(a.auth.Provider.Responses.PromptCacheEnabled)
+		a.scheduleRender()
+		return
+	case "toolParallel":
+		a.auth.Provider.Responses.ToolControl.Parallel = cycleTriState(a.auth.Provider.Responses.ToolControl.Parallel)
 		a.scheduleRender()
 		return
 	}

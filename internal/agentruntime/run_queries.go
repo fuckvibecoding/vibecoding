@@ -23,6 +23,15 @@ func GetActiveDurableRun(ctx context.Context, sessionDir, sessionID string) (*se
 	return session.GetActiveSessionRunContext(ctx, sessionDir, sessionID)
 }
 
+// ListLatestDurableRunsBySessions loads the most recent canonical Run row per
+// session as a read-only projection keyed by session ID. Sessions without any
+// Run are absent from the result. Like GetDurableRun, this is an inspection
+// boundary for adapters (for example ACP session/list lastRun status); durable
+// lifecycle writes remain owned by ExecutionRuntime/RunStore.
+func ListLatestDurableRunsBySessions(ctx context.Context, sessionDir string, sessionIDs []string) (map[string]session.SessionRun, error) {
+	return session.ListLatestSessionRuns(ctx, sessionDir, sessionIDs)
+}
+
 // AnnotateDurableRunError records a terminal error reason on a canonical Run
 // row that reached a terminal status without one, for example a background
 // run abandoned after interrupted tool execution whose finalizer could no

@@ -24,6 +24,7 @@ import (
 	"github.com/startvibecoding/mothx/internal/agentruntime"
 	"github.com/startvibecoding/mothx/internal/config"
 	"github.com/startvibecoding/mothx/internal/cron"
+	"github.com/startvibecoding/mothx/internal/esm"
 	"github.com/startvibecoding/mothx/internal/mcp"
 	"github.com/startvibecoding/mothx/internal/memory"
 	"github.com/startvibecoding/mothx/internal/messaging"
@@ -57,6 +58,24 @@ type ChannelToolDefinition struct {
 
 func isMultiAgentToolName(name string) bool {
 	return name == "delegate_subagent" || strings.HasPrefix(name, "subagent_") || strings.HasPrefix(name, "workflow_")
+}
+
+// esmSteeringMessages provides one channel Agent run with the same persisted,
+// version-aware objective steering used by the TUI and WebUI. It deliberately
+// has no scheduling side effects: channel delivery remains a projection of the
+// shared Runtime lifecycle.
+func (d *Dispatcher) esmSteeringMessages(sess *ChannelSession) func() []provider.Message {
+	if d == nil || sess == nil || sess.ID == "" {
+		return nil
+	}
+	sessionDir := d.sessionDir
+	if sessionDir == "" && sess.Manager != nil {
+		sessionDir = sess.Manager.GetSessionDir()
+	}
+	if sessionDir == "" {
+		return nil
+	}
+	return esm.NewSteeringSource(esm.NewStore(sessionDir), sess.ID).Next
 }
 
 type ChannelToolState struct {
@@ -265,6 +284,10 @@ type ChannelSession struct {
 	Manager    *session.Manager
 	SandboxMgr *sandbox.Manager
 	Registry   *tools.Registry
+	// AgentMgr is session-scoped when a team expert is bound. The dispatcher
+	// still owns a legacy shared manager for ordinary channel multi-agent mode,
+	// but a team roster/mailbox must not cross channel sessions.
+	AgentMgr   *agent.AgentManager
 	MCPClients []*mcp.Client // connected MCP clients (nil if none)
 	Mode       string
 	LastUsed   time.Time
@@ -725,6 +748,27 @@ func (d *Dispatcher) ensureAgentManager() *agent.AgentManager {
 	// events forwarded through that stream are dropped once it closes.
 	d.agentMgr.AddStatusListener(d.forwardChildTerminalStatus)
 	return d.agentMgr
+}
+
+// newTeamExpertAgentManager creates the manager that owns a bound team's
+// roster and completion mailbox. It intentionally does not reuse d.agentMgr:
+// the latter predates session-scoped expert resources and has no authoritative
+// session Manager or ExpertBinding.
+func (d *Dispatcher) newTeamExpertAgentManager(runtime *agentruntime.SessionRuntime, snapshot dispatcherRuntimeSnapshot) *agent.AgentManager {
+	if runtime == nil || !runtime.TeamExpertActive() || snapshot.provider == nil || snapshot.model == nil || snapshot.settings == nil {
+		return nil
+	}
+	manager, err := agentruntime.NewAgentManager(agentruntime.AgentManagerOptions{
+		Runtime: runtime, Provider: snapshot.provider, ProviderName: snapshot.providerName,
+		Model: snapshot.model, Settings: snapshot.settings, Allow: snapshot.allow,
+		MultiAgentEnabled: true,
+	})
+	if err != nil {
+		log.Printf("[channels] create team expert agent manager: %v", err)
+		return nil
+	}
+	manager.AddStatusListener(d.forwardChildTerminalStatus)
+	return manager
 }
 
 // SetCronStore updates the cron store used by newly created channel sessions.
@@ -1765,14 +1809,19 @@ func (d *Dispatcher) resolveSession(platform, userID string) (*ChannelSession, e
 		}
 		return !hasToolConfig && defaultEnabled
 	}
+	// Resolve the browser capability once from the channel session selection.
+	// The same value must drive both the initial registry and the Runtime
+	// resource attachment; otherwise AttachSessionResources rehydrates with the
+	// process default and can remove an explicitly selected browser tool.
+	selectedBrowser := toolEnabled("browser", browserEnabled)
 
-	resources, err := agentruntime.LoadContextResources(d.settings, workDir, false, browserEnabled)
+	resources, err := agentruntime.LoadContextResources(d.settings, workDir, false, selectedBrowser)
 	if err != nil {
 		return nil, fmt.Errorf("load channel context resources: %w", err)
 	}
 	reg, err := agentruntime.BuildRegistry(workDir, sbMgr, d.settings, agentruntime.RegistryPolicy{
 		RegisterDefaults: true,
-		Browser:          toolEnabled("browser", browserEnabled),
+		Browser:          selectedBrowser,
 		Mutators: []agentruntime.RegistryMutator{func(reg *tools.Registry) error {
 			for _, item := range reg.All() {
 				if !toolEnabled(item.Name(), true) {
@@ -1794,7 +1843,7 @@ func (d *Dispatcher) resolveSession(platform, userID string) (*ChannelSession, e
 					break
 				}
 			}
-			if registerMultiAgent {
+			if registerMultiAgent || agentruntime.SessionHasTeamExpert(workDir, mgr) {
 				manager := d.ensureAgentManager()
 				agent.RegisterSubAgentTools(reg, manager)
 				agent.RegisterDelegateSubAgentTool(reg, manager)
@@ -1817,11 +1866,14 @@ func (d *Dispatcher) resolveSession(platform, userID string) (*ChannelSession, e
 	sessionRuntime, err := agentruntime.AttachSessionResources(agentruntime.AttachedResources{
 		Source: agentruntime.SourceFromChannelType(platform), WorkDir: workDir, Manager: mgr, Registry: reg,
 		SandboxMgr: sbMgr, SkillsMgr: resources.SkillsMgr, ExtraContext: resources.ExtraContext,
-		RuleContent: resources.RuleContent,
+		RuleContent: resources.RuleContent, Settings: d.settings, Browser: selectedBrowser,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("attach channel session runtime: %w", err)
 	}
+	teamAgentMgr := d.newTeamExpertAgentManager(sessionRuntime, dispatcherRuntimeSnapshot{
+		settings: d.settings, provider: d.provider, providerName: d.providerName, model: d.model, allow: d.allow,
+	})
 	if err := sessionRuntime.ConnectConfiguredMCP(context.Background(), agentruntime.MCPPolicy{
 		Optional: true,
 		OnError:  func(err error) { log.Printf("[channels] connect MCP servers: %v", err) },
@@ -1841,6 +1893,13 @@ func (d *Dispatcher) resolveSession(platform, userID string) (*ChannelSession, e
 			}
 		}
 	}
+	if teamAgentMgr != nil {
+		// A team binding is a Runtime policy capability, not an adapter-local
+		// optional toggle. Re-register after channel-specific removals so an
+		// explicit stale tool preference cannot detach the authoritative roster
+		// manager from a persisted team session.
+		agent.RegisterSubAgentTools(reg, teamAgentMgr)
+	}
 	sess := &ChannelSession{
 		Execution:  &agentruntime.ExecutionRuntime{},
 		Decisions:  &agentruntime.DecisionService{},
@@ -1851,6 +1910,7 @@ func (d *Dispatcher) resolveSession(platform, userID string) (*ChannelSession, e
 		WorkDir:    workDir,
 		Manager:    mgr,
 		Registry:   reg,
+		AgentMgr:   teamAgentMgr,
 		SandboxMgr: sbMgr,
 		MCPClients: mcpClients,
 		Mode:       "yolo",
@@ -2115,6 +2175,7 @@ func (d *Dispatcher) buildAgent(ctx context.Context, sess *ChannelSession, appro
 			ID: sess.ID, Source: agentruntime.SourceFromChannelType(sess.Platform), WorkDir: sess.WorkDir,
 			Manager: sess.Manager, Registry: sess.Registry, SandboxMgr: sess.SandboxMgr, MCPClients: sess.MCPClients,
 			SkillsMgr: resources.SkillsMgr, ExtraContext: resources.ExtraContext, RuleContent: resources.RuleContent,
+			Settings: settings, Browser: runtime.browser,
 		})
 		if err != nil {
 			return nil, func(error) {}
@@ -2150,7 +2211,8 @@ func (d *Dispatcher) buildAgent(ctx context.Context, sess *ChannelSession, appro
 		ThinkingLevel: provider.ThinkingLevel(settings.DefaultThinkingLevel),
 		MultiAgent:    hasTool("subagent_spawn"), DelegateMode: hasTool("delegate_subagent"),
 		Workflows: hasTool("workflow_run"), ApprovalHandler: approvalHandler,
-		ConversationTurnID: "turn-" + intentID, IntentID: intentID, RunID: activeRunID,
+		GetSteeringMessages: d.esmSteeringMessages(sess),
+		ConversationTurnID:  "turn-" + intentID, IntentID: intentID, RunID: activeRunID,
 		ConversationTurn: true, RuntimeOwnsTurnEnd: true,
 		MaxIterations: cfg.Agent.MaxTurns, ContextPressure: cfg.Agent.ContextPressureThreshold,
 		BudgetPressure: cfg.Agent.BudgetPressureThreshold,
@@ -2186,8 +2248,12 @@ func (d *Dispatcher) buildAgent(ctx context.Context, sess *ChannelSession, appro
 	}
 
 	var runErr error
-	if runtime.agentMgr != nil {
-		runtime.agentMgr.Register(agent.NewAgentAdapter(a))
+	agentMgr := sess.AgentMgr
+	if agentMgr == nil {
+		agentMgr = runtime.agentMgr
+	}
+	if agentMgr != nil {
+		agentMgr.Register(agent.NewAgentAdapter(a))
 		d.mu.Lock()
 		if d.agentSessions == nil {
 			d.agentSessions = make(map[string]string)
@@ -2197,10 +2263,10 @@ func (d *Dispatcher) buildAgent(ctx context.Context, sess *ChannelSession, appro
 	}
 	cleanup := func(err error) {
 		runErr = err
-		if runtime.agentMgr != nil {
+		if agentMgr != nil {
 			// Finish first: terminal child transitions fired from it must still
 			// resolve this root agent to its session.
-			runtime.agentMgr.Finish(a.ID(), runErr)
+			agentMgr.Finish(a.ID(), runErr)
 			d.releaseAgentSession(a.ID())
 		}
 	}

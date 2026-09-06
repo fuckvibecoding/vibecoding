@@ -95,6 +95,19 @@
     <SettingsField label={$t('settings.app.promptCacheRetention')}>
       <Input bind:value={provider.responses.promptCacheRetention} />
     </SettingsField>
+    <SettingsField label={$t('settings.app.toolChoice')} className="full">
+      <Input bind:value={provider.responses.toolChoice} placeholder={$t('settings.app.toolChoiceHint')} />
+    </SettingsField>
+    <SettingsField label={$t('settings.app.toolParallel')}>
+      <select bind:value={provider.responses.toolParallel} class="settings-select">
+        <option value="">{$t('common.defaultEnabled')}</option>
+        <option value="true">{$t('common.enabled')}</option>
+        <option value="false">{$t('common.disabled')}</option>
+      </select>
+    </SettingsField>
+    <SettingsField label={$t('settings.app.toolMaxCalls')}>
+      <Input type="number" min="0" step="1" bind:value={provider.responses.toolMaxCalls} placeholder={$t('settings.app.toolMaxCallsHint')} />
+    </SettingsField>
   </div>
   <div class="provider-actions">
     <Button variant="outline" size="sm" type="button" onclick={() => onAddHeader(provider)}>
@@ -197,6 +210,20 @@
               <Switch bind:checked={model.allowSampling} aria-label={$t('settings.app.modelAllowSampling')} />
             </span>
           </label>
+          <SettingsField label={$t('settings.app.modelSupportsToolChoice')}>
+            <select bind:value={model.supportsToolChoice} class="settings-select">
+              <option value="">{$t('common.uninitialized')}</option>
+              <option value="true">{$t('common.enabled')}</option>
+              <option value="false">{$t('common.disabled')}</option>
+            </select>
+          </SettingsField>
+          <SettingsField label={$t('settings.app.modelSupportsParallelToolCalls')}>
+            <select bind:value={model.supportsParallelToolCalls} class="settings-select">
+              <option value="">{$t('common.uninitialized')}</option>
+              <option value="true">{$t('common.enabled')}</option>
+              <option value="false">{$t('common.disabled')}</option>
+            </select>
+          </SettingsField>
           <div class="model-detail-actions">
             <Button
               variant="outline"

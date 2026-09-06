@@ -419,7 +419,7 @@ func TestInitConfig_WritesFlatTemplate(t *testing.T) {
 	t.Setenv("HOME", tempHome)
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("MOTHX_CONFIG_DIR", "")
-	t.Setenv("VIBECODING_DIR", "")
+	t.Setenv("MOTHX_DIR", "")
 
 	path, err := InitConfig(false)
 	if err != nil {
@@ -476,7 +476,6 @@ func TestInitConfigForProject_WritesProjectTemplate(t *testing.T) {
 
 	t.Setenv("HOME", tempHome)
 	t.Setenv("MOTHX_DIR", "")
-	t.Setenv("VIBECODING_DIR", "")
 
 	path, err := InitConfigForProject(true, false)
 	if err != nil {

@@ -78,18 +78,49 @@ func (s *Server) ensureESMCoordinator() *esmCoordinator {
 
 func (s *Server) startESM(sessionID string) { s.ensureESMCoordinator().start(s, sessionID) }
 
+// esmSteeringMessages exposes the core's version-aware ESM steering source to
+// one normal WebUI run. The source only injects persisted objective updates at
+// Agent loop boundaries; it never creates a competing execution.
+func (s *Server) esmSteeringMessages(sessionID string) func() []provider.Message {
+	return esm.NewSteeringSource(s.esmStore(), sessionID).Next
+}
+
 func (s *Server) stopESM(sessionID string) {
+	if err := s.stopESMForControl(sessionID); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: ESM coordinator for session %s did not stop cleanly: %v\n", sessionID, err)
+	}
+}
+
+// stopESMForControl is the explicit cancellation boundary used by pause and
+// clear. It waits for the locally-owned coordinator to release its execution
+// lease, so callers can re-check whether another foreground or remote run is
+// still active before mutating the persisted objective.
+func (s *Server) stopESMForControl(sessionID string) error {
 	s.mu.RLock()
 	c := s.esmCoordinator
 	s.mu.RUnlock()
 	if c == nil {
-		return
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := c.stop(ctx, sessionID); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: ESM coordinator for session %s did not stop cleanly: %v\n", sessionID, err)
+	return c.stop(ctx, sessionID)
+}
+
+func (s *Server) esmCoordinatorRunning(sessionID string) bool {
+	if s == nil || sessionID == "" {
+		return false
 	}
+	s.mu.RLock()
+	c := s.esmCoordinator
+	s.mu.RUnlock()
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, running := c.running[sessionID]
+	return running
 }
 
 func (c *esmCoordinator) stop(ctx context.Context, sessionID string) error {
@@ -195,15 +226,17 @@ func (s *Server) runESMCoordinator(ctx context.Context, sessionID string) {
 		return
 	}
 	defer s.pool.Unpin(sess)
-	runtimeGuard, err := agentruntime.AcquireExecutionAdmission(ctx, s.settings.GetSessionDir(), sessionID, agentruntime.ExecutionAdmissionOptions{})
+	// A user can create or edit an objective while a foreground run owns this
+	// session. Wait for that canonical run to finish instead of treating the
+	// temporary lease conflict as a reason to drop the requested continuation.
+	// Its run-scoped SteeringSource still receives the updated objective at its
+	// next loop boundary, so waiting here never creates a concurrent run.
+	runtimeGuard, err := agentruntime.AcquireExecutionAdmission(ctx, s.settings.GetSessionDir(), sessionID, agentruntime.ExecutionAdmissionOptions{Wait: true})
 	if err != nil {
 		return
 	}
 	release := runtimeGuard.Release
-	if !sess.TryLock() {
-		release()
-		return
-	}
+	sess.Lock()
 	defer release()
 	defer sess.Unlock()
 	if err := sess.Manager.Reload(); err != nil {
@@ -335,8 +368,9 @@ func (a *webESMRuntimeAdapter) RunRole(parent context.Context, req esm.RoleReque
 		// terminalize its durable run instead of dereferencing a nil manager.
 		return esm.RoleResult{}, errors.New("webui ESM agent manager is unavailable")
 	}
+	teamWorker := req.Role == esm.RoleWorker && a.sess.Runtime != nil && a.sess.Runtime.TeamExpertActive()
 	no := false
-	child, err := mgr.Create(agent.AgentOptions{ID: agentpkg.AgentID(runID), IsSubAgent: true, Mode: effectiveMode, WorkDir: a.workDir, Tools: req.Tools, MaxIterations: req.MaxIterations, MultiAgent: &no, DelegateMode: &no, Workflows: &no})
+	child, err := mgr.Create(agent.AgentOptions{ID: agentpkg.AgentID(runID), IsSubAgent: true, Mode: effectiveMode, WorkDir: a.workDir, Tools: req.Tools, MaxIterations: req.MaxIterations, MultiAgent: &teamWorker, DelegateMode: &no, Workflows: &no})
 	if err != nil {
 		return esm.RoleResult{}, err
 	}

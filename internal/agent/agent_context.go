@@ -51,6 +51,21 @@ func (a *Agent) gateToolResultImages(content string, contents []provider.Content
 	return unsupportedImageToolResultMessage, nil, true, errors.New(unsupportedImageToolResultMessage)
 }
 
+// toolResultImages extracts the image payloads of a rich tool result so event
+// consumers can project them (for example ACP tool_call_update image content)
+// without re-parsing provider messages. The extracted data is the exact
+// base64 payload the tool produced; no re-encoding happens here.
+func toolResultImages(contents []provider.ContentBlock) []ToolImage {
+	var images []ToolImage
+	for _, content := range contents {
+		if content.Type != "image" || content.Image == nil || content.Image.Data == "" {
+			continue
+		}
+		images = append(images, ToolImage{MimeType: content.Image.MimeType, Data: content.Image.Data})
+	}
+	return images
+}
+
 type imageRequestBudget struct {
 	maxImages      int
 	maxSingleBytes int64

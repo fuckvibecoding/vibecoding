@@ -130,6 +130,7 @@ func TestRunProjectsProviderRetryMetadata(t *testing.T) {
 			RetryMaxAttempts: 4,
 			RetryAfterMS:     1250,
 			Error:            errors.New("Retrying (2/4): service unavailable"),
+			RetryDetail:      "service unavailable (HTTP 503)",
 		},
 		{Type: provider.StreamTextDelta, TextDelta: "recovered"},
 		{Type: provider.StreamDone, StopReason: "stop"},
@@ -162,6 +163,11 @@ func TestRunProjectsProviderRetryMetadata(t *testing.T) {
 	}
 	if status.StatusMessage != "Retrying (attempt 2/4); waiting 1.25s..." || strings.Contains(status.StatusMessage, "service unavailable") {
 		t.Fatalf("compatibility status = %#v, want safe retry summary", status)
+	}
+	// Provider diagnostics ride on the marked EventRetry only, as a sanitized
+	// single-line detail for adapters that opt into showing it.
+	if retry.StatusMessage != "service unavailable (HTTP 503)" {
+		t.Fatalf("retry detail = %#v, want sanitized provider diagnostic on EventRetry", retry)
 	}
 	if retry.RetryAttempt != 2 || retry.RetryMaxAttempts != 4 || retry.RetryAfterMS != 1250 {
 		t.Fatalf("retry metadata = %#v, want attempt=2 max=4 delay=1250ms", retry)

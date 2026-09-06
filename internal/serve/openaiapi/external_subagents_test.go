@@ -1,6 +1,7 @@
 package openaiapi
 
 import (
+	"context"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -8,8 +9,47 @@ import (
 	"time"
 
 	"github.com/startvibecoding/mothx/internal/agent"
+	"github.com/startvibecoding/mothx/internal/esm"
 	"golang.org/x/net/websocket"
 )
+
+// External child terminal events are projections from channel-owned managers.
+// They may update the child history but are never an ESM continuation trigger:
+// only explicit user ESM mutations start the coordinator.
+func TestExternalMemberTerminalDoesNotStartESMContinuation(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.pool.Stop()
+	const sessionID = "external-member-terminal-no-esm"
+	if _, err := srv.getOrCreateSession(sessionID, srv.cfg.GetWorkDir()); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if _, err := srv.esmStore().Create(context.Background(), sessionID, "complete the delivery without an auto-start"); err != nil {
+		t.Fatalf("create ESM objective: %v", err)
+	}
+
+	srv.PublishExternalSubAgentEvent(sessionID, agent.Event{
+		Type: agent.EventRunFinished, AgentID: "member-terminal", MemberID: "software-engineer",
+		ExpertID: "software-company", MemberDisplayName: "工程师", Status: agent.TaskSuccess,
+	})
+
+	if srv.esmCoordinator != nil || srv.esmCoordinatorRunning(sessionID) {
+		t.Fatal("member terminal event started an ESM coordinator without a user ESM mutation")
+	}
+	obj, err := srv.esmStore().Get(context.Background(), sessionID)
+	if err != nil {
+		t.Fatalf("get ESM objective: %v", err)
+	}
+	if obj.Status != esm.StatusActive {
+		t.Fatalf("member terminal changed ESM objective status to %q", obj.Status)
+	}
+	children, err := srv.GetSessionSubAgents(sessionID)
+	if err != nil {
+		t.Fatalf("get projected child state: %v", err)
+	}
+	if len(children) != 1 || children[0].Status != "done" || children[0].MemberID != "software-engineer" {
+		t.Fatalf("child terminal projection = %#v", children)
+	}
+}
 
 func TestExternalSubAgentEventsExposeHistoryAndPublishLiveUpdates(t *testing.T) {
 	srv := &Server{eventBroker: NewEventBroker(), pool: NewSessionPool(0, 0)}
@@ -18,6 +58,7 @@ func TestExternalSubAgentEventsExposeHistoryAndPublishLiveUpdates(t *testing.T) 
 
 	srv.PublishExternalSubAgentEvent("wechat-session", agent.Event{
 		Type: agent.EventTextDelta, AgentID: "child-1", TextDelta: "working",
+		MemberID: "engineer", ExpertID: "software-company", MemberDisplayName: "工程师", MemberEmoji: "🛠️", MemberRole: "member",
 	})
 	srv.PublishExternalSubAgentEvent("wechat-session", agent.Event{
 		Type: agent.EventToolCall, AgentID: "child-1", ToolCallID: "call-1", ToolName: "grep", ToolArgs: map[string]any{"pattern": "TODO"},
@@ -38,6 +79,9 @@ func TestExternalSubAgentEventsExposeHistoryAndPublishLiveUpdates(t *testing.T) 
 	}
 	if agents[0].Status != "done" || agents[0].Active || agents[0].MessageCount != 4 {
 		t.Fatalf("agent status = %#v", agents[0])
+	}
+	if agents[0].MemberID != "engineer" || agents[0].ExpertID != "software-company" || agents[0].MemberDisplayName != "工程师" || agents[0].MemberEmoji != "🛠️" || agents[0].MemberRole != "member" {
+		t.Fatalf("agent member metadata = %#v", agents[0])
 	}
 
 	messages, err := srv.GetSessionSubAgentMessages("wechat-session", "child-1")

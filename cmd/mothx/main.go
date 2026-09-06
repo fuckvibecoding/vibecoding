@@ -81,6 +81,7 @@ type cliFlags struct {
 	json            bool
 	verbose         bool
 	debug           bool
+	expert          string
 	multiAgent      bool
 	delegate        bool
 	workflows       bool
@@ -97,6 +98,9 @@ type cliFlags struct {
 	serveWebUIDir   string
 	serveUnsafe     bool
 	lobsterMode     bool
+
+	acpPermissionTimeout string
+	acpQuestionTimeout   string
 }
 
 func newCLICommand(flags *cliFlags, runFn func([]string, runOptions) error) *cobra.Command {
@@ -169,6 +173,7 @@ func registerRootFlags(fs *pflag.FlagSet, flags *cliFlags) {
 	fs.BoolVarP(&flags.continueSession, "continue", "c", false, "Continue most recent session")
 	fs.StringVarP(&flags.resume, "resume", "r", "", "Resume session by ID or path")
 	fs.StringVar(&flags.session, "session", "", "Use specific session file or ID")
+	fs.StringVar(&flags.expert, "expert", "", "Bind an expert bundle to this session (switching an existing expert requires a fork)")
 	fs.BoolVarP(&flags.print, "print", "P", false, "Print response and exit (non-interactive)")
 	fs.BoolVar(&flags.json, "json", false, "Stream print-mode output as one JSON object per line (NDJSON) to stdout (requires -P)")
 	registerSharedExecutionFlags(fs, flags, "Enable configured web search provider for this run")
@@ -182,6 +187,25 @@ func registerRootFlags(fs *pflag.FlagSet, flags *cliFlags) {
 func registerACPFlags(fs *pflag.FlagSet, flags *cliFlags) {
 	registerSharedProviderFlags(fs, flags)
 	registerSharedExecutionFlags(fs, flags, "Enable configured web search provider for this ACP run")
+	fs.StringVar(&flags.acpPermissionTimeout, "permission-timeout", "", "Approval decision timeout for ACP session/request_permission (Go duration, e.g. 30m; env MOTHX_ACP_PERMISSION_TIMEOUT; default 30s)")
+	fs.StringVar(&flags.acpQuestionTimeout, "question-timeout", "", "Question decision timeout for ACP question requests (Go duration, e.g. 30m; env MOTHX_ACP_QUESTION_TIMEOUT; default 5m)")
+}
+
+// resolveACPTimeout resolves one ACP decision timeout. The explicit flag wins
+// over the environment variable; invalid or non-positive values are ignored so
+// the zero value lets acp.Run fall back to its documented defaults (30s for
+// approvals, 5m for questions).
+func resolveACPTimeout(flagValue, envKey string) time.Duration {
+	for _, candidate := range []string{flagValue, os.Getenv(envKey)} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		if parsed, err := time.ParseDuration(candidate); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return 0
 }
 
 func registerSharedProviderFlags(fs *pflag.FlagSet, flags *cliFlags) {
@@ -216,6 +240,7 @@ func (f *cliFlags) runOptions() runOptions {
 		json:            f.json,
 		verbose:         f.verbose,
 		debug:           f.debug,
+		expert:          f.expert,
 		multiAgent:      f.multiAgent,
 		delegate:        f.delegate,
 		workflows:       f.workflows,
@@ -241,6 +266,9 @@ func (f *cliFlags) acpOptions() acp.RunOptions {
 		Workflows:  f.workflows,
 		WebSearch:  f.webSearch,
 		Browser:    f.browser,
+
+		PermissionTimeout: resolveACPTimeout(f.acpPermissionTimeout, "MOTHX_ACP_PERMISSION_TIMEOUT"),
+		QuestionTimeout:   resolveACPTimeout(f.acpQuestionTimeout, "MOTHX_ACP_QUESTION_TIMEOUT"),
 	}
 }
 
@@ -280,6 +308,7 @@ type runOptions struct {
 	json            bool
 	verbose         bool
 	debug           bool
+	expert          string
 	multiAgent      bool
 	delegate        bool
 	workflows       bool
@@ -540,7 +569,7 @@ func setupSession(cwd string, settings *config.Settings, opts runOptions) (sessi
 		}
 		return sessionSetup{manager: sess, info: fmt.Sprintf("📂 Resumed session: %s", sess.GetHeader().ID)}, nil
 	default:
-		if !opts.print && !opts.cron {
+		if !opts.print && !opts.cron && strings.TrimSpace(opts.expert) == "" {
 			return sessionSetup{}, nil
 		}
 		sess, err := agentruntime.CreateSession(agentruntime.CreateSessionOptions{WorkDir: cwd, SessionDir: sessionDir})
@@ -604,6 +633,16 @@ func setupAgentRuntime(ctx context.Context, p provider.Provider, providerName st
 	if err != nil {
 		return runtimeSetup{}, err
 	}
+	if expertID := strings.TrimSpace(opts.expert); expertID != "" {
+		if sessionMgr == nil {
+			sharedRuntime.Close()
+			return runtimeSetup{}, fmt.Errorf("expert binding requires a session")
+		}
+		if err := sharedRuntime.SetExpert(expertID); err != nil {
+			sharedRuntime.Close()
+			return runtimeSetup{}, fmt.Errorf("bind expert %q: %w", expertID, err)
+		}
+	}
 	if err := sharedRuntime.SandboxMgr.FallbackError(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: sandbox unavailable; using direct execution: %v\n", err)
 	}
@@ -634,8 +673,12 @@ func setupAgentRuntime(ctx context.Context, p provider.Provider, providerName st
 		},
 	}
 	registry := sharedRuntime.Registry
+	// Resolve the Runtime-owned capability once for this adapter setup. Registry
+	// hooks are deliberately re-entrant with Runtime reads, but the snapshot
+	// still keeps tool registration tied to the fully assembled session state.
+	subAgentToolsEnabled := agentruntime.SubAgentToolsEnabled(sharedRuntime, opts.multiAgent)
 	if err := sharedRuntime.ApplyRegistryHooks([]agentruntime.RegistryHook{func(runtime *agentruntime.SessionRuntime) error {
-		if opts.multiAgent {
+		if subAgentToolsEnabled {
 			agent.RegisterSubAgentTools(runtime.Registry, agentMgr)
 		}
 		if opts.delegate {

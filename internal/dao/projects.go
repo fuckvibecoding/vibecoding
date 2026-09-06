@@ -80,6 +80,55 @@ func (d *ProjectDAO) Metadata(ctx context.Context, sessionID string) (*SessionMe
 	return record, err
 }
 
+// MetadataForSessions returns the persisted metadata rows of the given
+// sessions in one read-only query, in stable session order. Sessions without
+// a row are simply absent from the result.
+func (d *ProjectDAO) MetadataForSessions(ctx context.Context, sessionIDs []string) ([]SessionMetadataRecord, error) {
+	var records []SessionMetadataRecord
+	if len(sessionIDs) == 0 {
+		return records, nil
+	}
+	err := d.db.NewSelect().Model(&records).
+		Where("session_id IN (?)", bun.In(sessionIDs)).
+		OrderExpr("session_id ASC").
+		Scan(ctx)
+	return records, err
+}
+
+// SessionCountsByProject counts how many session metadata rows reference each
+// project. It backs the optional sessionCount projection of project listings.
+func (d *ProjectDAO) SessionCountsByProject(ctx context.Context) (map[string]int, error) {
+	var rows []struct {
+		ProjectID string `bun:"project_id"`
+		Count     int    `bun:"count"`
+	}
+	err := d.db.NewSelect().Table("session_metadata").
+		ColumnExpr("project_id, COUNT(*) AS count").
+		Where("project_id IS NOT NULL AND project_id != ''").
+		Group("project_id").
+		Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int, len(rows))
+	for _, row := range rows {
+		counts[row.ProjectID] = row.Count
+	}
+	return counts, nil
+}
+
+// ClearMetadataProject detaches every session metadata row from one project.
+// It realizes the ON DELETE SET NULL reference semantics declared by the
+// session_metadata schema regardless of SQLite foreign-key enforcement, so a
+// deleted project never leaves dangling assignments behind.
+func (d *ProjectDAO) ClearMetadataProject(ctx context.Context, projectID string) error {
+	_, err := d.db.NewUpdate().Model((*SessionMetadataRecord)(nil)).
+		Set("project_id = NULL").
+		Where("project_id = ?", projectID).
+		Exec(ctx)
+	return err
+}
+
 func (d *ProjectDAO) LatestSessionInfoData(ctx context.Context, sessionID string) (string, error) {
 	var data string
 	err := d.db.NewSelect().Table("entries").Column("data").

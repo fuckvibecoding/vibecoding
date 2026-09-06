@@ -22,7 +22,7 @@ func TestTUILangCommandPersistsDefaultGlobalAndExplicitProject(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module example.test\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("VIBECODING_DIR", filepath.Join(tmpDir, "global"))
+	t.Setenv("MOTHX_DIR", filepath.Join(tmpDir, "global"))
 
 	a := &App{
 		settings:     config.DefaultSettings(),
@@ -67,7 +67,7 @@ func TestSettingsRootRoutesTUILangActions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module example.test\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("VIBECODING_DIR", filepath.Join(tmpDir, "global"))
+	t.Setenv("MOTHX_DIR", filepath.Join(tmpDir, "global"))
 
 	a := &App{
 		settings:     config.DefaultSettings(),

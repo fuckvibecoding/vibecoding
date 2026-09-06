@@ -64,10 +64,14 @@ test('normalizes the flat run_retrying data contract', () => {
     maxAttempts: 3,
     phase: 'model',
     reasonCode: 'provider_timeout',
-    retryAfterMs: 500
+    retryAfterMs: 500,
+    message: 'service unavailable (HTTP 503)'
   });
   assert.equal(retry.state, 'retrying');
   assert.equal(retry.attempt, 2);
   assert.equal(retry.maxAttempts, 3);
   assert.equal(retry.reasonCode, 'provider_timeout');
+  // The sanitized provider diagnostic survives normalization so the chat
+  // view can append it after the friendly retry label.
+  assert.equal(retry.message, 'service unavailable (HTTP 503)');
 });

@@ -28,3 +28,41 @@ func TestChatParamsBridgePreservesModelID(t *testing.T) {
 		t.Fatalf("public ModelID = %q, want kimi-2.5", back.ModelID)
 	}
 }
+
+func TestToolResultImagesExtractionAndPublicProjection(t *testing.T) {
+	contents := []provider.ContentBlock{
+		{Type: "text", Text: "screenshot captured"},
+		{Type: "image", Image: &provider.ImageContent{MimeType: "image/png", Data: "cG5nLWRhdGE="}},
+		{Type: "image"}, // nil payload is skipped
+		{Type: "image", Image: &provider.ImageContent{MimeType: "image/jpeg", Data: ""}}, // empty payload is skipped
+	}
+	images := toolResultImages(contents)
+	if len(images) != 1 {
+		t.Fatalf("toolResultImages = %#v, want exactly the populated image block", images)
+	}
+	if images[0].MimeType != "image/png" || images[0].Data != "cG5nLWRhdGE=" {
+		t.Fatalf("extracted image = %#v, want the exact tool payload", images[0])
+	}
+	if extracted := toolResultImages(nil); extracted != nil {
+		t.Fatalf("toolResultImages(nil) = %#v, want nil", extracted)
+	}
+
+	// The bridge must carry the payloads through to the public SDK event
+	// unchanged so adapters (ACP tool_call_update images) can project them.
+	public := EventToPublic(Event{
+		Type:       EventToolExecutionEnd,
+		ToolCallID: "call-1",
+		ToolName:   "read",
+		ToolResult: "screenshot captured",
+		ToolImages: images,
+	})
+	if len(public.ToolImages) != 1 {
+		t.Fatalf("public ToolImages = %#v, want the projected payload", public.ToolImages)
+	}
+	if public.ToolImages[0].MimeType != "image/png" || public.ToolImages[0].Data != "cG5nLWRhdGE=" {
+		t.Fatalf("public image = %#v, want identical mime/base64 payload", public.ToolImages[0])
+	}
+	if empty := EventToPublic(Event{Type: EventToolExecutionEnd}); empty.ToolImages != nil {
+		t.Fatalf("public ToolImages without payloads = %#v, want nil", empty.ToolImages)
+	}
+}

@@ -652,6 +652,40 @@ func TestGetOrCreateSessionRejectsDifferentWorkDirForPooledID(t *testing.T) {
 	}
 }
 
+func TestGetOrCreateSessionRehydratesBoundTeamExpert(t *testing.T) {
+	srv := newTestServer(t)
+	defer srv.pool.Stop()
+
+	const id = "webui-team-expert"
+	bound := session.New(srv.cfg.GetWorkDir(), srv.settings.GetSessionDir())
+	if err := bound.InitWithID(id); err != nil {
+		t.Fatalf("initialize persisted session: %v", err)
+	}
+	if err := bound.SetExpertBinding("software-company"); err != nil {
+		t.Fatalf("bind team expert: %v", err)
+	}
+
+	// The server builds reusable resources before opening this Manager. Verify
+	// the later BindSession path restores the expert package and creates a
+	// session-scoped manager instead of leaving a plain WebUI session behind.
+	sess, err := srv.getOrCreateSession(id, srv.cfg.GetWorkDir())
+	if err != nil {
+		t.Fatalf("open expert session: %v", err)
+	}
+	if sess.Runtime == nil || !sess.Runtime.TeamExpertActive() {
+		t.Fatalf("runtime expert binding = %+v, want active team", sess.Runtime)
+	}
+	if sess.AgentMgr == nil || sess.AgentMgr.Members == nil {
+		t.Fatal("team expert session did not receive a session-scoped agent manager")
+	}
+	if _, ok := sess.AgentMgr.Members.Get("software-engineer"); !ok {
+		t.Fatalf("team manager members = %v, missing software-engineer", sess.AgentMgr.Members.IDs())
+	}
+	if _, ok := sess.Registry.Get("subagent_spawn"); !ok {
+		t.Fatal("team expert session missing subagent_spawn")
+	}
+}
+
 func TestAllocateSessionIDIsUniqueAndRemainsDelayed(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.pool.Stop()

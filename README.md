@@ -32,7 +32,7 @@
   <strong>国内镜像: <a href="https://gitee.com/startvibecoding/mothx">Gitee</a></strong>
 </p>
 
-> **Rename notice:** MothX was formerly known as VibeCoding. During this transition release, legacy entry points such as the `vibecoding` command, the old installer package names, and `VIBECODING_*` environment variables are kept for compatibility. Legacy `.vibecoding` and `.vibe` directories are automatically migrated to `.mothx` when found.
+> **Rename notice:** MothX was formerly known as VibeCoding. The `vibecoding` command and old installer package names remain compatibility aliases. Configuration is read only from `.mothx` project directories and the MothX global configuration directory; legacy directories are neither read nor migrated.
 
 ---
 
@@ -268,7 +268,7 @@ mothx -P "Extract text from this image" --image document.jpg
 | `%APPDATA%\mothx\settings.json` | Windows | Global |
 | `.mothx/settings.json` | All | Project (overrides global) |
 
-Existing `.vibecoding` and `.vibe` directories are automatically migrated to `.mothx` when the destination does not already exist. `VIBECODING_*` environment variables remain supported for compatibility; use `MOTHX_DIR` for new custom config directory overrides.
+MothX reads configuration only from the `.mothx` locations above. It does not read or migrate legacy `.vibecoding` or `.vibe` directories. Use `MOTHX_DIR` to select a custom global configuration directory.
 
 ### Environment Variables
 
@@ -276,7 +276,6 @@ Existing `.vibecoding` and `.vibe` directories are automatically migrated to `.m
 |----------|-------------|
 | `DEEPSEEK_API_KEY` | DeepSeek API key |
 | `MOTHX_DIR` | Override config directory |
-| `VIBECODING_DIR` | Override config directory (legacy compatibility) |
 | `VIBECODING_PROVIDER` | Override default provider |
 | `VIBECODING_MODEL` | Override default model |
 | `VIBECODING_MODE` | Override default mode |

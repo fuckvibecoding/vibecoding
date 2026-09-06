@@ -9,9 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/startvibecoding/mothx/internal/agent"
 	"github.com/startvibecoding/mothx/internal/browser"
 	"github.com/startvibecoding/mothx/internal/config"
 	"github.com/startvibecoding/mothx/internal/contextfiles"
+	"github.com/startvibecoding/mothx/internal/expert"
 	"github.com/startvibecoding/mothx/internal/mcp"
 	"github.com/startvibecoding/mothx/internal/provider"
 	providerfactory "github.com/startvibecoding/mothx/internal/provider/factory"
@@ -58,6 +60,21 @@ type SessionRuntime struct {
 	SandboxEnabled        bool
 	BrowserEnabled        bool
 	WebSearchEnabled      bool
+	// Expert is the resolved expert binding (nil when the session has no
+	// expert identity). Mailbox is the runtime-owned member completion queue
+	// drained into steering at run input boundaries. ExpertCenter resolves
+	// bundle names for this session's project directory.
+	Expert       *ExpertBinding
+	Mailbox      *agent.MemberMailbox
+	ExpertCenter *expert.Center
+
+	// resourceSettings and the two capability flags record the shared resource
+	// assembly policy used to create this runtime. They let a lazily-bound
+	// session rebuild context and package skills after its persisted identity is
+	// known, without asking an adapter to grow a second resource loader.
+	resourceSettings  *config.Settings
+	resourceWorkflows bool
+	resourceBrowser   bool
 }
 
 // SetExecution attaches the session's canonical execution lifecycle.
@@ -244,8 +261,8 @@ func (r *SessionRuntime) BindSession(manager *session.Manager, requested Runtime
 		return err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closed {
+		r.mu.Unlock()
 		return fmt.Errorf("agent runtime is closed")
 	}
 	r.ID = header.ID
@@ -256,18 +273,21 @@ func (r *SessionRuntime) BindSession(manager *session.Manager, requested Runtime
 	r.Manager = manager
 	inputs, err := NewInputMaterializer(manager.GetSessionDir(), header.Cwd, DefaultInputPolicy())
 	if err != nil {
+		r.mu.Unlock()
 		return err
 	}
 	r.Inputs = inputs
 	if r.Attachments == nil {
 		attachments, err := NewAttachmentService(manager.GetSessionDir(), DefaultAttachmentPolicy())
 		if err != nil {
+			r.mu.Unlock()
 			return err
 		}
 		r.Attachments = attachments
 	}
 	r.LastUsed = time.Now()
-	return nil
+	r.mu.Unlock()
+	return r.rehydrateBoundResources()
 }
 
 // ConfigureSession installs the initial per-session provider, model, mode, and
@@ -333,6 +353,56 @@ func (r *SessionRuntime) ConfigSnapshot() (provider.Provider, string, *provider.
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.Provider, r.ProviderName, r.Model, r.Mode, r.ThinkingLevel
+}
+
+// SettingsSnapshot returns a copy of the Runtime resource settings for a
+// Runtime-owned derived execution. The copy prevents a caller from mutating
+// the active session's shared configuration while still letting derived roles
+// inherit the same compaction and tool-execution defaults.
+func (r *SessionRuntime) SettingsSnapshot() *config.Settings {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	settings := r.resourceSettings
+	r.mu.RUnlock()
+	if settings == nil {
+		return nil
+	}
+	copy := *settings
+	return &copy
+}
+
+// ResolveProviderModel resolves an optional derived-role provider/model pair
+// from the Runtime-owned provider catalog. Empty values retain this session's
+// configured provider and model. It is intentionally a Runtime method so
+// adapters do not create providers or duplicate model-compatibility logic for
+// role-specific executions.
+func (r *SessionRuntime) ResolveProviderModel(providerName, modelID string) (provider.Provider, string, *provider.Model, error) {
+	if err := r.ensureOpen(); err != nil {
+		return nil, "", nil, err
+	}
+	currentProvider, currentName, currentModel, _, _ := r.ConfigSnapshot()
+	providerName = strings.TrimSpace(providerName)
+	modelID = strings.TrimSpace(modelID)
+	if providerName == "" && modelID == "" {
+		if currentProvider == nil || currentModel == nil {
+			return nil, "", nil, fmt.Errorf("session provider and model are required")
+		}
+		return currentProvider, currentName, currentModel, nil
+	}
+	if providerName == "" || modelID == "" {
+		return nil, "", nil, fmt.Errorf("provider and model must be specified together")
+	}
+	p, err := r.providerByName(providerName)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	model, err := providerfactory.ResolveModel(p, providerName, modelID)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return p, providerName, model, nil
 }
 
 // CapabilitySnapshot returns the mutable session capabilities used by the
@@ -517,6 +587,7 @@ func (r *SessionRuntime) ConfigOptions() []SessionConfigOption {
 		providers = ProviderCatalog{providerName: p}
 	}
 	options := SessionConfigOptionsWithProviders(providerName, providers, p.Models(), model, mode, thinking)
+	options = append(options, r.expertConfigOption())
 	r.mu.RLock()
 	browserEnabled, webSearchEnabled := r.BrowserEnabled, r.WebSearchEnabled
 	r.mu.RUnlock()
@@ -605,8 +676,11 @@ func (r *SessionRuntime) SetConfigOption(id, value string) error {
 	}
 	id = strings.TrimSpace(id)
 	value = strings.TrimSpace(value)
-	if id == "" || value == "" {
+	if id == "" || (value == "" && id != ConfigOptionExpert) {
 		return fmt.Errorf("config option id and value are required")
+	}
+	if id == ConfigOptionExpert {
+		return r.SetExpert(value)
 	}
 	p, providerName, currentModel, currentMode, currentThinking := r.ConfigSnapshot()
 	if p == nil {
@@ -771,8 +845,8 @@ func (r *SessionRuntime) UnbindSession() error {
 		return err
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closed {
+		r.mu.Unlock()
 		return fmt.Errorf("agent runtime is closed")
 	}
 	r.ID = ""
@@ -780,7 +854,8 @@ func (r *SessionRuntime) UnbindSession() error {
 	r.Policy.Source = r.Source
 	r.Manager = nil
 	r.LastUsed = time.Now()
-	return nil
+	r.mu.Unlock()
+	return r.rehydrateBoundResources()
 }
 
 type Builder struct {
@@ -833,7 +908,11 @@ func (b Builder) Build(ctx context.Context, opts BuildOptions) (*SessionRuntime,
 		ctx = context.Background()
 	}
 
-	resources, err := LoadContextResources(b.Settings, opts.WorkDir, opts.Workflows, opts.Browser)
+	expertBundle, err := resolveBoundExpertBundle(opts.WorkDir, opts.Manager)
+	if err != nil {
+		return nil, err
+	}
+	resources, err := LoadContextResourcesWithExpert(b.Settings, opts.WorkDir, opts.Workflows, opts.Browser, expertBundle)
 	if err != nil {
 		return nil, err
 	}
@@ -872,20 +951,28 @@ func (b Builder) Build(ctx context.Context, opts BuildOptions) (*SessionRuntime,
 		}
 	}
 	runtime := &SessionRuntime{
-		ID:           opts.ID,
-		Source:       resolved.Source,
-		EntrySource:  opts.Source,
-		Policy:       PolicyForSource(resolved.Source, ""),
-		WorkDir:      opts.WorkDir,
-		Manager:      opts.Manager,
-		Inputs:       inputs,
-		Attachments:  attachments,
-		Registry:     registry,
-		SandboxMgr:   sandboxMgr,
-		SkillsMgr:    skillsMgr,
-		ExtraContext: extraContext,
-		RuleContent:  resources.RuleContent,
-		LastUsed:     time.Now(),
+		ID:                opts.ID,
+		Source:            resolved.Source,
+		EntrySource:       opts.Source,
+		Policy:            PolicyForSource(resolved.Source, ""),
+		WorkDir:           opts.WorkDir,
+		Manager:           opts.Manager,
+		Inputs:            inputs,
+		Attachments:       attachments,
+		Registry:          registry,
+		SandboxMgr:        sandboxMgr,
+		SkillsMgr:         skillsMgr,
+		ExtraContext:      extraContext,
+		RuleContent:       resources.RuleContent,
+		LastUsed:          time.Now(),
+		resourceSettings:  b.Settings,
+		resourceWorkflows: opts.Workflows,
+		resourceBrowser:   opts.Browser,
+	}
+	runtime.Mailbox = agent.NewMemberMailbox()
+	runtime.ExpertCenter = &expert.Center{ProjectDir: opts.WorkDir}
+	if err := runtime.refreshExpertBinding(); err != nil {
+		return nil, err
 	}
 	if err := runtime.ApplyRegistryHooks(opts.RegistryHooks); err != nil {
 		return nil, err
@@ -909,11 +996,16 @@ func (r *SessionRuntime) ApplyRegistryHooks(hooks []RegistryHook) error {
 	if err := r.ensureOpen(); err != nil {
 		return err
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Hooks commonly need Runtime-owned facts (for example the effective
+	// multi-agent capability). Do not invoke third-party adapter callbacks
+	// while holding r.mu: those helpers correctly take r.mu.RLock and would
+	// otherwise self-deadlock the build path.
+	r.mu.RLock()
 	if r.closed {
+		r.mu.RUnlock()
 		return fmt.Errorf("agent runtime is closed")
 	}
+	r.mu.RUnlock()
 	for _, hook := range hooks {
 		if hook == nil {
 			continue
@@ -927,8 +1019,11 @@ func (r *SessionRuntime) ApplyRegistryHooks(hooks []RegistryHook) error {
 
 // RefreshResources reloads context files and skills, synchronizes the shared
 // skill_ref/browser tools, and updates the Runtime fields atomically after all
-// validation succeeds. Adapter-specific AgentManager and optional tools are
-// deliberately outside this method.
+// validation succeeds. It always resolves the current persisted expert binding
+// before loading resources, so lazy session attachment and expert bind/unbind
+// cannot leave package skills or prompts from a previous session behind.
+// Adapter-specific AgentManager and optional tools are deliberately outside
+// this method.
 func (r *SessionRuntime) RefreshResources(settings *config.Settings, opts RefreshOptions) error {
 	if r == nil {
 		return fmt.Errorf("agent runtime is nil")
@@ -939,12 +1034,20 @@ func (r *SessionRuntime) RefreshResources(settings *config.Settings, opts Refres
 	if err := r.ensureOpen(); err != nil {
 		return err
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
 	if r.closed {
+		r.mu.RUnlock()
 		return fmt.Errorf("agent runtime is closed")
 	}
-	resources, err := LoadContextResources(settings, r.WorkDir, opts.Workflows, opts.Browser)
+	workDir := r.WorkDir
+	manager := r.Manager
+	r.mu.RUnlock()
+
+	expertBundle, err := resolveBoundExpertBundle(workDir, manager)
+	if err != nil {
+		return err
+	}
+	resources, err := LoadContextResourcesWithExpert(settings, workDir, opts.Workflows, opts.Browser, expertBundle)
 	if err != nil {
 		return err
 	}
@@ -953,15 +1056,55 @@ func (r *SessionRuntime) RefreshResources(settings *config.Settings, opts Refres
 	if err != nil {
 		return err
 	}
+	var binding *ExpertBinding
+	if expertBundle != nil {
+		binding = newExpertBinding(expertBundle)
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return fmt.Errorf("agent runtime is closed")
+	}
+	// A concurrent BindSession/UnbindSession changed the authoritative manager
+	// while the potentially expensive context load was in progress. Do not
+	// publish resources resolved for the wrong session.
+	if r.WorkDir != workDir || r.Manager != manager {
+		return fmt.Errorf("session identity changed while refreshing runtime resources")
+	}
 	if r.Registry != nil {
 		r.Registry.Register(tools.NewSkillRefTool(skillsMgr))
 	}
 	r.synchronizeCoreToolsLocked(opts.Browser)
+	r.Expert = binding
 	r.SkillsMgr = skillsMgr
 	r.ExtraContext = extraContext + activeContext
 	r.RuleContent = resources.RuleContent
+	r.resourceSettings = settings
+	r.resourceWorkflows = opts.Workflows
+	r.resourceBrowser = opts.Browser
 	r.LastUsed = time.Now()
 	return nil
+}
+
+// rehydrateBoundResources refreshes the resolved expert binding after a
+// runtime is attached to, detached from, or explicitly rebound to a session.
+// Older compatibility paths without assembly settings still refresh the
+// binding; production builders and AttachSessionResources provide settings so
+// expert package skills share the normal Runtime-owned resource path.
+func (r *SessionRuntime) rehydrateBoundResources() error {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	settings := r.resourceSettings
+	workflows := r.resourceWorkflows
+	browserEnabled := r.resourceBrowser
+	r.mu.RUnlock()
+	if settings == nil {
+		return r.refreshExpertBinding()
+	}
+	return r.RefreshResources(settings, RefreshOptions{Workflows: workflows, Browser: browserEnabled})
 }
 
 // SynchronizeCoreTools applies mutable registry tools that have no adapter
@@ -1013,6 +1156,15 @@ func activeSkillsContext(manager *skills.Manager, active map[string]bool) (strin
 // LoadContextResources loads context files, project/global skills, and rules.
 // It is shared by all adapters; adapters choose only the requested capabilities.
 func LoadContextResources(settings *config.Settings, workDir string, workflows, browserEnabled bool) (*ContextResources, error) {
+	return LoadContextResourcesWithExpert(settings, workDir, workflows, browserEnabled, nil)
+}
+
+// LoadContextResourcesWithExpert additionally loads skills packaged with a
+// resolved expert bundle. Expert skills are session-scoped Runtime resources:
+// they shadow ordinary project/global skills of the same name without creating
+// an adapter-owned skills path. Embedded bundles are read directly from their
+// fs.FS, so packaged binaries do not depend on a source checkout.
+func LoadContextResourcesWithExpert(settings *config.Settings, workDir string, workflows, browserEnabled bool, expertBundle *expert.Bundle) (*ContextResources, error) {
 	if workflows {
 		if _, _, err := workflow.EnsureProjectSkill(workDir); err != nil {
 			return nil, fmt.Errorf("create workflow skill: %w", err)
@@ -1023,8 +1175,19 @@ func LoadContextResources(settings *config.Settings, workDir string, workflows, 
 			return nil, fmt.Errorf("create browser skill: %w", err)
 		}
 	}
-	skillsMgr := skills.NewManagerWithProjectDirs(settings.GetGlobalSkillsDir(), skills.ProjectSkillDirs(workDir))
+	projectSkillDirs := skills.ProjectSkillDirs(workDir)
+	if expertBundle != nil && expertBundle.SkillsDir != "" && expertBundle.SkillsFS == nil {
+		// NewManagerWithProjectDirs loads the first directory last, giving the
+		// session-bound expert package its documented highest local precedence.
+		projectSkillDirs = append([]string{expertBundle.SkillsDir}, projectSkillDirs...)
+	}
+	skillsMgr := skills.NewManagerWithProjectDirs(settings.GetGlobalSkillsDir(), projectSkillDirs)
 	_ = skillsMgr.Load()
+	if expertBundle != nil && expertBundle.SkillsDir != "" && expertBundle.SkillsFS != nil {
+		if err := skillsMgr.LoadFS(expertBundle.SkillsFS, expertBundle.SkillsDir, "expert"); err != nil {
+			return nil, fmt.Errorf("load expert package skills: %w", err)
+		}
+	}
 
 	var extraContext string
 	if settings.ContextFiles.Enabled {

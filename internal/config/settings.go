@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -34,6 +33,7 @@ type Settings struct {
 	MaxContextTokens     int                        `json:"maxContextTokens,omitempty"`
 	ContextFiles         ContextFilesSettings       `json:"contextFiles"`
 	SkillsDir            string                     `json:"skillsDir,omitempty"`
+	Skills               *SkillsSettings            `json:"skills,omitempty"`
 	SkillHub             SkillHubSettings           `json:"skillHub,omitempty"`
 	Compaction           CompactionSettings         `json:"compaction"`
 	Sandbox              SandboxSettings            `json:"sandbox"`
@@ -402,6 +402,24 @@ func BoolPtr(v bool) *bool { return &v }
 type ContextFilesSettings struct {
 	Enabled    bool     `json:"enabled"`
 	ExtraFiles []string `json:"extraFiles,omitempty"`
+}
+
+// SkillsSettings controls skill activation. Names listed in Disabled are
+// hidden from every skill discovery surface (system prompt listing, /skill
+// commands, management views) after the next skills load. A nil or absent
+// section keeps every discovered skill enabled, preserving the historical
+// behavior of settings files written before this field existed.
+type SkillsSettings struct {
+	Disabled []string `json:"disabled,omitempty"`
+}
+
+// SkillsDisabled returns the configured disabled skill names. It is nil-safe
+// and returns a copy so callers cannot mutate the settings value.
+func (s *Settings) SkillsDisabled() []string {
+	if s == nil || s.Skills == nil || len(s.Skills.Disabled) == 0 {
+		return nil
+	}
+	return append([]string(nil), s.Skills.Disabled...)
 }
 
 type CompactionSettings struct {
@@ -1788,36 +1806,16 @@ func (s *Settings) GetShell() string {
 
 func (s *Settings) GetSessionDir() string {
 	if s.SessionDir != "" {
-		return normalizeLegacyDefaultDir(s.SessionDir, filepath.Join(platform.LegacyConfigDir(), "sessions"), platform.SessionDir())
+		return platform.ExpandHome(s.SessionDir)
 	}
 	return platform.SessionDir()
 }
 
 func (s *Settings) GetGlobalSkillsDir() string {
 	if s.SkillsDir != "" {
-		return normalizeLegacyDefaultDir(s.SkillsDir, filepath.Join(platform.LegacyConfigDir(), "skills"), platform.SkillsDir())
+		return platform.ExpandHome(s.SkillsDir)
 	}
 	return platform.SkillsDir()
-}
-
-func normalizeLegacyDefaultDir(configured, legacyDefault, currentDefault string) string {
-	resolved := configured
-	if strings.HasPrefix(resolved, "~") {
-		resolved = platform.ExpandHome(resolved)
-	}
-	if sameConfigPath(resolved, legacyDefault) {
-		return currentDefault
-	}
-	return resolved
-}
-
-func sameConfigPath(a, b string) bool {
-	a = filepath.Clean(a)
-	b = filepath.Clean(b)
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(a, b)
-	}
-	return a == b
 }
 
 func (s *Settings) IsPlanToolEnabled() bool {

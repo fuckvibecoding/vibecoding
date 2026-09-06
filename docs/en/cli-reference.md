@@ -301,6 +301,20 @@ mothx acp --multi-agent
 
 When enabled, MothX registers the `subagent_*` tools and exposes multi-agent workflows such as delegated background investigation. Cron command entry points also depend on multi-agent mode.
 
+### Expert Teams
+
+```bash
+# Bind an expert or team while starting a session
+mothx --expert software-company
+```
+
+`--expert <bundle-id>` resolves a local expert bundle through the shared
+Runtime. A team bundle enables its declared member dispatch capability for
+that session; a single expert changes only the lead identity. In TUI, use
+`/expert list|show <id>|bind <id>|unbind|switch <id>`. Replacing a bound
+expert uses a session fork rather than rewriting the source session. See
+[Expert Teams](expert-teams.md) for the complete behavior.
+
 ### Delegate Mode
 
 ```bash
@@ -454,7 +468,7 @@ Default settings can be overridden via environment variables:
 | Variable | Description |
 |----------|-------------|
 | `DEEPSEEK_API_KEY` | DeepSeek API key |
-| `VIBECODING_DIR` | Override config directory |
+| `MOTHX_DIR` | Override config directory |
 | `VIBECODING_PROVIDER` | Override default provider |
 | `VIBECODING_MODEL` | Override default model |
 | `VIBECODING_MODE` | Override default mode |

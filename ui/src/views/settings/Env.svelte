@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { request, putJSON } from '../../lib/api.js';
+  import { request, patchJSON } from '../../lib/api.js';
   import { setError, setNotice, clearBanners } from '../../lib/stores.js';
   import { t } from '../../lib/preferences.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -10,19 +10,21 @@
   import SettingsSection from './SettingsSection.svelte';
   import SettingsField from './SettingsField.svelte';
 
-  let vars = {};
+  let variables = [];
+  let drafts = {};
   let newKey = '';
   let newValue = '';
   let loading = true;
   let saving = false;
   let dirty = false;
 
-  $: keys = Object.keys(vars).sort();
+  $: names = variables.map((v) => v.name).sort();
 
   onMount(async () => {
     try {
       const result = await request('/api/env');
-      vars = result?.vars || {};
+      variables = result?.variables || [];
+      drafts = {};
     } catch (err) {
       setError(err);
     } finally {
@@ -38,25 +40,24 @@
   function addVariable() {
     const key = newKey.trim();
     if (!key) return;
-    if (Object.prototype.hasOwnProperty.call(vars, key)) {
+    if (names.includes(key)) {
       setError(new Error($t('settings.env.duplicate')));
       return;
     }
-    vars = { ...vars, [key]: newValue };
+    variables = [...variables, { name: key, valueConfigured: true }];
+    drafts = { ...drafts, [key]: { value: newValue, isNew: true, touched: true, deleted: false } };
     newKey = '';
     newValue = '';
     markDirty();
   }
 
   function updateValue(key, value) {
-    vars = { ...vars, [key]: value };
+    drafts = { ...drafts, [key]: { ...(drafts[key] || {}), value, touched: true, deleted: false } };
     markDirty();
   }
 
   function removeVariable(key) {
-    const next = { ...vars };
-    delete next[key];
-    vars = next;
+    drafts = { ...drafts, [key]: { ...(drafts[key] || {}), deleted: true, value: '' } };
     markDirty();
   }
 
@@ -64,7 +65,21 @@
     saving = true;
     clearBanners();
     try {
-      await putJSON('/api/env', { vars });
+      const set = [];
+      const unset = [];
+      for (const name of names) {
+        const draft = drafts[name] || {};
+        if (draft.deleted) {
+          unset.push(name);
+          continue;
+        }
+        if (draft.touched || draft.isNew) {
+          set.push({ name, value: draft.value || '' });
+        }
+      }
+      const result = await patchJSON('/api/env', { set, unset });
+      variables = result?.variables || [];
+      drafts = {};
       dirty = false;
       setNotice($t('settings.env.saved'));
     } catch (err) {
@@ -89,7 +104,7 @@
       <p class="settings-save-hint">{$t('settings.env.editHint')}</p>
     </div>
     <Badge variant={dirty ? 'default' : 'secondary'}>
-      {keys.length} {$t('settings.env.count')}
+      {names.length} {$t('settings.env.count')}
     </Badge>
   </div>
 
@@ -102,7 +117,7 @@
           <Input bind:value={newKey} onkeydown={handleNewKey} placeholder="MY_VARIABLE" autocomplete="off" />
         </SettingsField>
         <SettingsField label={$t('settings.env.value')}>
-          <Input bind:value={newValue} onkeydown={handleNewKey} placeholder="value" autocomplete="off" />
+          <Input bind:value={newValue} onkeydown={handleNewKey} type="password" placeholder={$t('settings.env.value')} autocomplete="off" />
         </SettingsField>
       </div>
       <div class="settings-form-actions">
@@ -113,33 +128,38 @@
       </div>
     </div>
 
-    {#if keys.length === 0}
+    {#if names.length === 0}
       <div class="env-empty">
         <strong>{$t('settings.env.empty')}</strong>
         <span>{$t('settings.env.emptyHint')}</span>
       </div>
     {:else}
       <ul class="env-list">
-        {#each keys as key (key)}
-          <li class="env-row">
-            <code class="env-key">{key}</code>
-            <Input
-              class="env-value"
-              value={vars[key]}
-              oninput={(event) => updateValue(key, event.currentTarget.value)}
-              aria-label={`${$t('settings.env.value')}: ${key}`}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              onclick={() => removeVariable(key)}
-              title={$t('common.remove')}
-              aria-label={$t('common.remove')}
-            >
-              <Trash2 size={14} aria-hidden="true" />
-            </Button>
-          </li>
+        {#each names as key (key)}
+          {@const draft = drafts[key] || {}}
+          {#if !draft.deleted}
+            <li class="env-row">
+              <code class="env-key">{key}</code>
+              <Input
+                class="env-value"
+                type="password"
+                value={draft.value || ''}
+                oninput={(event) => updateValue(key, event.currentTarget.value)}
+                placeholder={$t('settings.env.valueConfigured')}
+                aria-label={`${$t('settings.env.value')}: ${key}`}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                onclick={() => removeVariable(key)}
+                title={$t('common.remove')}
+                aria-label={$t('common.remove')}
+              >
+                <Trash2 size={14} aria-hidden="true" />
+              </Button>
+            </li>
+          {/if}
         {/each}
       </ul>
     {/if}

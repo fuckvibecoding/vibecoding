@@ -135,11 +135,23 @@ func (r *SessionRuntime) buildAgent(registry *tools.Registry, manager *session.M
 	}
 	extraContext := r.ExtraContext
 	ruleContent := r.RuleContent
+	expertBinding := r.Expert
+	mailbox := r.Mailbox
 	r.mu.RUnlock()
+	expertIdentity, expertRoster := projectExpertBuild(expertBinding, &opts)
 	settings := opts.Settings
 	if settings == nil {
 		settings = &config.Settings{}
 	}
+	// The persisted session manager is Runtime-owned. Keep the agent's settings
+	// aligned with that manager so descendants created through AgentManager
+	// inherit the same session database instead of silently falling back to the
+	// machine-global default directory.
+	settingsValue := *settings
+	if manager != nil && manager.GetSessionDir() != "" {
+		settingsValue.SessionDir = manager.GetSessionDir()
+	}
+	settings = &settingsValue
 	mode := opts.Mode
 	if mode == "" {
 		mode = ModeYolo
@@ -185,6 +197,7 @@ func (r *SessionRuntime) buildAgent(registry *tools.Registry, manager *session.M
 			ThinkingLevel: opts.ThinkingLevel, MaxTokens: maxTokens,
 			SandboxMgr: sandboxMgr, Settings: settings, Allow: opts.Allow, Session: manager,
 			ExtraContext: extraContext, RuleContent: ruleContent,
+			ExpertIdentity: expertIdentity, ExpertRoster: expertRoster,
 			CompactionSettings: agent.CompactionSettingsFromConfig(settings.Compaction),
 			ApprovalHandler:    opts.ApprovalHandler, ApprovalDecisionLookup: opts.ApprovalDecisionLookup, MultiAgent: opts.MultiAgent,
 			DelegateMode: opts.DelegateMode, Workflows: opts.Workflows,
@@ -197,7 +210,7 @@ func (r *SessionRuntime) buildAgent(registry *tools.Registry, manager *session.M
 		MaxIterations: opts.MaxIterations, ContextPressureThreshold: opts.ContextPressure,
 		BudgetPressureThreshold: opts.BudgetPressure, BeforeToolCall: beforeToolCall, BeforeToolExecute: beforeToolExecute,
 		AfterToolCall:       opts.AfterToolCall,
-		GetSteeringMessages: opts.GetSteeringMessages,
+		GetSteeringMessages: composeSteering(mailbox, opts.GetSteeringMessages),
 		ForcedMode:          policy.ForcedMode(),
 	}, registry), nil
 }

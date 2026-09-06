@@ -507,6 +507,9 @@ func (s *Server) buildSessionRuntimeForCommand(sess *APISession) (*agentruntime.
 		MCPClients:   sess.MCPClients,
 		ExtraContext: sess.ExtraContext,
 		RuleContent:  sess.RuleContent,
+		Settings:     s.settings,
+		Workflows:    sess.Workflows,
+		Browser:      sess.Browser,
 	})
 }
 
@@ -538,6 +541,7 @@ func (s *Server) agentForCommandCompaction(sess *APISession) (*agent.Agent, erro
 		Settings: runtimeSettings, Allow: s.getAllow(), Mode: mode,
 		ThinkingLevel: provider.ThinkingLevel(s.cfg.DefaultThinkingLevel),
 		MultiAgent:    sess.MultiAgent, DelegateMode: sess.DelegateMode, Workflows: sess.Workflows,
+		GetSteeringMessages: s.esmSteeringMessages(sess.ID),
 	})
 }
 
@@ -560,7 +564,7 @@ func (s *Server) cmdRule(sess *APISession, parts []string) *CommandResult {
 	sess.RuleContent = content
 	if sess.AgentMgr != nil {
 		sess.AgentMgr = s.newAgentManagerForSession(sess)
-		if sess.MultiAgent && sess.AgentMgr != nil {
+		if agentruntime.SubAgentToolsEnabled(sess.Runtime, sess.MultiAgent) && sess.AgentMgr != nil {
 			agent.RegisterSubAgentTools(sess.Registry, sess.AgentMgr)
 		}
 		if sess.DelegateMode && sess.AgentMgr != nil {

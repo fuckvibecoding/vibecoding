@@ -65,9 +65,11 @@ type PreparedInput struct {
 // idempotency is enforced here; durable submission reservation and existing-Run
 // reuse are handled by the Runtime admission layer.
 type InputSubmission struct {
-	Text           string
-	Resources      []PreparedInput
-	IdempotencyKey string
+	Text                    string
+	Resources               []PreparedInput
+	KnowledgeBaseReferences []KnowledgeBaseReference
+	KnowledgeCapsules       []KnowledgeCapsule
+	IdempotencyKey          string
 }
 
 // ResourceIDs returns the canonical Runtime resource IDs in submission order.
@@ -834,8 +836,16 @@ func (r *SessionRuntime) BuildUserMessage(ctx context.Context, input InputSubmis
 	if err := r.ensureOpen(); err != nil {
 		return provider.Message{}, err
 	}
+	knowledge := formatKnowledgeCapsules(input.KnowledgeCapsules)
 	if len(input.Resources) == 0 {
-		return provider.NewUserMessage(input.Text), nil
+		text := strings.TrimSpace(input.Text)
+		if knowledge != "" {
+			if text != "" {
+				text += "\n\n"
+			}
+			text += knowledge
+		}
+		return provider.NewUserMessage(text), nil
 	}
 	r.mu.RLock()
 	inputs := r.Inputs
@@ -858,6 +868,9 @@ func (r *SessionRuntime) BuildUserMessage(ctx context.Context, input InputSubmis
 		text += "\n\n" + manifest
 	} else {
 		text = manifest
+	}
+	if knowledge != "" {
+		text += "\n\n" + knowledge
 	}
 	return provider.NewUserMessage(text), nil
 }

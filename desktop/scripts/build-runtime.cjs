@@ -26,7 +26,12 @@ function npmCommand() {
   return { command: process.platform === 'win32' ? 'npm.exe' : 'npm', prefix: [] };
 }
 
+// ui/dist is embedded into the Go binary (ui/embed.go). The desktop frontend
+// is standalone (desktop/renderer) and does not use the serve Web UI, but the
+// vendored binary still needs ui/dist to exist at build time. Only build the
+// UI when the embed directory is missing.
 function ensureUI() {
+  if (fs.existsSync(path.join(uiRoot, 'dist', 'index.html'))) return;
   const npm = npmCommand();
   if (!fs.existsSync(path.join(uiRoot, 'node_modules'))) {
     run(npm.command, [...npm.prefix, 'ci', '--no-audit', '--no-fund'], uiRoot);

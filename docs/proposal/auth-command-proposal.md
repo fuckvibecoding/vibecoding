@@ -37,14 +37,14 @@
 
 ### 4.1 首次启动
 
-当 `~/.vibecoding/settings.json` 不存在时：
+当 `~/.mothx/settings.json` 不存在时：
 
 1. `config.LoadSettings()` 继续自动创建默认文件。
 2. 记录“本次启动创建了配置文件”的信号。
 3. TUI header / initial message 中追加提示：
 
 ```text
-Created default config: ~/.vibecoding/settings.json
+Created default config: ~/.mothx/settings.json
 No provider token configured yet. Run /auth to add a provider token and model.
 ```
 

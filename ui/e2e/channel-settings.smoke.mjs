@@ -245,13 +245,13 @@ try {
   assert.equal(state.patchCount, 1, 'channel patch did not reach the API');
 
   await evaluate(cdp, `window.location.hash = '#/settings/serve'`);
-  await waitFor(cdp, `document.querySelector('.page-toolbar.embedded .primary') !== null`);
+  await waitFor(cdp, `document.querySelector('.settings-save-card button') !== null`);
   await new Promise((resolve) => setTimeout(resolve, 100));
-  await waitFor(cdp, `[...document.querySelectorAll('input[type="checkbox"]')].some((input) => input.parentElement.textContent.includes('Bearer Token'))`);
-  await evaluate(cdp, `(() => [...document.querySelectorAll('input[type="checkbox"]')]
-    .find((input) => input.parentElement.textContent.includes('Bearer Token')).click())()`);
-  await waitFor(cdp, `[...document.querySelectorAll('input[type="checkbox"]')]
-    .find((input) => input.parentElement.textContent.includes('Bearer Token')).checked`);
+  await waitFor(cdp, `[...document.querySelectorAll('.settings-switch-row')].some((row) => row.textContent.includes('Bearer Token'))`);
+  await evaluate(cdp, `(() => [...document.querySelectorAll('.settings-switch-row')]
+    .find((row) => row.textContent.includes('Bearer Token')).querySelector('[role="switch"]').click())()`);
+  await waitFor(cdp, `[...document.querySelectorAll('.settings-switch-row')]
+    .find((row) => row.textContent.includes('Bearer Token')).querySelector('[role="switch"]').getAttribute('aria-checked') === 'true'`);
   await evaluate(cdp, `document.querySelector('.list-editor button').click()`);
   await waitFor(cdp, `document.querySelector('.list-editor input[type="password"]') !== null`);
   await evaluate(cdp, `(() => {
@@ -259,7 +259,7 @@ try {
     token.value = 'e2e-auth-token';
     token.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
-  await evaluate(cdp, `document.querySelector('.page-toolbar.embedded .primary').click()`);
+  await evaluate(cdp, `document.querySelector('.settings-save-card button').click()`);
   for (let i = 0; i < 100 && (state.serveConfigPutCount === 0 || state.lastServeConfigBody === null); i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(state.serveConfigPutCount, 1, 'serve auth save did not reach the API');
   assert.deepEqual(state.lastServeConfigBody.auth, { enabled: true, tokens: ['e2e-auth-token'] }, 'auth was not written using the serve config schema');
@@ -268,9 +268,9 @@ try {
   assert.equal(state.loginCount, 1, 'saving enabled auth did not log the browser in');
 
   await evaluate(cdp, `window.location.hash = '#/sessions'`);
-  await waitFor(cdp, `document.querySelector('.sessions-table .danger, .session-card .danger') !== null`);
+  await waitFor(cdp, `document.querySelector('.session-action-delete') !== null`);
   await evaluate(cdp, `window.confirm = () => true`);
-  await evaluate(cdp, `document.querySelector('.sessions-table .danger, .session-card .danger').click()`);
+  await evaluate(cdp, `document.querySelector('.session-action-delete').click()`);
   for (let i = 0; i < 100 && state.deleteCount === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(state.unbindCount, 1, 'bound session was not unbound before deletion');
   assert.equal(state.deleteCount, 1, 'session delete did not reach the API');
@@ -280,14 +280,14 @@ try {
   // session delete fails and the refreshed list must still show the session.
   await evaluate(cdp, `fetch('/__e2e/reset-delete-failure')`);
   await evaluate(cdp, `window.location.reload()`);
-  await waitFor(cdp, `document.querySelector('.sessions-table .danger, .session-card .danger') !== null`);
+  await waitFor(cdp, `document.querySelector('.session-action-delete') !== null`);
   await evaluate(cdp, `window.confirm = () => true`);
-  await evaluate(cdp, `document.querySelector('.sessions-table .danger, .session-card .danger').click()`);
+  await evaluate(cdp, `document.querySelector('.session-action-delete').click()`);
   for (let i = 0; i < 100 && state.deleteCount < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(state.unbindCount, 2, 'partial-failure branch did not unbind first');
   assert.equal(state.deleteCount, 2, 'partial-failure branch did not attempt delete');
   await waitFor(cdp, `document.body.innerText.includes('已解绑，但删除失败')`);
-  await waitFor(cdp, `document.querySelector('.sessions-table .danger, .session-card .danger') !== null`);
+  await waitFor(cdp, `document.querySelector('.session-action-delete') !== null`);
 } finally {
   if (cdp) {
     cdp.socket.close();

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/startvibecoding/mothx/internal/config"
 	"github.com/startvibecoding/mothx/internal/sandbox"
@@ -74,6 +75,38 @@ func TestBuilderAppliesRegistryHooks(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "hook failure") {
 		t.Fatalf("Build hook error = %v, want hook failure", err)
+	}
+}
+
+func TestRegistryHookCanReadRuntimeState(t *testing.T) {
+	settings := config.DefaultSettings()
+	settings.ContextFiles.Enabled = false
+	workDir := t.TempDir()
+	type buildResult struct {
+		runtime *SessionRuntime
+		err     error
+	}
+	done := make(chan buildResult, 1)
+	go func() {
+		runtime, err := (Builder{Settings: settings, SandboxLevel: sandbox.LevelNone}).Build(context.Background(), BuildOptions{
+			WorkDir: workDir,
+			RegistryHooks: []RegistryHook{func(runtime *SessionRuntime) error {
+				_ = SubAgentToolsEnabled(runtime, false)
+				return nil
+			}},
+		})
+		done <- buildResult{runtime: runtime, err: err}
+	}()
+	select {
+	case result := <-done:
+		if result.runtime != nil {
+			defer result.runtime.Close()
+		}
+		if result.err != nil {
+			t.Fatalf("Build: %v", result.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("registry hook deadlocked while reading Runtime state")
 	}
 }
 
