@@ -615,11 +615,6 @@ func buildWorkDirContext(settings *config.Settings, workDir string, workflows bo
 			return nil, "", fmt.Errorf("create workflow skill: %w", err)
 		}
 	}
-	if browser {
-		if _, _, err := browserfeature.EnsureProjectSkill(workDir); err != nil {
-			return nil, "", fmt.Errorf("create browser skill: %w", err)
-		}
-	}
 	skillsMgr := skills.NewManagerWithProjectDirs(settings.GetGlobalSkillsDir(), skills.ProjectSkillDirs(workDir))
 	_ = skillsMgr.Load()
 

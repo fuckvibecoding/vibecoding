@@ -3,10 +3,10 @@
 > 状态: Research Archive（`expert-team-mothx-proposal.md` 的机制设计依据，只读归档）
 > 日期: 2026-09-06
 > 对象: `openai/codex` 标签 `rust-v0.142.5`（ESM 提案引用的同一版本），`codex-rs/` 目录
-> 方式: `git clone --depth 1 --filter=blob:none --sparse --branch rust-v0.142.5`（经代理 `http://127.0.0.1:7890`），checkout 位于 `tmp/codex-src`，保留至专家团 Phase 2 结束供实现对照
+> 方式: `git clone --depth 1 --filter=blob:none --sparse --branch rust-v0.142.5`（经代理 `http://127.0.0.1:7890`），checkout 位于 `tmp/codex-src`，保留至主角团 Phase 2 结束供实现对照
 > 旁证: 本机 `~/.codex/goals_1.sqlite`（goal mode 为已发布特性，thread_goals SQLite 持久化），与源码阅读一致
 
-调查目的：为 MothX 专家团方案确定"成员完成如何触达 lead、lead 何时被自主唤醒"以及 lead↔subagent 关系各面的参照实现。以下路径均相对 `codex-rs/`。
+调查目的：为 MothX 主角团方案确定"成员完成如何触达 lead、lead 何时被自主唤醒"以及 lead↔subagent 关系各面的参照实现。以下路径均相对 `codex-rs/`。
 
 ## 1. 唤醒与续跑机制
 

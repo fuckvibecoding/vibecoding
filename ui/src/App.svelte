@@ -15,6 +15,7 @@
     stats: () => import('./views/Stats.svelte'),
     cron: () => import('./views/Cron.svelte'),
     skills: () => import('./views/Skills.svelte'),
+    knowledge: () => import('./views/Knowledge.svelte'),
     settings: () => import('./views/Settings.svelte')
   };
 

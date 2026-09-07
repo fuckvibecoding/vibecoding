@@ -5,10 +5,10 @@ import { DIAGNOSTIC_LOGS_MAX, mergeDiagnosticLogs } from './diagnostic-logs';
 import { setLocale, t } from './i18n';
 import { renderManageSection, type ManagedSettingsTab } from './manage';
 import { applyTheme } from './sidebar';
-import { emit, state } from './state';
+import { emit, hasFeature, state } from './state';
 import { el, iconSpan, require$, toast } from './ui';
 
-type SettingsTabID = 'workspace' | 'appearance' | 'application' | 'providers' | 'knowledge' | 'skills' | 'skillhub' | 'mcp' | 'memory' | 'env' | 'cron' | 'channels' | 'serve' | 'runtime' | 'stats' | 'about';
+export type SettingsTabID = 'workspace' | 'appearance' | 'application' | 'providers' | 'knowledge' | 'skills' | 'skillhub' | 'mcp' | 'memory' | 'env' | 'cron' | 'channels' | 'serve' | 'runtime' | 'stats' | 'about';
 
 interface SettingsCategory {
   id: string;
@@ -138,6 +138,17 @@ export function activateSettingsView(): void {
   loadActiveManagedSettingsTab();
 }
 
+// The Library view uses this single navigation bridge instead of duplicating
+// a knowledge-base editor. Settings remains the owner of tab state and lazy
+// ACP management loading.
+export function openSettingsTab(tab: SettingsTabID): void {
+  const category = SETTINGS_CATEGORIES.find((entry) => entry.tabs.some((entryTab) => entryTab.id === tab));
+  if (!category) return;
+  activeSettingsCategory = category.id;
+  activeSettingsTab = tab;
+  activateSettingsView();
+}
+
 function isManagedSettingsTab(tab: SettingsTabID): tab is ManagedSettingsTab {
   return MANAGED_SETTINGS_TABS.has(tab as ManagedSettingsTab);
 }
@@ -150,7 +161,8 @@ function loadActiveManagedSettingsTab(): void {
 function renderSettingsNavigation(): void {
   const category = SETTINGS_CATEGORIES.find((entry) => entry.id === activeSettingsCategory) || SETTINGS_CATEGORIES[0];
   if (!category) return;
-  if (!category.tabs.some((tab) => tab.id === activeSettingsTab)) activeSettingsTab = category.tabs[0]?.id || 'workspace';
+  const visibleTabs = category.tabs.filter((tab) => tab.id !== 'knowledge' || hasFeature('manageKnowledgeBases'));
+  if (!visibleTabs.some((tab) => tab.id === activeSettingsTab)) activeSettingsTab = visibleTabs[0]?.id || 'workspace';
 
   const categoryNav = require$('#settings-category-nav');
   categoryNav.textContent = '';
@@ -172,7 +184,7 @@ function renderSettingsNavigation(): void {
   tabNav.textContent = '';
   tabNav.appendChild(el('div', 'settings-nav-title', t('settings.sections')));
   const tabList = el('div', 'settings-nav-list');
-  for (const tab of category.tabs) {
+  for (const tab of visibleTabs) {
     const button = settingsNavButton(tab.icon, t(tab.label), tab.id === activeSettingsTab);
     button.addEventListener('click', () => {
       activeSettingsTab = tab.id;
@@ -183,7 +195,7 @@ function renderSettingsNavigation(): void {
   }
   tabNav.appendChild(tabList);
 
-  const activeTab = category.tabs.find((tab) => tab.id === activeSettingsTab) || category.tabs[0];
+  const activeTab = visibleTabs.find((tab) => tab.id === activeSettingsTab) || visibleTabs[0];
   require$('#settings-detail-title').textContent = activeTab ? t(activeTab.label) : t('settings.title');
   require$('#settings-detail-subtitle').textContent = activeTab ? t(activeTab.description) : t('settings.subtitle');
   document.querySelectorAll<HTMLElement>('[data-settings-panel]').forEach((panel) => {

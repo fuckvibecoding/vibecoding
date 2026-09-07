@@ -211,17 +211,26 @@ func (m *Manager) SetSessionBinding(channelType, channelID string) error {
 // reloads restore the identity; callers rebuild the Agent afterwards (same
 // lifecycle as capability toggles such as /delegate).
 func (m *Manager) SetExpertBinding(expertID string) error {
-	m.mu.Lock()
+	m.mu.RLock()
 	if m.header == nil {
-		m.mu.Unlock()
+		m.mu.RUnlock()
 		return fmt.Errorf("session is not initialized")
 	}
 	sessionID := m.header.ID
+	table := m.sessionTable()
+	m.mu.RUnlock()
+	if err := m.withDB(func(db *dao.Database) error {
+		return dao.NewSessionDAO(db.Bun()).UpdateSessionExpertID(context.Background(), db.Bun(), table, sessionID, expertID)
+	}); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.header == nil || m.header.ID != sessionID {
+		return fmt.Errorf("session identity changed while updating expert binding")
+	}
 	m.header.ExpertID = expertID
-	m.mu.Unlock()
-	return m.withDB(func(db *dao.Database) error {
-		return dao.NewSessionDAO(db.Bun()).UpdateSessionExpertID(context.Background(), db.Bun(), m.sessionTable(), sessionID, expertID)
-	})
+	return nil
 }
 
 // SetWorkDir changes the persisted working directory of an idle session. The

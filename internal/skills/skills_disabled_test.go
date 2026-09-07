@@ -53,13 +53,13 @@ func TestLoadAppliesGlobalDisabledSkills(t *testing.T) {
 	if !manager.IsSkillDisabled("gen-skill") || manager.IsSkillDisabled("proj-skill") {
 		t.Fatalf("disabled set = %#v", manager.DisabledSkills())
 	}
-	if got := manager.List(); len(got) != 1 || got[0].Name != "proj-skill" {
+	if got := manager.List(); len(got) != 3 || manager.Get("proj-skill") == nil || manager.Get(ExpertCreaterSkillName) == nil || manager.Get("vibe-browser") == nil {
 		t.Fatalf("List must filter disabled skills: %#v", got)
 	}
 	if got := manager.ListBySource("global"); len(got) != 0 {
 		t.Fatalf("ListBySource must filter disabled skills: %#v", got)
 	}
-	if got := manager.Names(); len(got) != 1 || got[0] != "proj-skill" {
+	if got := manager.Names(); len(got) != 3 || got[0] != ExpertCreaterSkillName || got[1] != "proj-skill" || got[2] != "vibe-browser" {
 		t.Fatalf("Names must filter disabled skills: %#v", got)
 	}
 	if manager.Get("gen-skill") != nil {
@@ -68,7 +68,7 @@ func TestLoadAppliesGlobalDisabledSkills(t *testing.T) {
 	if manager.Get("proj-skill") == nil {
 		t.Fatal("Get must keep enabled skills")
 	}
-	if got := manager.ListAll(); len(got) != 2 {
+	if got := manager.ListAll(); len(got) != 4 {
 		t.Fatalf("ListAll must keep disabled skills: %#v", got)
 	}
 	if context := manager.BuildSkillContext("gen-skill"); context != "" {
@@ -96,7 +96,7 @@ func TestSetDisabledSkillsLiveUpdate(t *testing.T) {
 	if err := manager.Load(); err != nil {
 		t.Fatal(err)
 	}
-	if len(manager.List()) != 1 {
+	if len(manager.List()) != 3 {
 		t.Fatalf("baseline skills = %#v", manager.List())
 	}
 
@@ -104,7 +104,7 @@ func TestSetDisabledSkillsLiveUpdate(t *testing.T) {
 	if !manager.IsSkillDisabled("gen-skill") {
 		t.Fatal("SetDisabledSkills must trim and apply names")
 	}
-	if len(manager.List()) != 0 || manager.Get("gen-skill") != nil {
+	if len(manager.List()) != 2 || manager.Get("gen-skill") != nil || manager.Get(ExpertCreaterSkillName) == nil || manager.Get("vibe-browser") == nil {
 		t.Fatal("live disable must hide the skill immediately")
 	}
 	if got := manager.DisabledSkills(); len(got) != 1 || got[0] != "gen-skill" {
@@ -133,7 +133,7 @@ func TestLoadWithoutDisabledSectionKeepsEverythingEnabled(t *testing.T) {
 	if err := manager.Load(); err != nil {
 		t.Fatal(err)
 	}
-	if len(manager.List()) != 1 || manager.Get("gen-skill") == nil {
+	if len(manager.List()) != 3 || manager.Get("gen-skill") == nil || manager.Get(ExpertCreaterSkillName) == nil || manager.Get("vibe-browser") == nil {
 		t.Fatal("absent skills section must keep every skill enabled")
 	}
 	data, err := os.ReadFile(config.GlobalSettingsPath())

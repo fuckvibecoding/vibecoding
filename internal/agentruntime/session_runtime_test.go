@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/startvibecoding/mothx/internal/browser"
 	"github.com/startvibecoding/mothx/internal/config"
 	"github.com/startvibecoding/mothx/internal/sandbox"
 	"github.com/startvibecoding/mothx/internal/tools"
@@ -29,6 +32,31 @@ func TestSessionRuntimeRefreshRejectsUnknownActiveSkillWithoutReplacingContext(t
 	}
 	if runtime.ExtraContext != before {
 		t.Fatal("failed refresh replaced runtime context")
+	}
+}
+
+func TestLoadContextResourcesUsesBuiltInBrowserSkillWithoutProjectWrite(t *testing.T) {
+	workDir := t.TempDir()
+	settings := config.DefaultSettings()
+	settings.ContextFiles.Enabled = false
+
+	resources, err := LoadContextResources(settings, workDir, false, true)
+	if err != nil {
+		t.Fatalf("LoadContextResources: %v", err)
+	}
+	projectSkillsDir := filepath.Join(workDir, ".skills")
+	if _, err := os.Stat(projectSkillsDir); !os.IsNotExist(err) {
+		t.Fatalf("runtime created project skills directory %s: %v", projectSkillsDir, err)
+	}
+	if resources.SkillsMgr == nil {
+		t.Fatal("runtime did not load skills")
+	}
+	skill := resources.SkillsMgr.Get(browser.SkillName)
+	if skill == nil || skill.Source != "builtin" {
+		t.Fatalf("browser skill = %#v, want built-in skill", skill)
+	}
+	if !strings.Contains(resources.ExtraContext, "## Active Skill: "+browser.SkillName) {
+		t.Fatalf("browser skill is not active in runtime context:\n%s", resources.ExtraContext)
 	}
 }
 

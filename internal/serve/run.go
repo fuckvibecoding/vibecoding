@@ -939,6 +939,8 @@ func (rt *channelRuntime) routes(configPath string) func(*openaiapi.Server, *htt
 		mux.HandleFunc("/api/sessions/", rt.handleSessionByID(sessions))
 		mux.HandleFunc("/api/experts", rt.handleExperts(sessions))
 		mux.HandleFunc("/api/experts/", rt.handleExperts(sessions))
+		mux.HandleFunc("/api/knowledge-bases", rt.handleKnowledgeBases)
+		mux.HandleFunc("/api/knowledge-bases/", rt.handleKnowledgeBases)
 		mux.HandleFunc("/api/projects", rt.handleProjects)
 		mux.HandleFunc("/api/projects/", rt.handleProjectByID)
 		mux.HandleFunc("/api/stats/", rt.handleStats(srv.SessionDir()))

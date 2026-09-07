@@ -89,3 +89,21 @@ built-in bundles. A bundle contains `expert.json` and one or more persona
 files under `agents/`; invalid bundles are shown as unavailable and cannot be
 bound. See [the expert-team implementation proposal](../proposal/expert-team-mothx-proposal.md)
 for the bundle schema and architecture rationale.
+
+## Create and install a team with the built-in Skill
+
+MothX includes the `expert-creater` Skill. Once enabled, the current Agent
+creates and installs a validated project-level team at
+`.mothx/experts/<team-id>/`, including `expert.json` and its member personas.
+It never overwrites an existing team directory unless you explicitly ask to
+update that team.
+
+| Surface | Activation command |
+| --- | --- |
+| TUI and WebUI chat | `/skill expert-creater` |
+| Desktop and ACP | `/expert-creater`; ACP also accepts `/skill expert-creater` and `/skill:expert-creater` |
+
+After activation, describe the team's goal and the lead/member roles in your
+next message. Bind the resulting team with the existing picker or
+`/expert bind <team-id>`; switching an already-bound team still follows the
+normal fork rule.

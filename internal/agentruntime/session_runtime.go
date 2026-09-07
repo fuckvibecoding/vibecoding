@@ -1170,11 +1170,6 @@ func LoadContextResourcesWithExpert(settings *config.Settings, workDir string, w
 			return nil, fmt.Errorf("create workflow skill: %w", err)
 		}
 	}
-	if browserEnabled {
-		if _, _, err := browser.EnsureProjectSkill(workDir); err != nil {
-			return nil, fmt.Errorf("create browser skill: %w", err)
-		}
-	}
 	projectSkillDirs := skills.ProjectSkillDirs(workDir)
 	if expertBundle != nil && expertBundle.SkillsDir != "" && expertBundle.SkillsFS == nil {
 		// NewManagerWithProjectDirs loads the first directory last, giving the

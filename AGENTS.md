@@ -6,7 +6,7 @@ Guidance for AI coding agents working in this repository. Read this file before 
 
 - **Primary language:** Go 1.27 (`go.mod`), with a Cobra CLI and Bubble Tea/Lipgloss TUI.
 - **Frontend:** Svelte 5 + Vite in `ui/`; the built UI is embedded into the Go binary.
-- **Desktop:** Electron + TypeScript in `desktop/`; it packages the source-built `mothx` runtime and the same Serve Web UI.
+- **Desktop:** Electron + TypeScript in `desktop/`; this is a first-class, **pure ACP** client. It packages a source-built `mothx acp` runtime and has its own native-DOM/esbuild renderer; it neither starts `mothx serve` nor embeds/reuses the Svelte Web UI.
 - **Packaging:** npm installer packages under `npm/` and a Python installer package under `pypi/`.
 - **Purpose:** MothX (`mothx`) is a terminal AI coding assistant with provider adapters, streaming agent execution, tools, sessions, sandboxing, skills, workflows, serve/API mode, messaging channels, and SDK support.
 
@@ -18,6 +18,7 @@ Guidance for AI coding agents working in this repository. Read this file before 
 - `example/` — public SDK examples.
 - `internal/agent/` — core agent loop, events, context handling, tool execution, sub-agents, and system prompts.
 - `internal/agentruntime/` — the authoritative front-end-neutral runtime layer: shared `SessionRuntime`/`Builder` resource assembly, `ResolveSource`/`ResolvePolicy` mode wiring, `ExecutionRuntime` durable run lifecycle, `DecisionService`/`DecisionRecord` replay, MCP lifecycle, and coordinated shutdown for TUI, CLI, WebUI/API, channels, and ACP. See `docs/proposal/agent-core-runtime-unification-proposal.md`.
+- `internal/expert/` — discovery and validation of built-in, global, and project Expert/Expert Team bundles. A session's resolved identity and team capability remain Runtime-owned in `internal/agentruntime`.
 - `internal/provider/` — provider abstraction and implementations; `anthropic/`, `google/`, and `openai/` contain full providers, while `vendor_*.go` contains vendor detection/defaults.
 - `internal/provider/factory/` — shared provider/model construction. Use this from CLI, ACP, serve, and other runtimes.
 - `internal/tools/` — built-in tools and tool registration.
@@ -29,11 +30,12 @@ Guidance for AI coding agents working in this repository. Read this file before 
 - `internal/dao/` — the only production owner of Bun query construction, SQL statements, table persistence, and row mapping.
 - `internal/session/` — Session domain APIs and replay logic; it uses `internal/db` for managed handles and `internal/dao` for every database operation.
 - `internal/config/` — `settings.json` schema, defaults, and configuration persistence.
-- `internal/contextfiles/`, `internal/skills/`, `internal/workflow/` — project context discovery, reusable skills, and workflow execution.
-- `internal/sandbox/`, `internal/mcp/`, `internal/acp/`, `internal/a2a/` — sandboxing and protocol integrations.
+- `internal/contextfiles/`, `internal/skills/`, `internal/workflow/` — project context discovery, reusable skills, and workflow execution. Built-in skill guidance lives under `internal/skills/builtin/`; project/global skills remain user-owned overrides.
+- `internal/sandbox/`, `internal/mcp/`, `internal/acp/`, `internal/a2a/` — sandboxing and protocol integrations. `internal/mcp/server.go` owns reusable stdio MCP protocol serving; domain packages provide handlers rather than implementing their own JSON-RPC loop.
 - `internal/stats/` — usage statistics dashboard and queries.
 - `ui/src/` — Svelte application; `App.svelte` routes views, `lib/stores.js` owns shared stores, `lib/preferences.js` owns `zh`/`en` translations, and `style.css` contains global styles.
-- `desktop/` — Electron main/preload code, build scripts, and packaging configuration.
+- `desktop/` — the primary desktop product: Electron main process (`main/`), restricted preload bridge (`preload/`), separate TypeScript/native-DOM renderer (`renderer/`), tests, runtime-vendoring/build scripts, and packaging configuration. `main/acp-client.ts` is the only ACP client; renderer code only uses `window.mothx` through the preload bridge.
+- `internal/session/knowledge_*.go`, `internal/dao/knowledge_bases.go`, and `internal/agentruntime/knowledge_*.go` — Runtime-owned managed knowledge bases: one private SQLite graph/FTS snapshot store per knowledge-base ID, DAO-only persistence, index orchestration, and bounded MCP evidence querying. See `docs/proposal/desktop-knowledge-base-agent-proposal.md`.
 - `docs/en/` and `docs/zh/` — bilingual documentation; `docs/en/changelog.md` and `docs/zh/changelog.md` accumulate release notes for all versions, while `docs/changelog_online_en.md` and `docs/changelog_online_zh.md` hold only the current version's changes.
 - `scripts/`, `npm/`, `pypi/`, `packaging/` — build and distribution tooling.
 - `bin/`, `dist/`, `ui/dist/`, `ui/node_modules/`, `desktop/node_modules/`, and generated package artifacts are build output; do not hand-edit them.
@@ -61,6 +63,14 @@ Guidance for AI coding agents working in this repository. Read this file before 
 - Serve API and channels reuse the provider factory, agent loop, sessions, tools, sandbox, skills, and MCP. Serve-only configuration belongs in `internal/serve/config.go`.
 - In the TUI, completed transcript blocks go to terminal scrollback with `Program.Println`; keep only active streaming content in the managed view. Keep provider/model state synchronized across `App`, settings, and `AgentManager`.
 - In the Web UI, use Svelte conditional rendering for interactive mobile behavior (`isMobile`/`sidebarOpen`); reserve CSS media queries for layout. Add translations to both `zh` and `en` maps.
+- **Desktop is an ACP projection, not a second backend:** Electron main starts the packaged `mothx acp` child over stdio NDJSON JSON-RPC; `main/acp-client.ts` owns request correlation, notifications, reverse approval/question requests, restart/backoff, and lifecycle. The renderer must communicate only through preload IPC, must use `initialize._meta.mothx.dev.features` to gate optional UI, and must not add an HTTP/token tunnel, direct child-process access, direct settings/session/database reads, or a second provider/session/run implementation.
+- Desktop-local `desktop-store.json` may contain only presentation state that ACP does not own (for example theme, language, and the new-session default-directory/history). Session history, project membership, pinning, persisted session cwd, provider/model configuration, expert binding, run state, MCP configuration, and management data are canonical ACP/Runtime state. Renderer-only tree expansion, loaded pages, and similar transient projections stay in memory rather than becoming new persisted facts.
+- Desktop's selected folder is the default cwd for a new session, not a process-wide workspace security boundary. Existing sessions use their persisted cwd. If product policy ever restricts directories, enforce it in the shared Runtime policy rather than ACP startup cwd, a renderer check, or Electron file grants.
+- ACP management methods are additive `mothx/manage/*` projections of shared internal services. Keep keys capability-gated and preserve ACP v1; never copy Serve handlers, let Desktop read `settings.json`, or persist a Desktop-only management model. Provider responses and logs must keep keys and sensitive headers masked.
+- **Expert Teams:** an expert is a persisted session binding resolved once by `SessionRuntime`. Bundle precedence is project `.mothx/experts/` over global `experts/` over built-ins. A team forces the shared multi-agent capability; member cards only project canonical child events. Binding/unbinding is allowed on an idle session, but switching one non-empty expert to another must fork, preserving the source identity and history. Do not let an adapter silently downgrade a team or turn a member completion into a new lead run.
+- **Knowledge bases:** a knowledge base is a Desktop-managed, rebuildable index of a user-selected directory, not a chat attachment store, a general RAG path, or a special Agent mode. Its source directory is read-only; configuration, snapshots, FTS, graph nodes/edges, and evidence live in `sessionDir/knowledge-bases/<knowledgeBaseId>.db`, while canonical Runs and audit remain in `sessions.db`. Never delete the source directory when deleting a knowledge base.
+- Indexing is a restricted ordinary Runtime Agent execution with a canonical durable Run; manual and scheduled scans reuse `ExecutionRuntime` and `internal/cron`, not Electron timers or a custom index state machine. Publish only fully validated snapshots atomically; queries must read the active snapshot, return bounded evidence with citations, and leave a prior active snapshot usable after a failed/cancelled rebuild.
+- Main sessions access knowledge only through a configured standard Knowledge MCP server (`mothx knowledge-mcp serve --knowledge-base <id>`) and its ordinary `search_knowledge_base` tool. The MCP allowlist is authorization, and tool output is untrusted, bounded reference data. Do not construct provider content, inject `KnowledgeCapsule`/Librarian strings, run a renderer-side pre-query, or add a knowledge-specific branch to the Agent loop. The legacy capsule/Librarian query path is a migration bridge only; new callers must use MCP.
 
 ## Anti-fragmentation rules (hard architectural invariants)
 
@@ -114,11 +124,14 @@ Desktop:
 ```bash
 make desktop-vendor                # source-build and vendor the runtime
 make desktop-build                 # build Electron shell
+cd desktop && npm run typecheck     # TypeScript boundary check
+cd desktop && npm test              # main/preload/renderer unit and protocol tests
+cd desktop && npm run e2e           # optional Electron ACP smoke test (skips headless CI)
 cd desktop && npm run start         # build/start locally
 make desktop-dist-dev-linux        # analogous mac/win targets exist
 ```
 
-Use focused tests first, then `make test` when the change crosses packages or affects concurrency. Run `make ui-build` for UI changes. Run provider tests (`go test ./internal/provider/...`) after provider/vendor changes. Run `go test ./internal/architecture` after moving production call sites of Agent construction or Run persistence. Real process-boundary tests live with their packages (e.g. `internal/agentruntime`, `internal/acp`, `internal/serve`) and use the subprocess-helper pattern; keep them isolated with temp dirs and localhost addresses.
+Use focused tests first, then `make test` when the change crosses packages or affects concurrency. Run `make ui-build` for Svelte Web UI changes and Desktop's `typecheck` plus focused `npm test` for Electron/renderer changes; use the Electron smoke test when modifying an ACP end-to-end flow. Run provider tests (`go test ./internal/provider/...`) after provider/vendor changes. Run `go test ./internal/architecture` after moving production call sites of Agent construction or Run persistence. Knowledge-base changes require the focused `internal/session`, `internal/agentruntime`, `internal/acp`, and `internal/mcp` tests, plus the architecture guard when persistence/runtime boundaries move. Real process-boundary tests live with their packages (e.g. `internal/agentruntime`, `internal/acp`, `internal/serve`) and use the subprocess-helper pattern; keep them isolated with temp dirs and localhost addresses.
 
 Release and publishing targets (`make dist*`, `make build-all`, npm/PyPI publish targets, checksums) are not normal development commands; run them only when explicitly requested.
 
@@ -131,6 +144,10 @@ Release and publishing targets (`make dist*`, `make build-all`, npm/PyPI publish
 - Preserve meaningful trailing spaces in approval command prefixes such as `go `; do not normalize them as comma-separated values.
 - When adding a provider/model, update `internal/config/settings.go` defaults and `docs/provider-model-list.md`.
 - When adding a Web UI view, register it in `ui/src/App.svelte` and add navigation in `ui/src/components/Sidebar.svelte` as appropriate.
+- When changing Desktop UI, keep the renderer independent of `ui/`: use its existing native-DOM helpers and i18n maps, update both Chinese and English strings, and make optional controls unavailable until their ACP feature key is advertised. Put privileged local operations behind a narrow, typed preload IPC method; do not expose Electron/Node primitives to the renderer.
+- When changing ACP behavior used by Desktop, keep each extension additive and feature-discoverable, update the ACP wire/process tests and Desktop projection tests together, and preserve standard ACP event/run semantics. The main process remains the single ACP client.
+- When changing Expert Teams, resolve bundles and decide forced multi-agent capability in `internal/agentruntime`; persist only the session expert binding, test the bind/unbind/fork transition, and preserve the child-event/lead-run boundary.
+- When changing a knowledge base, keep all SQL and graph/FTS queries in `internal/dao`, session APIs and per-base database ownership in `internal/session`, and orchestration/MCP handlers in `internal/agentruntime`. Add evidence, snapshot isolation, failure/cancellation, and bounded-result tests; update the ACP/Desktop capability projection only after the shared service exists.
 - Keep bilingual user-facing docs synchronized. Append changelog entries for all versions to `docs/en/changelog.md` and `docs/zh/changelog.md`; keep `docs/changelog_online_en.md` and `docs/changelog_online_zh.md` holding only the current version's changes (replace their content with each new release).
 - Do not add license headers unless the surrounding file/project already uses them.
 - Do not create commits, tags, or pushes unless explicitly requested.
@@ -152,3 +169,7 @@ Release and publishing targets (`make dist*`, `make build-all`, npm/PyPI publish
 - Do not import `internal/` packages from the public `agent/` package.
 - Do not add adapter-local empty-mode fallbacks to `agent`; product default and empty-mode resolution are `yolo` via settings, Serve/API config, and `agentruntime.ResolvePolicy`.
 - Do not add adapter-local user-input models, attachment stores, upload lifecycles, provider-content builders, artifact inference/scanning, delivery persistence, cleanup jobs, or recovery loops in TUI, CLI, WebUI/API, ACP, WeChat, or Feishu code. Extend the shared `internal/agentruntime` contract once and project it through every affected adapter.
+- Do not make Desktop a Serve/WebUI wrapper: do not start or proxy `mothx serve`, add renderer HTTP fetches to local APIs, expose ACP stdio or Node/Electron directly to the renderer, or let Electron/renderer own sessions, runs, credentials, MCP clients, schedules, or security policy.
+- Do not store canonical Desktop facts in `desktop-store.json`, localStorage, renderer caches, or Electron file grants. Do not treat the ACP child startup directory, a default new-session directory, or a renderer directory picker as a workspace authorization mechanism.
+- Do not add Desktop-specific Agent configuration, direct provider calls, prompt/content assembly, expert-team capability logic, or a parallel approval/question/run event model. Use the existing ACP projection and shared Runtime resolver.
+- Do not turn artifacts/attachments into knowledge sources implicitly, scan a Desktop/worktree output directory to infer knowledge, or read a knowledge-base SQLite file from an adapter. Do not implement a knowledge-specific prompt injection, Agent mode, agent loop, Electron timer, scheduler, query store, or unbounded/full-text result path; extend the Runtime/DAO/MCP path instead.

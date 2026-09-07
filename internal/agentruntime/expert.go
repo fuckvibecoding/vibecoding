@@ -4,11 +4,14 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/startvibecoding/mothx/internal/agent"
 	"github.com/startvibecoding/mothx/internal/expert"
 	"github.com/startvibecoding/mothx/internal/provider"
 	"github.com/startvibecoding/mothx/internal/session"
+	"github.com/startvibecoding/mothx/internal/skills"
+	"github.com/startvibecoding/mothx/internal/tools"
 )
 
 // ErrExpertSwitchRequiresFork preserves identity/history boundaries: replacing
@@ -30,6 +33,18 @@ type ExpertBinding struct {
 	IdentityPrompt string
 	RosterPrompt   string
 	MemberDefs     []*agent.MemberDef
+}
+
+// preparedExpertResources is a fully validated replacement for the
+// expert-dependent Runtime state. It is intentionally built before changing
+// the persisted session binding so a broken bundle or package skill cannot
+// strand a session with an identity it cannot reopen.
+type preparedExpertResources struct {
+	binding      *ExpertBinding
+	skillsMgr    *skills.Manager
+	extraContext string
+	ruleContent  string
+	hasResources bool
 }
 
 // resolveBoundExpertBundle resolves and validates a session's persisted expert
@@ -244,10 +259,87 @@ func (r *SessionRuntime) SetExpert(expertID string) error {
 	if currentID != "" && nextID != "" && currentID != nextID {
 		return fmt.Errorf("%w: %q -> %q", ErrExpertSwitchRequiresFork, currentID, nextID)
 	}
+	prepared, err := r.prepareExpertResources(nextID)
+	if err != nil {
+		return err
+	}
 	if err := r.Manager.SetExpertBinding(nextID); err != nil {
 		return err
 	}
-	return r.rehydrateBoundResources()
+	return r.publishPreparedExpertResources(prepared)
+}
+
+// prepareExpertResources validates the requested bundle and eagerly builds
+// every Runtime-owned resource it can affect. No session state is changed by
+// this method; SetExpert commits only after this preparation succeeds.
+func (r *SessionRuntime) prepareExpertResources(expertID string) (*preparedExpertResources, error) {
+	if r == nil {
+		return nil, fmt.Errorf("agent runtime is nil")
+	}
+	r.mu.RLock()
+	center := r.ExpertCenter
+	workDir := r.WorkDir
+	settings := r.resourceSettings
+	workflows := r.resourceWorkflows
+	browserEnabled := r.resourceBrowser
+	r.mu.RUnlock()
+	if center == nil {
+		center = &expert.Center{ProjectDir: workDir}
+	}
+	var bundle *expert.Bundle
+	if expertID != "" {
+		var err error
+		bundle, err = center.Get(expertID)
+		if err != nil {
+			return nil, fmt.Errorf("resolve expert binding %q: %w", expertID, err)
+		}
+		if bundle.Invalid {
+			return nil, fmt.Errorf("expert bundle %q is invalid: %s", expertID, bundle.InvalidReason)
+		}
+	}
+	prepared := &preparedExpertResources{}
+	if bundle != nil {
+		prepared.binding = newExpertBinding(bundle)
+	}
+	if settings == nil {
+		return prepared, nil
+	}
+	resources, err := LoadContextResourcesWithExpert(settings, workDir, workflows, browserEnabled, bundle)
+	if err != nil {
+		return nil, err
+	}
+	prepared.skillsMgr = resources.SkillsMgr
+	prepared.extraContext = resources.ExtraContext
+	prepared.ruleContent = resources.RuleContent
+	prepared.hasResources = true
+	return prepared, nil
+}
+
+// publishPreparedExpertResources installs a successful preflight result. It
+// performs only in-memory assignments and registry synchronization, so it
+// cannot invalidate the already-committed session binding with a late loader
+// error.
+func (r *SessionRuntime) publishPreparedExpertResources(prepared *preparedExpertResources) error {
+	if r == nil || prepared == nil {
+		return fmt.Errorf("prepared expert resources are required")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return fmt.Errorf("agent runtime is closed")
+	}
+	r.Expert = prepared.binding
+	if prepared.hasResources {
+		if r.Registry != nil {
+			r.Registry.Register(tools.NewSkillRefTool(prepared.skillsMgr))
+		}
+		r.synchronizeCoreToolsLocked(r.resourceBrowser)
+		r.SkillsMgr = prepared.skillsMgr
+		r.ExtraContext = prepared.extraContext
+		r.RuleContent = prepared.ruleContent
+	}
+	r.LastUsed = time.Now()
+	return nil
 }
 
 func newExpertBinding(bundle *expert.Bundle) *ExpertBinding {

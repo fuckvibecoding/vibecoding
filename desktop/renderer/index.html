@@ -94,7 +94,6 @@
                 <textarea id="home-input" rows="2" data-i18n-placeholder="home.composerPlaceholder" placeholder="今天帮你做些什么？ / 调用技能与指令"></textarea>
                 <div class="composer-bar">
                   <button class="composer-tool" id="plus-btn" title=""><span class="wi sm" data-icon="plus"></span></button>
-                  <button class="composer-tool" id="knowledge-btn" data-knowledge-base-menu title=""><span class="wi sm" data-icon="book"></span></button>
                   <button class="composer-tool" id="caps-btn" title=""><span class="wi sm" data-icon="shield"></span></button>
                   <button class="composer-tool" id="mode-btn"><span class="wi sm" data-icon="sliders"></span><span id="mode-label">yolo</span></button>
                   <button class="composer-tool model" id="model-btn"><span class="wi sm" data-icon="cpu"></span><span id="model-label">…</span><span class="wi sm" data-icon="chevron"></span></button>
@@ -128,7 +127,6 @@
               <textarea id="chat-input" rows="1" data-i18n-placeholder="chat.inputPlaceholder" placeholder="输入消息..."></textarea>
               <div class="composer-bar">
                   <button class="composer-tool" id="plus-btn2" title=""><span class="wi sm" data-icon="plus"></span></button>
-                  <button class="composer-tool" id="knowledge-btn2" data-knowledge-base-menu title=""><span class="wi sm" data-icon="book"></span></button>
                   <button class="composer-tool" id="caps-btn2" title=""><span class="wi sm" data-icon="shield"></span></button>
                 <button class="composer-tool" id="mode-btn2"><span class="wi sm" data-icon="sliders"></span><span class="mode-label2">yolo</span></button>
                 <button class="composer-tool model" id="model-btn2"><span class="wi sm" data-icon="cpu"></span><span class="model-label2">…</span><span class="wi sm" data-icon="chevron"></span></button>
@@ -206,21 +204,25 @@
         </div></div>
       </section>
 
-      <!-- 资料库占位视图（ACP 能力缺口） -->
+      <!-- 资料库：知识库状态 -->
       <section class="view" id="view-library">
         <div class="page-scroll"><div class="page-inner">
           <div class="page-head">
             <div>
-              <div class="page-title" data-i18n="gap.libraryTitle">资料库 · 制品</div>
-              <div class="page-subtitle" data-i18n="gap.librarySubtitle">任务产生的制品与引用的资产文件统一沉淀。</div>
+              <div class="page-title" data-i18n="library.title">知识库</div>
+              <div class="page-subtitle" data-i18n="library.subtitle">管理目录索引、扫描状态与 MCP 使用配置。</div>
             </div>
           </div>
-          <div class="gap-card" id="library-gap">
-            <span class="wi lg" data-icon="book"></span>
-            <div class="gap-title" data-i18n="gap.libraryTitleShort">制品库依赖 ACP 制品投影</div>
-            <div class="gap-desc" data-i18n="gap.libraryDesc">当前 MothX runtime 没有通过 ACP 声明制品清单能力。支持 attachment ID 的制品仍可在对应对话中查看。</div>
-          </div>
-          <div class="row-list" id="library-list" hidden></div>
+          <section class="library-section" id="library-knowledge-section">
+            <div class="library-section-head">
+              <div>
+                <div class="section-title" data-i18n="library.knowledgeTitle">知识库</div>
+                <div class="row-desc" data-i18n="library.knowledgeDesc">目录索引、扫描状态与 MCP 使用配置。</div>
+              </div>
+              <button class="btn-ghost" id="library-manage-knowledge" data-i18n="library.manageKnowledge">管理知识库</button>
+            </div>
+            <div class="row-list" id="library-knowledge-list"></div>
+          </section>
         </div></div>
       </section>
 
@@ -467,7 +469,6 @@
   <div id="plus-commands"></div>
 </div>
 
-<div class="pop-menu" id="knowledge-menu"></div>
 <div class="pop-menu" id="model-menu"></div>
 <div class="pop-menu" id="mode-menu"></div>
 <div class="pop-menu" id="caps-menu"></div>

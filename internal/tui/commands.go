@@ -167,12 +167,6 @@ func (a *App) enableBrowserTool() {
 		return
 	}
 	cwd := a.currentCwd()
-	path, created, err := browserfeature.EnsureProjectSkill(cwd)
-	if err != nil {
-		a.addCommandError(a.translator.Text(i18n.MsgCommandBrowserSkillFailed, err))
-		return
-	}
-
 	globalSkillsDir := ""
 	if a.settings != nil {
 		globalSkillsDir = a.settings.GetGlobalSkillsDir()
@@ -192,11 +186,7 @@ func (a *App) enableBrowserTool() {
 	a.rebuildExtraContext()
 	a.resetAgent(fmt.Errorf("browser tool changed"))
 
-	action := "Using browser skill"
-	if created {
-		action = "Created browser skill"
-	}
-	a.addCommandStatus(a.translator.Text(i18n.MsgCommandBrowserStatus, "ON"), fmt.Sprintf("%s: %s", action, path))
+	a.addCommandStatus(a.translator.Text(i18n.MsgCommandBrowserStatus, "ON"), "Using built-in browser skill")
 }
 
 func (a *App) disableBrowserTool() {

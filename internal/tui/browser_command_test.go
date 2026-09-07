@@ -12,7 +12,7 @@ import (
 	"github.com/startvibecoding/mothx/internal/tools"
 )
 
-func TestBrowserCommandOnCreatesSkillAndRegistersTool(t *testing.T) {
+func TestBrowserCommandOnUsesBuiltInSkillAndRegistersTool(t *testing.T) {
 	tmpDir := t.TempDir()
 	registry := tools.NewRegistry(tmpDir, nil)
 	app := NewApp(nil, &provider.Model{Name: "test"}, config.DefaultSettings(), nil, registry, "", "", "", nil, "agent", false, false, nil, nil, nil)
@@ -23,9 +23,9 @@ func TestBrowserCommandOnCreatesSkillAndRegistersTool(t *testing.T) {
 	if !browserfeature.IsToolRegistered(registry) {
 		t.Fatal("expected browser tool to be registered")
 	}
-	skillPath := filepath.Join(tmpDir, ".skills", browserfeature.SkillName, "SKILL.md")
-	if _, err := os.Stat(skillPath); err != nil {
-		t.Fatalf("expected browser skill to be created: %v", err)
+	projectSkillsDir := filepath.Join(tmpDir, ".skills")
+	if _, err := os.Stat(projectSkillsDir); !os.IsNotExist(err) {
+		t.Fatalf("browser command created a project skills directory: err = %v", err)
 	}
 	if !app.browserEnabled {
 		t.Fatal("browserEnabled is false")
@@ -38,7 +38,7 @@ func TestBrowserCommandOnCreatesSkillAndRegistersTool(t *testing.T) {
 	}
 }
 
-func TestBrowserCommandPreservesExistingSkillAndOffRemovesTool(t *testing.T) {
+func TestBrowserCommandUsesProjectOverrideAndOffRemovesTool(t *testing.T) {
 	tmpDir := t.TempDir()
 	skillDir := filepath.Join(tmpDir, ".skills", browserfeature.SkillName)
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
@@ -64,6 +64,9 @@ func TestBrowserCommandPreservesExistingSkillAndOffRemovesTool(t *testing.T) {
 	}
 	if !strings.Contains(app.extraContext, "# Custom Browser") {
 		t.Fatalf("extraContext missing custom browser skill:\n%s", app.extraContext)
+	}
+	if skill := app.skillsMgr.Get(browserfeature.SkillName); skill == nil || skill.Source != "project" {
+		t.Fatalf("browser skill = %#v, want project override", skill)
 	}
 
 	app.handleCommand("/browser off")

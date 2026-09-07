@@ -6,7 +6,7 @@ import { acp, desktop, invoke } from './api';
 import { scrollChat, terminalizePendingDecisions } from './chat';
 import { t } from './i18n';
 import { createSession, chooseWorkingDirectory, forkSession, refreshSessions } from './sessions';
-import { activeSessionWorkspace, currentConfigOptions, emit, hasFeature, isReady, newSessionWorkspace, setSessionStatus, state, type AttachmentDraft, type KnowledgeBaseReferenceDraft, type SessionConfigOptionShape } from './state';
+import { activeSessionWorkspace, currentConfigOptions, emit, hasFeature, isReady, newSessionWorkspace, setSessionStatus, state, type AttachmentDraft, type SessionConfigOptionShape } from './state';
 import { el, formatBytes, hideMenus, iconSpan, require$, showMenu, toast } from './ui';
 import { switchView } from './views';
 
@@ -18,12 +18,6 @@ interface ContentBlock {
   mimeType?: string;
   data?: string;
   size?: number;
-}
-
-interface KnowledgeBaseListItem {
-  knowledgeBase?: { id?: string; name?: string; enabled?: boolean };
-  snapshot?: { status?: string; fileCount?: number; nodeCount?: number } | null;
-  status?: string;
 }
 
 const MIME_BY_EXT: Record<string, string> = {
@@ -85,17 +79,11 @@ export function renderAttachRow(): void {
   for (const id of ['#attach-row-home', '#attach-row-chat']) {
     const row = require$(id);
     row.textContent = '';
-    row.hidden = state.attachments.length === 0 && state.knowledgeBaseRefs.length === 0;
+    row.hidden = state.attachments.length === 0;
     for (const attachment of state.attachments) {
       row.appendChild(buildAttachChip(attachment));
     }
-    for (const reference of state.knowledgeBaseRefs) {
-      row.appendChild(buildKnowledgeBaseChip(reference));
-    }
   }
-  document.querySelectorAll<HTMLButtonElement>('[data-knowledge-base-menu]').forEach((button) => {
-    button.hidden = !hasFeature('knowledgeBaseContext');
-  });
 }
 
 function buildAttachChip(attachment: AttachmentDraft): HTMLElement {
@@ -109,66 +97,6 @@ function buildAttachChip(attachment: AttachmentDraft): HTMLElement {
   remove.addEventListener('click', () => removeAttachment(attachment.path));
   chip.appendChild(remove);
   return chip;
-}
-
-function buildKnowledgeBaseChip(reference: KnowledgeBaseReferenceDraft): HTMLElement {
-  const chip = el('div', 'attach-chip knowledge-base-chip');
-  chip.appendChild(iconSpan('book'));
-  chip.appendChild(el('span', 'a-name', reference.name));
-  const remove = el('button', '');
-  remove.appendChild(iconSpan('x'));
-  remove.addEventListener('click', () => {
-    state.knowledgeBaseRefs = state.knowledgeBaseRefs.filter((entry) => entry.knowledgeBaseId !== reference.knowledgeBaseId);
-    emit();
-  });
-  chip.appendChild(remove);
-  return chip;
-}
-
-async function renderKnowledgeBaseMenu(menu: HTMLElement): Promise<void> {
-  menu.textContent = '';
-  menu.appendChild(menuHead(t('knowledge.loading')));
-  try {
-    const result = await invoke<{ knowledgeBases?: KnowledgeBaseListItem[] }>('mothx/manage/knowledge-bases/list', {});
-    menu.textContent = '';
-    const knowledgeBases = result.knowledgeBases || [];
-    if (knowledgeBases.length === 0) {
-      menu.appendChild(menuHead(t('knowledge.empty')));
-      return;
-    }
-    menu.appendChild(menuHead(t('knowledge.menuTitle')));
-    for (const view of knowledgeBases) {
-      const base = view.knowledgeBase;
-      const id = String(base?.id || '').trim();
-      if (!id) continue;
-      const name = String(base?.name || id);
-      const indexed = view.status === 'completed' && view.snapshot?.status === 'completed';
-      const enabled = base?.enabled !== false;
-      const selected = state.knowledgeBaseRefs.some((entry) => entry.knowledgeBaseId === id);
-      const item = el('button', `pop-item${selected ? ' selected' : ''}`) as HTMLButtonElement;
-      item.appendChild(iconSpan(selected ? 'check' : 'book'));
-      const label = el('span', 'p-label');
-      label.appendChild(el('div', '', name));
-      label.appendChild(el('div', 'model-desc', indexed
-        ? t('knowledge.ready', { f: view.snapshot?.fileCount ?? 0, n: view.snapshot?.nodeCount ?? 0 })
-        : enabled ? t('knowledge.unindexed') : t('knowledge.disabled')));
-      item.appendChild(label);
-      item.disabled = !indexed && !selected;
-      item.addEventListener('click', () => {
-        if (selected) {
-          state.knowledgeBaseRefs = state.knowledgeBaseRefs.filter((entry) => entry.knowledgeBaseId !== id);
-        } else {
-          state.knowledgeBaseRefs = [...state.knowledgeBaseRefs, { knowledgeBaseId: id, name }];
-        }
-        hideMenus();
-        emit();
-      });
-      menu.appendChild(item);
-    }
-  } catch (error) {
-    menu.textContent = '';
-    menu.appendChild(menuHead(error instanceof Error ? error.message : String(error)));
-  }
 }
 
 export function buildPromptBlocks(text: string): ContentBlock[] {
@@ -371,12 +299,10 @@ export async function sendPrompt(text: string, source: 'home' | 'chat'): Promise
     emit();
     return;
   }
-  const knowledgeBaseRefs = state.knowledgeBaseRefs.map((reference) => ({ knowledgeBaseId: reference.knowledgeBaseId, required: reference.required === true }));
   invoke<{ stopReason?: string }>('session/prompt', {
     sessionId,
     prompt: blocks,
-    ...(knowledgeBaseRefs.length > 0 ? { knowledgeBaseRefs } : {}),
-    _meta: { mothx: { workspace: { cwd }, ...(knowledgeBaseRefs.length > 0 ? { surface: 'desktop' } : {}) } },
+    _meta: { mothx: { workspace: { cwd } } },
   })
     .then((result) => {
       const reason = String(result?.stopReason || 'end_turn');
@@ -599,16 +525,6 @@ export function bindMenus(): void {
     hideMenus();
     void attachFiles();
   });
-
-  const knowledgeMenu = require$('#knowledge-menu');
-  const openKnowledge = (event: MouseEvent, anchor: HTMLElement) => {
-    event.stopPropagation();
-    if (!hasFeature('knowledgeBaseContext')) return;
-    showMenu(knowledgeMenu, anchor);
-    void renderKnowledgeBaseMenu(knowledgeMenu);
-  };
-  require$('#knowledge-btn').addEventListener('click', (event) => openKnowledge(event, event.currentTarget as HTMLElement));
-  require$('#knowledge-btn2').addEventListener('click', (event) => openKnowledge(event, event.currentTarget as HTMLElement));
 
   const modelMenu = require$('#model-menu');
   const openModel = (event: MouseEvent) => {

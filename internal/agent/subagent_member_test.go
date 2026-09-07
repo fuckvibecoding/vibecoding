@@ -179,7 +179,7 @@ func TestSubAgentSpawnToolMemberDefOverrides(t *testing.T) {
 	}
 }
 
-func TestSubAgentSpawnToolExplicitParamsWinOverMemberDef(t *testing.T) {
+func TestSubAgentSpawnToolExplicitParamsOnlyNarrowMemberDef(t *testing.T) {
 	explicitDir := t.TempDir()
 	mgr, _ := newMemberTestManager(t, engineerDefs(), nil)
 	parent, err := mgr.Create(AgentOptions{ID: "main"})
@@ -192,8 +192,8 @@ func TestSubAgentSpawnToolExplicitParamsWinOverMemberDef(t *testing.T) {
 	result, err := tool.Execute(ctx, map[string]any{
 		"task":                "implement the feature",
 		"member":              "engineer",
-		"mode":                "agent",
-		"tools":               []any{"find"},
+		"mode":                "plan",
+		"tools":               []any{"write", "read"},
 		"max_iterations":      float64(3),
 		"work_dir":            explicitDir,
 		"system_prompt_extra": "CALLER-EXTRA",
@@ -207,8 +207,8 @@ func TestSubAgentSpawnToolExplicitParamsWinOverMemberDef(t *testing.T) {
 		t.Fatalf("expected spawned child %q", handle)
 	}
 	loopCfg, _ := runtimeConfigOfManagedAgent(child)
-	if loopCfg.Config.Mode != "agent" {
-		t.Fatalf("child mode = %q, want explicit agent over def plan", loopCfg.Config.Mode)
+	if loopCfg.Config.Mode != "plan" {
+		t.Fatalf("child mode = %q, want explicit plan within def ceiling", loopCfg.Config.Mode)
 	}
 	if loopCfg.MaxIterations != 3 {
 		t.Fatalf("child max iterations = %d, want explicit 3 over def 7", loopCfg.MaxIterations)
@@ -219,11 +219,11 @@ func TestSubAgentSpawnToolExplicitParamsWinOverMemberDef(t *testing.T) {
 	}
 	adapter := child.(*AgentAdapter)
 	childTools := adapter.inner.GetContext().Tools
-	if !toolNamesContain(childTools, "find") {
-		t.Fatalf("child tools = %v, want explicit find", toolNames(childTools))
+	if !toolNamesContain(childTools, "read") {
+		t.Fatalf("child tools = %v, want narrowed explicit read", toolNames(childTools))
 	}
-	if toolNamesContain(childTools, "read") || toolNamesContain(childTools, "grep") {
-		t.Fatalf("explicit tools must replace def tools, got %v", toolNames(childTools))
+	if toolNamesContain(childTools, "write") || toolNamesContain(childTools, "grep") {
+		t.Fatalf("explicit tools must be intersected with def tools, got %v", toolNames(childTools))
 	}
 	if got := workDirForAgent(adapter.inner); got != explicitDir {
 		t.Fatalf("child work dir = %q, want explicit %q", got, explicitDir)
@@ -233,6 +233,61 @@ func TestSubAgentSpawnToolExplicitParamsWinOverMemberDef(t *testing.T) {
 	if err := mgr.Destroy(agentpkg.AgentID(handle)); err != nil {
 		t.Fatalf("destroy spawned agent: %v", err)
 	}
+}
+
+func TestSubAgentSpawnToolMemberCannotEscalateModeOrWorkDir(t *testing.T) {
+	memberDir := t.TempDir()
+	defs := engineerDefs()
+	defs[0].WorkDir = memberDir
+	mgr, _ := newMemberTestManager(t, defs, nil)
+	parent, err := mgr.Create(AgentOptions{ID: "main", Mode: "plan"})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	tool := NewSubAgentSpawnTool(mgr)
+	ctx := ContextWithAgentID(context.Background(), parent.ID())
+	ctx = ContextWithParentMode(ctx, "plan")
+
+	_, err = tool.Execute(ctx, map[string]any{"task": "implement", "member": "engineer", "mode": "yolo"})
+	if err == nil || !strings.Contains(err.Error(), "exceeds member/session capability") {
+		t.Fatalf("yolo escalation error = %v", err)
+	}
+	if mgr.Count() != 1 {
+		t.Fatalf("mode escalation created a child, count = %d", mgr.Count())
+	}
+
+	_, err = tool.Execute(ctx, map[string]any{"task": "implement", "member": "engineer", "work_dir": t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "work_dir is fixed") {
+		t.Fatalf("work_dir escalation error = %v", err)
+	}
+}
+
+func TestSubAgentSpawnToolMemberModeIsClampedByPlanParent(t *testing.T) {
+	defs := engineerDefs()
+	defs[0].Mode = "yolo"
+	mgr, _ := newMemberTestManager(t, defs, nil)
+	parent, err := mgr.Create(AgentOptions{ID: "main", Mode: "plan"})
+	if err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	tool := NewSubAgentSpawnTool(mgr)
+	ctx := ContextWithAgentID(context.Background(), parent.ID())
+	ctx = ContextWithParentMode(ctx, "plan")
+
+	result, err := tool.Execute(ctx, map[string]any{"task": "review", "member": "engineer"})
+	if err != nil {
+		t.Fatalf("execute spawn: %v", err)
+	}
+	handle := spawnHandleFromResult(t, result.Text)
+	child, ok := mgr.Get(agentpkg.AgentID(handle))
+	if !ok {
+		t.Fatalf("expected spawned child %q", handle)
+	}
+	loopCfg, _ := runtimeConfigOfManagedAgent(child)
+	if loopCfg.Config.Mode != "plan" {
+		t.Fatalf("child mode = %q, want plan parent ceiling", loopCfg.Config.Mode)
+	}
+	waitForManagedAgentToStop(t, mgr, agentpkg.AgentID(handle))
 }
 
 func TestSubAgentSpawnToolWithoutMemberKeepsInheritance(t *testing.T) {

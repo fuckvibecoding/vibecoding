@@ -947,6 +947,64 @@ func TestNewSessionMCPFailureRollsBackPersistedSession(t *testing.T) {
 	}
 }
 
+func TestNewSessionLoadsEnabledConfiguredMCPServers(t *testing.T) {
+	configDir := t.TempDir()
+	sessionDir := t.TempDir()
+	cwd := t.TempDir()
+	t.Setenv("MOTHX_DIR", configDir)
+	command := filepath.Join(t.TempDir(), "configured-mcp")
+	fixture := `#!/bin/sh
+while IFS= read -r line; do
+  id=$(printf '%s\n' "$line" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  method=$(printf '%s\n' "$line" | sed -n 's/.*"method":"\([^"]*\)".*/\1/p')
+  case "$method" in
+    initialize)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-11-25"}}\n' "$id"
+      ;;
+    tools/list)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"configured_probe","inputSchema":{"type":"object"}}]}}\n' "$id"
+      ;;
+    resources/list|prompts/list)
+      printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id"
+      ;;
+  esac
+done
+`
+	if err := os.WriteFile(command, []byte(fixture), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.SaveMCPConfig(config.GlobalMCPPath(), &config.MCPConfig{MCPServers: []config.MCPServer{{
+		Name: "configured", Type: "stdio", Command: command,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	s := testSessionServer(cwd, sessionDir, &out)
+	s.handleNewSession(rpcRequest{ID: json.RawMessage("1"), Params: json.RawMessage(fmt.Sprintf(`{"cwd":%q}`, cwd))})
+	messages := jsonLines(t, &out)
+	if len(messages) != 1 || messages[0]["error"] != nil {
+		t.Fatalf("new session response = %#v, want configured MCP session", messages)
+	}
+	result := messages[0]["result"].(map[string]any)
+	sessionID := result["sessionId"].(string)
+	rt := s.sessionRuntime(sessionID)
+	if rt == nil || len(rt.mcp) != 1 {
+		t.Fatalf("MCP clients = %#v, want configured server", rt)
+	}
+	found := false
+	for _, tool := range rt.registry.All() {
+		if tool.Name() == "mcp_configured_configured_probe" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("configured MCP tool was not registered: %#v", rt.registry.All())
+	}
+	rt.closeResources()
+}
+
 func TestCancelRequestCancelsMatchingPrompt(t *testing.T) {
 	cancelled := make(chan struct{})
 	s := &server{sessions: map[string]*sessionRuntime{

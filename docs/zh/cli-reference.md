@@ -284,14 +284,14 @@ mothx acp --multi-agent
 
 启用后，MothX 会注册 `subagent_*` 工具，并支持后台委托调查等多 Agent 工作流。Cron 命令入口也依赖多 Agent 模式。
 
-### 专家团
+### 主角团
 
 ```bash
-# 启动会话时绑定专家或团队
+# 启动会话时绑定主角或团队
 mothx --expert software-company
 ```
 
-`--expert <bundle-id>` 会通过共享 Runtime 解析本地专家包。团队型专家会为该会话启用声明的成员调度能力；单人专家只改变 lead 身份。TUI 中使用 `/expert list|show <id>|bind <id>|unbind|switch <id>`。替换已绑定专家会创建会话分叉，而不会改写源会话。完整行为见[专家团](expert-teams.md)。
+`--expert <bundle-id>` 会通过共享 Runtime 解析本地主角包。团队型主角会为该会话启用声明的成员调度能力；单人主角只改变 lead 身份。TUI 中使用 `/expert list|show <id>|bind <id>|unbind|switch <id>`。替换已绑定主角会创建会话分叉，而不会改写源会话。完整行为见[主角团](expert-teams.md)。
 
 ### Delegate 模式
 

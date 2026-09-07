@@ -77,10 +77,16 @@ func (r *SessionRuntime) ConnectMCP(ctx context.Context, policy MCPPolicy) error
 	if r == nil || r.Registry == nil {
 		return fmt.Errorf("runtime registry is required")
 	}
-	if len(policy.Servers) == 0 {
+	servers := make([]mcp.ServerConfig, 0, len(policy.Servers))
+	for _, server := range policy.Servers {
+		if config.MCPServerEnabled(server) {
+			servers = append(servers, server)
+		}
+	}
+	if len(servers) == 0 {
 		return nil
 	}
-	clients, err := mcp.ConnectServers(ctx, policy.Servers, r.Registry, policy.Callbacks)
+	clients, err := mcp.ConnectServers(ctx, servers, r.Registry, policy.Callbacks)
 	if err != nil {
 		if policy.Optional {
 			if policy.OnError != nil {
@@ -94,8 +100,11 @@ func (r *SessionRuntime) ConnectMCP(ctx context.Context, policy MCPPolicy) error
 	return nil
 }
 
-// ConnectConfiguredMCP loads project MCP configuration and applies the same
-// strict/optional connection behavior as ConnectMCP.
+// ConnectConfiguredMCP loads the standard global/project MCP configuration,
+// appends explicitly negotiated protocol servers, and applies the same
+// strict/optional connection behavior as ConnectMCP. This keeps adapters from
+// creating a second configuration resolution path while still honoring ACP's
+// standard mcpServers request field.
 func (r *SessionRuntime) ConnectConfiguredMCP(ctx context.Context, policy MCPPolicy) error {
 	if r == nil {
 		return fmt.Errorf("runtime is required")
@@ -110,7 +119,7 @@ func (r *SessionRuntime) ConnectConfiguredMCP(ctx context.Context, policy MCPPol
 		}
 		return err
 	}
-	policy.Servers = servers
+	policy.Servers = append(servers, policy.Servers...)
 	return r.ConnectMCP(ctx, policy)
 }
 

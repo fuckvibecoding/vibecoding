@@ -4,7 +4,7 @@
 import { desktop, invoke } from './api';
 import { refreshDraftConfigOptions } from './composer';
 import { t } from './i18n';
-import { hasFeature } from './state';
+import { hasFeature, state } from './state';
 import { confirmDialog, el, iconSpan, promptModal, require$, toast } from './ui';
 
 export interface ProviderView {
@@ -173,11 +173,14 @@ export interface SkillView {
 }
 export interface McpServerView {
   name: string;
+  type?: string;
   command?: string;
   args?: string[];
   url?: string;
+  messageUrl?: string;
   enabled?: boolean;
   envKeys?: string[];
+  headerNames?: string[];
 }
 export interface StatsSummary {
   sessions?: number;
@@ -1873,11 +1876,16 @@ async function renderKnowledgeBases(): Promise<void> {
   container.appendChild(header);
 
   const defaults = await knowledgeBaseDefaults();
+  const mcpResult = hasFeature('manageMcp')
+    ? await guard('manageMcp', () => invoke<{ servers?: McpServerView[] }>('mothx/manage/mcp/list', {}), null)
+    : null;
+  if (mcpResult) cache.mcp = mcpResult.servers || [];
+  const mcpServers = cache.mcp || [];
   for (const view of cache.knowledgeBases) {
-    container.appendChild(renderKnowledgeBaseEditor(view, defaults, false));
+    container.appendChild(await renderKnowledgeBaseEditor(view, defaults, false, mcpServers));
   }
   if (creatingKnowledgeBase) {
-    container.appendChild(renderKnowledgeBaseEditor(undefined, defaults, true));
+    container.appendChild(await renderKnowledgeBaseEditor(undefined, defaults, true, mcpServers));
   }
   if (!creatingKnowledgeBase && cache.knowledgeBases.length === 0) {
     container.appendChild(el('div', 'row-desc', t('settings.knowledgeEmpty')));
@@ -1930,7 +1938,7 @@ function replaceKnowledgeBaseSelectOptions(select: HTMLSelectElement, value: str
   select.value = choices.includes(value) ? value : choices[0] || '';
 }
 
-function renderKnowledgeBaseEditor(view: KnowledgeBaseView | undefined, defaults: { spec: KnowledgeBaseSpec; providers: string[]; models: ProviderCatalog['models'] }, creating: boolean): HTMLElement {
+async function renderKnowledgeBaseEditor(view: KnowledgeBaseView | undefined, defaults: { spec: KnowledgeBaseSpec; providers: string[]; models: ProviderCatalog['models'] }, creating: boolean, mcpServers: McpServerView[] = []): Promise<HTMLElement> {
   const base = view?.knowledgeBase;
   const source = base ? { ...base } : { ...defaults.spec };
   const card = applicationCard(base ? base.name : t('settings.knowledgeNew'), base ? knowledgeBaseStatus(view) : t('settings.knowledgeNewDesc'));
@@ -1973,6 +1981,43 @@ function renderKnowledgeBaseEditor(view: KnowledgeBaseView | undefined, defaults
       n: view.snapshot.nodeCount ?? 0, e: view.snapshot.edgeCount ?? 0,
     });
     card.card.appendChild(stats);
+  }
+
+  if (base && hasFeature('manageMcp')) {
+    const mcpName = knowledgeBaseMcpName(base.id);
+    const mcpEntry = mcpServers.find((server) => server.name === mcpName);
+    const willEnable = !mcpEntry || mcpEntry.enabled === false;
+    const mcpSection = el('div', 'application-settings-card');
+    const mcpHead = el('div', 'application-settings-card-head');
+    mcpHead.append(
+      el('div', 'provider-section-title', t('settings.knowledgeMcpTitle')),
+      el('div', 'row-desc', t('settings.knowledgeMcpDesc')),
+    );
+    mcpSection.appendChild(mcpHead);
+    const mcpBody = el('div', 'application-settings-grid');
+    const mcpStatus = el('div', 'row-desc');
+    mcpStatus.textContent = mcpEntry
+      ? (mcpEntry.enabled === false ? t('settings.knowledgeMcpDisabled') : t('settings.knowledgeMcpEnabled'))
+      : t('settings.knowledgeMcpNotConfigured');
+    const mcpHint = el('div', 'row-desc', t('settings.knowledgeMcpHint'));
+    const mcpAction = el('button', 'btn-ghost', willEnable
+      ? (mcpEntry ? t('settings.knowledgeMcpEnable') : t('settings.knowledgeMcpConfigure'))
+      : t('settings.knowledgeMcpDisable')) as HTMLButtonElement;
+    mcpAction.type = 'button';
+    mcpAction.addEventListener('click', async () => {
+      mcpAction.disabled = true;
+      try {
+        await applyKnowledgeBaseMcp(base.id, willEnable, mcpServers);
+        toast(t('settings.knowledgeMcpSaved'));
+        await renderKnowledgeBases();
+      } catch (error) {
+        toast(error instanceof Error ? error.message : String(error));
+        mcpAction.disabled = false;
+      }
+    });
+    mcpBody.append(mcpStatus, mcpAction, mcpHint);
+    mcpSection.appendChild(mcpBody);
+    card.card.appendChild(mcpSection);
   }
 
   const actions = el('div', 'provider-editor-actions');
@@ -2046,6 +2091,40 @@ function knowledgeBaseStatus(view: KnowledgeBaseView): string {
   if (!view.snapshot) return t('settings.knowledgeUnindexed');
   const status = view.status || view.snapshot.status;
   return t('settings.knowledgeStatus', { s: status || t('settings.knowledgeUnindexed') });
+}
+
+function knowledgeBaseMcpName(baseId: string): string {
+  return `knowledge-${baseId}`;
+}
+
+async function applyKnowledgeBaseMcp(baseId: string, enabled: boolean, currentServers: McpServerView[]): Promise<void> {
+  const name = knowledgeBaseMcpName(baseId);
+  const existing = currentServers.find((server) => server.name === name);
+  const command = state.appInfo.runtimeBinary || 'mothx';
+  const canonical: McpServerView = {
+    name,
+    type: 'stdio',
+    command,
+    args: ['knowledge-mcp', 'serve', '--knowledge-base', baseId],
+    enabled,
+  };
+  // The list projection includes env/header key names for display. mcp/set
+  // deliberately rejects those read-only fields, so submit only its writable
+  // standard MCP schema and let ACP preserve secret values by server name.
+  const writable = (server: McpServerView): McpServerView => ({
+    name: server.name, type: server.type, command: server.command, args: server.args,
+    url: server.url, messageUrl: server.messageUrl, enabled: server.enabled,
+  });
+  const others = currentServers.filter((server) => server.name !== name).map(writable);
+  if (enabled) {
+    // Enable/configure: upsert the deterministic stdio server with the canonical command/args.
+    const server = existing ? { ...writable(existing), ...canonical } : canonical;
+    await invoke('mothx/manage/mcp/set', { servers: [...others, server] });
+  } else {
+    // Disable: retain every other entry and only flip the deterministic server's enabled flag.
+    const server = existing ? { ...writable(existing), enabled: false } : { ...canonical, enabled: false };
+    await invoke('mothx/manage/mcp/set', { servers: [...others, server] });
+  }
 }
 
 async function renderSkills(): Promise<void> {

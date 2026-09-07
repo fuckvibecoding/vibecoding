@@ -1,9 +1,9 @@
-# MothX 专家团（Expert Team）落地方案
+# MothX 主角团（Expert Team）落地方案
 
 > 状态: Implemented（Phase 1–6 均已完成；实施与验证记录见 §15）
 > 日期: 2026-09-06（实施状态同步于同日）
 > 参考:
-> - 原 `expert-team-wrapper-scheme.md`（厂商"桌面 Host + Agent CLI"专家团封装方案逆向调研）：**已于 2026-09-06 并入本提案**，本提案是专家团功能的唯一实施文档。产品理念与生态溯源见 §1，生态包格式与转换规则见 §5/§12；厂商 Host 机制（远程分发、volatile plugin switch、env 门控、Host 侧成员状态机）均由 §3 的 MothX 原生机制取代，不再单独成文
+> - 原 `expert-team-wrapper-scheme.md`（厂商"桌面 Host + Agent CLI"主角团封装方案逆向调研）：**已于 2026-09-06 并入本提案**，本提案是主角团功能的唯一实施文档。产品理念与生态溯源见 §1，生态包格式与转换规则见 §5/§12；厂商 Host 机制（远程分发、volatile plugin switch、env 门控、Host 侧成员状态机）均由 §3 的 MothX 原生机制取代，不再单独成文
 > - `codex-lead-subagent-research.md`：lead↔subagent 机制调研归档（§7/§9 语义设计依据）
 > - `enable-supervisor-mode.md` §16（ESM 现状）、`session-fork-and-message-branch-proposal.md`（Implemented）、`dynamic-workflows-javascript-proposal.md`（能力声明参照）、`AGENTS.md`（架构不变量，§11 对照）
 
@@ -11,12 +11,12 @@
 
 ## 1. 目标与非目标
 
-**来源与生态**（承自已并入的厂商方案调研）：产品理念来自对某厂商桌面 Host 在通用 Agent CLI 之上封装专家团的逆向分析；其生态实测 427 个专家包（375 个 agent 型 + 52 个 team 型，如 SoftwareCompany、CloudOpsTeam、TradingAgentTeam、GPTResearcherTeam），全部是"manifest + 人设 Markdown"的纯内容包，可按 §12 转换规则机械移植进本提案格式——这是"专家团 = 内容包、发布即上线"的生态依据。厂商 Host 的实现机制（每会话 CLI 进程、REST 插件切换、env 门控、Host 状态机）不适用于 MothX，已由 §3 架构原生替代。
+**来源与生态**（承自已并入的厂商方案调研）：产品理念来自对某厂商桌面 Host 在通用 Agent CLI 之上封装主角团的逆向分析；其生态实测 427 个专家包（375 个 agent 型 + 52 个 team 型，如 SoftwareCompany、CloudOpsTeam、TradingAgentTeam、GPTResearcherTeam），全部是"manifest + 人设 Markdown"的纯内容包，可按 §12 转换规则机械移植进本提案格式——这是"主角团 = 内容包、发布即上线"的生态依据。厂商 Host 的实现机制（每会话 CLI 进程、REST 插件切换、env 门控、Host 状态机）不适用于 MothX，已由 §3 架构原生替代。
 
-专家团 = 可分发的人设内容包 × 「命名 agent 定义」运行时原语 × ESM 目标治理 × 三端薄投影。核心原则：
+主角团 = 可分发的人设内容包 × 「命名 agent 定义」运行时原语 × ESM 目标治理 × 三端薄投影。核心原则：
 
 1. **编排零代码**：团队 SOP 全部写进 lead 人设提示词，运行时只出通用原语；
-2. 上线/调整一个专家团 = 发布一个内容包，不改运行时代码；
+2. 上线/调整一个主角团 = 发布一个内容包，不改运行时代码；
 3. 专家身份是**会话级**状态（header 持久化、fork 切换），不污染全局；
 4. 成员触达与唤醒语义由**运行时结构保证**（完成通知、邮箱边界投递、无唤醒），不依赖提示词纪律；
 5. 事件唯一语义源，TUI/WebUI/desktop/channels 只做薄投影。
@@ -107,7 +107,7 @@
 
 ### 3.1 默认路径不变性（未绑定专家 = 零行为变化）
 
-专家团全部能力为 opt-in：不设置 expertId 的会话，TUI/WebUI/desktop 的启动与使用与今日完全一致。
+主角团全部能力为 opt-in：不设置 expertId 的会话，TUI/WebUI/desktop 的启动与使用与今日完全一致。
 
 | 面 | 不变性保证 |
 |---|---|
@@ -260,7 +260,7 @@ SOP 全部是种子包内的提示词内容，运行时不为任何团队流程�
 
 ## 8. 治理层：与 ESM 正交组合
 
-职责划分：**专家团 = run 内分工**（人设、roster、SOP）；**ESM = 跨 run 目标治理**（续跑、验证、断路器、审计、guidance）。组合规则：
+职责划分：**主角团 = run 内分工**（人设、roster、SOP）；**ESM = 跨 run 目标治理**（续跑、验证、断路器、审计、guidance）。组合规则：
 
 - objective 创建权不变量：**仅用户** `/esm`（TUI/WebUI 同命令集）创建/编辑/恢复目标；lead LLM、运行时、专家绑定都不得自动立目标。绑定 team 专家后用户发起交付型任务时，UI 给"建议 /esm 立目标"提示（提示不自动化）。
 - 目标设立双路：会话空闲时立目标 → 立即走空闲续跑 gate；lead run 进行中立目标 → 经既有 ESM `SteeringMessage` 注入活跃 run，不新开 run。
@@ -411,7 +411,7 @@ SOP 全部是种子包内的提示词内容，运行时不为任何团队流程�
 
 - [x] MemberDef/MemberDefRegistry（保序、nil-safe）；AgentManager 字段 Members/Mailbox/ExpertID + SetMemberContext；
 - [x] MemberMailbox：Enqueue/HasPending/DrainSteering（[MEMBER_COMPLETION] 包络、rune 截断 3500/错误 3000+下一步提示、经 provider.NewSystemInjectedUserMessage 注入、不冒充用户意图）/PendingSummary/WaitForActivity；drain 同时清 activity 信号防 stale 唤醒；
-- [x] subagent_spawn 可选 member 参数：能力合成优先级 显式参数>MemberDef>继承；未绑定/未知 id 工具报错（附已知列表）；人设注入 SystemPromptExtra；终态入邮箱（done/error/canceled/incomplete；delegate 同步路径不入）；
+- [x] subagent_spawn 可选 member 参数：MemberDef 是不可放宽的能力上限；显式参数只能进一步收窄 tools、降低 iterations，并不得提升 mode 或越过声明的 work_dir；未绑定/未知 id 工具报错（附已知列表）；人设注入 SystemPromptExtra；终态入邮箱（done/error/canceled/incomplete；delegate 同步路径不入）；
 - [x] subagent_wait 新工具（包内常量 2500/120000/30000，不进 settings schema；摘要不含 payload；nil mailbox 短路）+ 注册 + 子代理 Remove 清单同步；
 - [x] events.go 增 MemberID/ExpertID/MemberDisplayName/MemberEmoji/MemberRole；ForwardChildAgentEvent 可变参 ChildEventMeta 传播不可变展示快照（既有调用点行为不变）；
 - [x] 测试：mailbox/memberdef/spawn member/wait/events 全套绿；既有用例零回归；
@@ -448,7 +448,7 @@ SOP 全部是种子包内的提示词内容，运行时不为任何团队流程�
 
 ### 15.2 已完成（Phase 6 文档与发布记录）
 
-1. [x] Phase 6：已补齐 `docs/en|zh/expert-teams.md` 专家团使用文档，并在双语 getting-started、CLI reference、全量 changelog 与 online changelog 中同步专家绑定、fork 切换、团队成员和 ESM 续跑说明。
+1. [x] Phase 6：已补齐 `docs/en|zh/expert-teams.md` 主角团使用文档，并在双语 getting-started、CLI reference、全量 changelog 与 online changelog 中同步主角绑定、fork 切换、团队成员和 ESM 续跑说明。
 
 **Phase 3 — TUI/CLI 专家入口（2026-09-06）**
 
@@ -462,7 +462,7 @@ SOP 全部是种子包内的提示词内容，运行时不为任何团队流程�
 
 - [x] Serve API：`GET /api/experts`、`GET /api/experts/{id}`、`GET/PATCH /api/sessions/{id}/expert`；发现与详情均委托 agentruntime，绑定经 `SessionRuntime.SetExpert`，并以 mutation lease 拦截运行中会话；
 - [x] 既有 `POST /api/sessions/{id}/fork` 增可选 `expertId`，显式专家切换先由源 SessionRuntime 校验 bundle，再走 `ForkWithExpert`；保留现有幂等键、完成 turn 边界、源分支不变和统一错误码语义；
-- [x] WebUI 新增双语“专家团”导航页：会话选择、专家列表/详情、成员人设卡片、当前绑定、team 消耗提示、绑定/解绑及 fork-switch；运行中会话在界面与 API 两层均拒绝身份变更；
+- [x] WebUI 新增双语“主角团”导航页：会话选择、主角列表/详情、成员人设卡片、当前绑定、team 消耗提示、绑定/解绑及 fork-switch；运行中会话在界面与 API 两层均拒绝身份变更；
 - [x] 实时成员卡片：`AgentManager` 在创建命名成员时保留 member/expert 不可变展示快照，`GET /api/sessions/{id}/subagents` 与 WebSocket 转录投影同一快照；专家页仅轮询当前绑定 team 的实际 member 记录来显示工作中/终态，绝不由 session busy 推断“思考中”，也不建立独立成员状态机；
 - [x] 覆盖测试与构建：成员 metadata 在 Core/Serve external projection/API projection 均有断言；`go test ./internal/serve/openaiapi ./internal/serve ./internal/agentruntime`、`ui npm test`、`ui npm run build` 通过。
 
@@ -488,7 +488,7 @@ Phase 1 完成状态：核心后端 + 数据层 + 装配层 + 适配器门控 + 
 - [x] **Phase 3 TUI/CLI 对照**：TUI 已有 `/expert` 命令、专家/团队状态栏摘要、成员生命周期转录块和 team 消耗提示；root CLI 已有 `--expert`，均经 Runtime 的绑定/分叉与强制 team 能力路径，未新增适配器状态机；
 - [x] **Phase 4 对照**：Serve 已有 Runtime-owned expert list/detail/bind API 与 `fork expertId` 覆盖；WebUI 已有专家面板、成员人设卡片与绑定/分叉入口。成员实时状态从同一 `AgentManager`/canonical child-event 展示快照投影，绝不由 session busy 推断“思考中”；它们不直接改 session header 或解析专家目录；
 - [x] **Phase 5 ACP/Desktop 对照**：Runtime 把 expert 暴露为 session config option；ACP 只转交 `SetExpert`，初次绑定/解绑原地重装配 session-scoped manager，非空身份切换则经 `session/fork expertId` 调用 `ForkWithExpert`。Desktop 仅渲染同一 option、在切换时请求 fork，并把 canonical 子代理事件的人设名称/emoji/role 投影为成员卡片；主进程未增加业务状态；
-- [x] **Phase 6 文档与发布记录**：双语专家团用户文档已经新增；getting-started、CLI reference、全量 changelog 与 online changelog 均已同步，涵盖绑定、fork 切换、团队成员、成员终态边界与 ESM 空闲续跑；
+- [x] **Phase 6 文档与发布记录**：双语主角团用户文档已经新增；getting-started、CLI reference、全量 changelog 与 online changelog 均已同步，涵盖绑定、fork 切换、团队成员、成员终态边界与 ESM 空闲续跑；
 - [x] **ACP 构建阻塞修复**：SkillHub market 校验不再调用仅存在于测试文件的错误数据辅助函数；生产路径复制结构化错误数据并补上 `markets[n]` 位置，`cmd/mothx` 已可重新构建；
 - [x] **运行时锁边界修复**：为支持绑定后重装配，`BindSession`/`UnbindSession` 会在调用重装配前释放 Runtime 锁；实现现已保证各路径恰好释放一次，避免双重解锁。lazy bind 重装配与 ACP registry hook 回归覆盖了该路径；
 - [x] **运行中控制语义已统一**：TUI 与 WebUI 都拒绝在普通前台/外部 run 活跃时执行 pause/resume/clear，仍允许 create/edit/guide 作为下一循环边界的 steering。WebUI 的 pause/clear 可先显式取消本进程拥有的 ESM continuation，释放其 lease 后二次核验；HTTP 返回 `409 Conflict`。TUI 活跃 run 与 WebUI 活跃前台/受控 continuation 的回归已覆盖；

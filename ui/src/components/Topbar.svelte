@@ -11,6 +11,7 @@
     chat: 'nav.newChat',
     sessions: 'nav.sessions',
     skills: 'nav.skills',
+    knowledge: 'knowledge.title',
     stats: 'nav.stats',
     cron: 'nav.cron',
     settings: 'nav.settings'
@@ -20,6 +21,7 @@
     chat: 'topbar.chat.subtitle',
     sessions: 'topbar.sessions.subtitle',
     skills: 'topbar.skills.subtitle',
+    knowledge: 'knowledge.subtitle',
     stats: 'topbar.stats.subtitle',
     cron: 'topbar.cron.subtitle',
     settings: 'topbar.settings.subtitle'

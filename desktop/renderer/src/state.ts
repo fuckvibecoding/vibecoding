@@ -98,6 +98,9 @@ export type TranscriptItem =
       title: string;
       toolKind: string;
       status: string;
+      // Local disclosure state only. Streaming ACP updates must not overwrite
+      // the user's choice to inspect (or hide) a tool execution.
+      open: boolean;
       rawInput?: Record<string, unknown>;
       contents: ToolCallContentShape[];
       locations?: { path: string }[];
@@ -126,15 +129,6 @@ export interface AttachmentDraft {
   mimeType?: string;
   embedded?: boolean;
   data?: string;
-}
-
-// Selected knowledge bases are ephemeral composer state. They are passed as
-// IDs through the canonical Runtime input contract and never enter Desktop's
-// persisted preference store or a renderer-side source-file cache.
-export interface KnowledgeBaseReferenceDraft {
-  knowledgeBaseId: string;
-  name: string;
-  required?: boolean;
 }
 
 export interface AppState {
@@ -173,7 +167,6 @@ export interface AppState {
   availableCommands: AvailableCommandShape[];
   usage: { used: number; size: number; cost?: number } | null;
   attachments: AttachmentDraft[];
-  knowledgeBaseRefs: KnowledgeBaseReferenceDraft[];
   pendingUserKey: string | null;
   promptInFlight: boolean;
   runningSessionId: string | null;
@@ -209,7 +202,6 @@ export const state: AppState = {
   availableCommands: [],
   usage: null,
   attachments: [],
-  knowledgeBaseRefs: [],
   pendingUserKey: null,
   promptInFlight: false,
   runningSessionId: null,

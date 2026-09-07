@@ -890,7 +890,7 @@ var catalogs = map[Language]map[MessageID]string{
 		MsgCommandClearDescription:            "清空会话",
 		MsgCommandCompactDescription:          "触发上下文压缩",
 		MsgCommandSessionsDescription:         "列出、切换、新建或删除会话",
-		MsgCommandExpertDescription:           "列出、查看、绑定或通过分叉切换专家人设",
+		MsgCommandExpertDescription:           "列出、查看、绑定或通过分叉切换主角人设",
 		MsgCommandInitMCPDescription:          "初始化 mcp.json",
 		MsgCommandMCPsDescription:             "列出 MCP 服务器",
 		MsgCommandDelegateDescription:         "切换委派模式",

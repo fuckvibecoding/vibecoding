@@ -672,10 +672,10 @@ func TestManageSkillsListSetRoundTrip(t *testing.T) {
 		item, _ := entry.(map[string]any)
 		byName[item["name"].(string)] = item
 	}
-	if len(byName) != 2 {
-		t.Fatalf("skills = %#v, want global-gen and proj-skill", byName)
+	if len(byName) != 3 {
+		t.Fatalf("skills = %#v, want built-in, global-gen and proj-skill", byName)
 	}
-	if byName["global-gen"]["source"] != "global" || byName["proj-skill"]["source"] != "project" {
+	if byName[skills.ExpertCreaterSkillName]["source"] != "builtin" || byName["global-gen"]["source"] != "global" || byName["proj-skill"]["source"] != "project" {
 		t.Fatalf("skill sources = %#v", byName)
 	}
 	if byName["global-gen"]["enabled"] != true || byName["proj-skill"]["enabled"] != true {
@@ -706,7 +706,7 @@ func TestManageSkillsListSetRoundTrip(t *testing.T) {
 	if !srv.skillsMgr.IsSkillDisabled("global-gen") || srv.skillsMgr.Get("global-gen") != nil {
 		t.Fatal("live skills manager did not apply the disabled toggle")
 	}
-	if len(srv.skillsMgr.ListAll()) != 2 || len(srv.skillsMgr.List()) != 1 {
+	if len(srv.skillsMgr.ListAll()) != 3 || len(srv.skillsMgr.List()) != 2 {
 		t.Fatal("ListAll must keep disabled skills while List filters them")
 	}
 
@@ -749,6 +749,20 @@ func TestManageSkillsListSetRoundTrip(t *testing.T) {
 	if code, _ := manageFixtureError(t, message); code != "skills_unavailable" {
 		t.Fatalf("relative cwd code = %q", code)
 	}
+}
+
+func TestACPAvailableCommandsIncludeBuiltInExpertCreater(t *testing.T) {
+	srv := newManageFixtureServer(&syncedBuffer{}, t.TempDir())
+	srv.skillsMgr = skills.NewManager("", "")
+	if err := srv.skillsMgr.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range srv.availableCommands() {
+		if command.Name == "/"+skills.ExpertCreaterSkillName {
+			return
+		}
+	}
+	t.Fatalf("available commands missing %q", "/"+skills.ExpertCreaterSkillName)
 }
 
 // --- mcp ------------------------------------------------------------------------

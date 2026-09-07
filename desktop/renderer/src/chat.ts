@@ -135,6 +135,7 @@ export function applySessionUpdate(sessionId: string, update: Record<string, unk
         title: String(update.title || toolCallId),
         toolKind: String(update.kind || 'other'),
         status: String(update.status || 'pending'),
+        open: false,
         rawInput: (update.rawInput as Record<string, unknown>) || undefined,
         contents: [],
         locations: (update.locations as { path: string }[]) || undefined,
@@ -149,7 +150,7 @@ export function applySessionUpdate(sessionId: string, update: Record<string, unk
       const key = `tool:${toolCallId}`;
       let item = findItem(key);
       if (!item || item.kind !== 'tool') {
-        item = { kind: 'tool', key, toolCallId, title: String(update.title || toolCallId), toolKind: 'other', status: 'pending', contents: [] };
+        item = { kind: 'tool', key, toolCallId, title: String(update.title || toolCallId), toolKind: 'other', status: 'pending', open: false, contents: [] };
         state.transcript.push(item);
       }
       if (update.title) item.title = String(update.title);
@@ -553,7 +554,9 @@ function buildItem(item: TranscriptItem): HTMLElement {
     }
     case 'thought': {
       const block = el('div', 'thought-block fade-in');
-      const toggle = el('div', 'thought-toggle');
+      const toggle = el('button', 'thought-toggle') as HTMLButtonElement;
+      toggle.type = 'button';
+      toggle.setAttribute('aria-expanded', String(item.open));
       toggle.appendChild(iconSpan('chevron', 'sm'));
       toggle.querySelector('.wi')?.classList.add('chev');
       const label = el('span', '', t('chat.thinking'));
@@ -564,6 +567,7 @@ function buildItem(item: TranscriptItem): HTMLElement {
       block.appendChild(text);
       toggle.addEventListener('click', () => {
         block.classList.toggle('open');
+        toggle.setAttribute('aria-expanded', String(block.classList.contains('open')));
         const current = findItem(item.key);
         if (current && current.kind === 'thought') current.open = block.classList.contains('open');
       });
@@ -712,7 +716,9 @@ function toolSummary(item: Extract<TranscriptItem, { kind: 'tool' }>): string {
 
 function buildToolCard(item: Extract<TranscriptItem, { kind: 'tool' }>): HTMLElement {
   const card = el('div', 'tool-card fade-in');
-  const head = el('div', 'tool-head');
+  const head = el('button', 'tool-head') as HTMLButtonElement;
+  head.type = 'button';
+  head.setAttribute('aria-expanded', String(item.open));
   head.appendChild(iconSpan(TOOL_ICONS[item.toolKind] || 'cpu'));
   const name = el('span', 't-name', toolSummary(item));
   name.title = item.title;
@@ -725,8 +731,14 @@ function buildToolCard(item: Extract<TranscriptItem, { kind: 'tool' }>): HTMLEle
   const body = el('div', 'tool-body');
   card.appendChild(head);
   card.appendChild(body);
-  head.addEventListener('click', () => card.classList.toggle('open'));
-  if (item.status === 'failed') card.classList.add('open');
+  head.addEventListener('click', () => {
+    card.classList.toggle('open');
+    const open = card.classList.contains('open');
+    head.setAttribute('aria-expanded', String(open));
+    const current = findItem(item.key);
+    if (current && current.kind === 'tool') current.open = open;
+  });
+  if (item.open) card.classList.add('open');
   renderToolBody(body, item);
   card.dataset.status = item.status;
   card.dataset.title = toolSummary(item);
@@ -758,7 +770,6 @@ function updateToolCard(node: HTMLElement, item: Extract<TranscriptItem, { kind:
   }
   if (node.dataset.status !== item.status) {
     node.dataset.status = item.status;
-    if (item.status === 'failed') node.classList.add('open');
   }
   const body = node.querySelector('.tool-body');
   if (body) renderToolBody(body as HTMLElement, item);

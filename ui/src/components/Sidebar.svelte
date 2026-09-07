@@ -10,6 +10,7 @@
   import PreferenceControls from './PreferenceControls.svelte';
   import Modal from './Modal.svelte';
   import {
+    Brain,
     ChartNoAxesColumn,
     Check,
     ChevronRight,
@@ -67,6 +68,7 @@
     { key: 'sessions', path: '/sessions', label: 'nav.sessions', icon: 'clock' },
     { key: 'experts', path: '/experts', label: 'nav.experts', icon: 'skills' },
     { key: 'skills', path: '/skills', label: 'nav.skills', icon: 'skills' },
+    { key: 'knowledge', path: '/knowledge', label: 'nav.knowledge', icon: 'knowledge' },
     { key: 'stats', path: '/stats', label: 'nav.stats', icon: 'chart' },
     { key: 'cron', path: '/cron', label: 'nav.cron', icon: 'timer' }
   ];
@@ -469,7 +471,7 @@
           title={$t(item.label)}
           on:click={() => onNavClick(item)}
         >
-          {#if item.icon === 'clock'}<Clock3 class="ico" size={15} aria-hidden="true" />{:else if item.icon === 'skills'}<Sparkles class="ico" size={15} aria-hidden="true" />{:else if item.icon === 'chart'}<ChartNoAxesColumn class="ico" size={15} aria-hidden="true" />{:else}<Timer class="ico" size={15} aria-hidden="true" />{/if}
+          {#if item.icon === 'clock'}<Clock3 class="ico" size={15} aria-hidden="true" />{:else if item.icon === 'skills'}<Sparkles class="ico" size={15} aria-hidden="true" />{:else if item.icon === 'knowledge'}<Brain class="ico" size={15} aria-hidden="true" />{:else if item.icon === 'chart'}<ChartNoAxesColumn class="ico" size={15} aria-hidden="true" />{:else}<Timer class="ico" size={15} aria-hidden="true" />{/if}
           <span class="label">{$t(item.label)}</span>
         </button>
       {/each}
@@ -549,7 +551,7 @@
       <button type="button" class="rail-action" aria-label={$t('projects.new')} title={$t('projects.new')} on:click={createProject}>+</button>
       <div class="rail-divider"></div>
       {#each primaryNav.slice(1) as item}
-        <button type="button" class="rail-action" class:active={isActive(item)} disabled={!isFeatureEnabled(item)} aria-label={$t(item.label)} title={$t(item.label)} on:click={() => onNavClick(item)}>{item.icon === 'clock' ? '◷' : item.icon === 'skills' ? '✦' : item.icon === 'chart' ? '▥' : item.icon === 'timer' ? '◴' : '⚙'}</button>
+        <button type="button" class="rail-action" class:active={isActive(item)} disabled={!isFeatureEnabled(item)} aria-label={$t(item.label)} title={$t(item.label)} on:click={() => onNavClick(item)}>{item.icon === 'clock' ? '◷' : item.icon === 'skills' ? '✦' : item.icon === 'knowledge' ? '⧉' : item.icon === 'chart' ? '▥' : item.icon === 'timer' ? '◴' : '⚙'}</button>
       {/each}
       <div class="rail-spacer"></div>
       {#each secondaryNav as item}

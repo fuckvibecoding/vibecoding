@@ -161,16 +161,16 @@ mothx acp --multi-agent
 
 多 Agent 模式会注册 `subagent_*` 工具，用于委托边界清晰的任务。TUI 多 Agent 工作流中也提供 cron 命令入口。
 
-### 专家团
+### 主角团
 
-可将可复用的单专家或协作团队绑定到会话：
+可将可复用的单主角或协作团队绑定到会话：
 
 ```bash
 # 使用内置的软件公司团队启动
 mothx --expert software-company
 ```
 
-TUI 中可使用 `/expert list`、`/expert show <id>`、`/expert bind <id>`、`/expert unbind` 与 `/expert switch <id>`。在两个专家之间切换会创建会话分叉，原会话的身份与历史保持不变。团队型专家会自动启用成员调度能力。生命周期、ESM 和本地专家包说明见[专家团](expert-teams.md)。
+TUI 中可使用 `/expert list`、`/expert show <id>`、`/expert bind <id>`、`/expert unbind` 与 `/expert switch <id>`。在两个主角之间切换会创建会话分叉，原会话的身份与历史保持不变。团队型主角会自动启用成员调度能力。生命周期、ESM 和本地主角包说明见[主角团](expert-teams.md)。
 
 ### Delegate 模式
 

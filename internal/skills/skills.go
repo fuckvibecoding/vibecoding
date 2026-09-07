@@ -93,9 +93,17 @@ func ProjectSkillDirs(projectRoot string) []string {
 	}
 }
 
-// Load discovers and loads all skills from global and project directories.
-// Project-local skills override global skills with the same name.
+// Load discovers built-in, global, and project skills. The precedence is
+// project > global > builtin, so a user can intentionally replace a built-in
+// skill without any adapter-specific fallback path.
 func (m *Manager) Load() error {
+	// Built-ins are always available to every Runtime. A missing embedded
+	// directory is treated the same way as an empty external skill directory,
+	// but an unexpected embedded filesystem failure is actionable.
+	if err := m.LoadFS(BuiltinFS, "builtin", "builtin"); err != nil {
+		return fmt.Errorf("load built-in skills: %w", err)
+	}
+
 	// Load global skills first (lower priority)
 	if m.globalDir != "" {
 		if err := m.loadFromDir(m.globalDir, "global"); err != nil {

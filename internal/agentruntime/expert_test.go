@@ -137,6 +137,37 @@ func TestBuilderLoadsBoundBuiltinExpertSkills(t *testing.T) {
 	}
 }
 
+func TestSetExpertPreflightFailureDoesNotPersistBrokenBinding(t *testing.T) {
+	workDir := t.TempDir()
+	sessionDir := t.TempDir()
+	mgr, err := CreateSession(CreateSessionOptions{WorkDir: workDir, SessionDir: sessionDir})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	runtime, err := testBuilder().Build(context.Background(), BuildOptions{WorkDir: workDir, Manager: mgr})
+	if err != nil {
+		t.Fatalf("build runtime: %v", err)
+	}
+	defer runtime.Close()
+
+	if err := runtime.SetExpert("does-not-exist"); err == nil || !strings.Contains(err.Error(), "resolve expert binding") {
+		t.Fatalf("SetExpert missing bundle error = %v", err)
+	}
+	if got := mgr.GetExpertID(); got != "" {
+		t.Fatalf("failed bind persisted expert id %q", got)
+	}
+	if binding, _ := runtime.ExpertState(); binding != nil {
+		t.Fatalf("failed bind changed runtime binding: %+v", binding)
+	}
+	reopened, err := session.OpenByIDExact(sessionDir, mgr.GetHeader().ID)
+	if err != nil {
+		t.Fatalf("reopen after failed bind: %v", err)
+	}
+	if got := reopened.GetExpertID(); got != "" {
+		t.Fatalf("reopened failed bind expert id %q", got)
+	}
+}
+
 func TestSetExpertRehydratesPackageSkills(t *testing.T) {
 	workDir := t.TempDir()
 	mgr, err := CreateSession(CreateSessionOptions{WorkDir: workDir, SessionDir: t.TempDir()})

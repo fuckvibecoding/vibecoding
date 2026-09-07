@@ -6,34 +6,24 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/startvibecoding/mothx/internal/skills"
 	"github.com/startvibecoding/mothx/internal/tools"
 	vbprotocol "github.com/startvibecoding/vibe-browser/pkg/protocol"
 )
 
-func TestEnsureProjectSkillCreatesBrowserSkill(t *testing.T) {
-	root := t.TempDir()
-
-	path, created, err := EnsureProjectSkill(root)
-	if err != nil {
-		t.Fatalf("EnsureProjectSkill() error = %v", err)
+func TestBuiltInBrowserSkillIsDiscoverable(t *testing.T) {
+	manager := skills.NewManager("", "")
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
 	}
-	if !created {
-		t.Fatal("expected skill to be created")
+	skill := manager.Get(SkillName)
+	if skill == nil || skill.Source != "builtin" {
+		t.Fatalf("built-in browser skill = %#v", skill)
 	}
-	wantPath := filepath.Join(root, ".skills", SkillName, "SKILL.md")
-	if path != wantPath {
-		t.Fatalf("path = %q, want %q", path, wantPath)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read skill: %v", err)
-	}
-	content := string(data)
+	context := manager.BuildSkillContext(SkillName)
 	for _, want := range []string{
 		"# Vibe Browser",
 		"`browser` tool",
@@ -41,62 +31,9 @@ func TestEnsureProjectSkillCreatesBrowserSkill(t *testing.T) {
 		"`screenshot`",
 		"Never claim a UI state changed until you verify it",
 	} {
-		if !strings.Contains(content, want) {
+		if !strings.Contains(context, want) {
 			t.Fatalf("skill content missing %q", want)
 		}
-	}
-}
-
-func TestEnsureProjectSkillDoesNotOverwriteExistingSkill(t *testing.T) {
-	root := t.TempDir()
-	skillDir := filepath.Join(root, ".skills", SkillName)
-	if err := os.MkdirAll(skillDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	path := filepath.Join(skillDir, "SKILL.md")
-	if err := os.WriteFile(path, []byte("custom browser skill"), 0644); err != nil {
-		t.Fatalf("write custom skill: %v", err)
-	}
-
-	gotPath, created, err := EnsureProjectSkill(root)
-	if err != nil {
-		t.Fatalf("EnsureProjectSkill() error = %v", err)
-	}
-	if created {
-		t.Fatal("did not expect existing skill to be recreated")
-	}
-	if gotPath != path {
-		t.Fatalf("path = %q, want %q", gotPath, path)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read custom skill: %v", err)
-	}
-	if string(data) != "custom browser skill" {
-		t.Fatalf("skill was overwritten: %q", string(data))
-	}
-}
-
-func TestEnsureProjectSkillRespectsLowercaseSkill(t *testing.T) {
-	root := t.TempDir()
-	skillDir := filepath.Join(root, ".skills", SkillName)
-	if err := os.MkdirAll(skillDir, 0755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	path := filepath.Join(skillDir, "skill.md")
-	if err := os.WriteFile(path, []byte("lowercase browser skill"), 0644); err != nil {
-		t.Fatalf("write lowercase skill: %v", err)
-	}
-
-	gotPath, created, err := EnsureProjectSkill(root)
-	if err != nil {
-		t.Fatalf("EnsureProjectSkill() error = %v", err)
-	}
-	if created {
-		t.Fatal("did not expect lowercase skill to be recreated")
-	}
-	if gotPath != path {
-		t.Fatalf("path = %q, want %q", gotPath, path)
 	}
 }
 

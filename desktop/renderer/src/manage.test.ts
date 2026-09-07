@@ -126,12 +126,38 @@ test('knowledge-base settings translations remain bilingual', () => {
   }
 });
 
-test('composer sends selected knowledge bases as a Desktop-only Runtime input reference', async () => {
-  const composer = await readFile(new URL('./composer.ts', import.meta.url), 'utf8');
-  for (const marker of ['knowledgeBaseRefs', 'knowledgeBaseContext', "surface: 'desktop'", 'mothx/manage/knowledge-bases/list']) {
-    assert.match(composer, new RegExp(marker.replaceAll('/', '\\/')), `${marker} must participate in the Desktop knowledge-base flow`);
+test('knowledge-base editor configures a deterministic stdio MCP server through ACP', () => {
+  for (const method of ['mothx/manage/mcp/list', 'mothx/manage/mcp/set']) {
+    assert.match(manage, new RegExp(method.replaceAll('/', '\\/')), `${method} must be used through ACP`);
   }
+  assert.match(manage, /knowledgeBaseMcpName\(base\.id\)/, 'MCP server name must derive from the knowledge-base ID');
+  assert.match(manage, /knowledge-mcp.*serve.*--knowledge-base.*baseId/, 'MCP server args must target the knowledge-base ID');
+  assert.match(manage, /state\.appInfo\.runtimeBinary\s*\|\|\s*['"]mothx['"]/, 'MCP command must use the bundled runtime binary with a mothx fallback');
+  assert.match(manage, /type:\s*['"]stdio['"]/, 'MCP server must be configured as type stdio');
+  assert.doesNotMatch(manage, /desktop\.storeSet\([^)]*knowledge[^)]*mcp/i, 'knowledge-base MCP configuration must not enter the Desktop store');
+});
+
+test('knowledge-base MCP configuration translations remain bilingual', () => {
+  for (const key of [
+    'settings.knowledgeMcpTitle', 'settings.knowledgeMcpDesc', 'settings.knowledgeMcpStatus',
+    'settings.knowledgeMcpNotConfigured', 'settings.knowledgeMcpEnabled', 'settings.knowledgeMcpDisabled',
+    'settings.knowledgeMcpConfigure', 'settings.knowledgeMcpEnable', 'settings.knowledgeMcpDisable',
+    'settings.knowledgeMcpSaved', 'settings.knowledgeMcpHint',
+  ]) {
+    const occurrences = translations.split(`'${key}'`).length - 1;
+    assert.equal(occurrences, 2, `${key} must be present in both translation maps`);
+  }
+});
+
+test('composer no longer projects knowledge-base references through the prompt payload', async () => {
+  const composer = await readFile(new URL('./composer.ts', import.meta.url), 'utf8');
+  for (const marker of ['knowledgeBaseRefs', 'knowledgeBaseContext', 'mothx/manage/knowledge-bases/list']) {
+    assert.doesNotMatch(composer, new RegExp(marker.replaceAll('/', '\\/')), `${marker} must be removed from the composer prompt path`);
+  }
+  assert.doesNotMatch(composer, /session\/prompt[\s\S]*knowledgeBaseRefs/, 'session/prompt must not send knowledgeBaseRefs');
+  assert.doesNotMatch(composer, /surface:\s*['\"]desktop['\"]/, 'knowledge-base references must not depend on a renderer-provided Desktop surface');
   assert.doesNotMatch(composer, /BuildUserMessage|provider\.NewUserMessage|readFileBase64\([^)]*knowledge/i, 'composer must not construct provider content or read a knowledge source');
+  assert.doesNotMatch(index, /knowledge-btn|knowledge-menu|knowledge-base-menu/, 'composer must not expose a prompt-local knowledge selector');
 });
 
 test('cron settings use the ACP management plane and never persist locally', () => {

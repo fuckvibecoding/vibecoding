@@ -273,22 +273,30 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 		memberDef = def
 	}
 
-	// Capability composition priority: explicit tool parameters > MemberDef
-	// overrides > existing inheritance logic. Mode still flows through the
-	// existing ParentMode inheritance and AllowedModes validation unchanged.
-	mode, _ := params["mode"].(string)
-	if mode == "" && memberDef != nil {
-		mode = memberDef.Mode
-	}
-	if mode == "" {
-		// Inherit parent agent's mode (yolo/agent/plan) instead of hardcoding "agent"
-		if parentMode, ok := ParentModeFromContext(ctx); ok && parentMode != "" {
-			mode = parentMode
+	// A named member's declaration is a capability ceiling, not a convenient
+	// default a lead can replace. Resolve the requested mode against both the
+	// parent/session mode and the member declaration before creating the child.
+	// In particular, a plan parent must never obtain a yolo child through a
+	// member declaration or an explicit tool argument.
+	parentMode, _ := ParentModeFromContext(ctx)
+	requestedMode, _ := params["mode"].(string)
+	mode := requestedMode
+	if memberDef != nil {
+		var err error
+		mode, err = resolveMemberMode(parentMode, requestedMode, memberDef)
+		if err != nil {
+			return tools.ToolResult{}, err
 		}
+	} else if mode == "" {
+		// Preserve the pre-existing generic-subagent inheritance behavior.
+		mode = parentMode
 	}
 
 	workDir, _ := params["work_dir"].(string)
-	if workDir == "" && memberDef != nil {
+	if memberDef != nil && memberDef.WorkDir != "" {
+		if workDir != "" && workDir != memberDef.WorkDir {
+			return tools.ToolResult{}, fmt.Errorf("member %q work_dir is fixed to %q", memberID, memberDef.WorkDir)
+		}
 		workDir = memberDef.WorkDir
 	}
 
@@ -298,8 +306,10 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 		maxIter = int(v)
 		maxIterSet = true
 	}
-	if !maxIterSet && memberDef != nil && memberDef.MaxIterations > 0 {
-		maxIter = memberDef.MaxIterations
+	if memberDef != nil && memberDef.MaxIterations > 0 {
+		if !maxIterSet || maxIter > memberDef.MaxIterations {
+			maxIter = memberDef.MaxIterations
+		}
 		maxIterSet = true
 	}
 	if !maxIterSet {
@@ -323,8 +333,8 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 			}
 		}
 	}
-	if len(toolFilter) == 0 && memberDef != nil && len(memberDef.Tools) > 0 {
-		toolFilter = append([]string(nil), memberDef.Tools...)
+	if memberDef != nil && len(memberDef.Tools) > 0 {
+		toolFilter = restrictMemberTools(toolFilter, memberDef.Tools)
 	}
 
 	memberDisplayName, memberEmoji, memberRole := "", "", ""
@@ -454,6 +464,81 @@ func (t *SubAgentSpawnTool) Execute(ctx context.Context, params map[string]any) 
 	}
 	data, _ := json.Marshal(result)
 	return tools.NewTextToolResult(string(data)), nil
+}
+
+// resolveMemberMode intersects a named member's requested mode with the
+// parent mode and its declared capability. The modes are deliberately not a
+// simple numeric hierarchy: OS mode exposes only bash but grants yolo-style
+// execution, so it must not be treated as a harmless restriction of agent or
+// yolo. The table therefore permits only monotonic, well-defined reductions.
+func resolveMemberMode(parentMode, requestedMode string, member *MemberDef) (string, error) {
+	parentMode = strings.TrimSpace(parentMode)
+	if parentMode == "" {
+		parentMode = "yolo"
+	}
+	mode := parentMode
+	if member != nil && strings.TrimSpace(member.Mode) != "" {
+		declared := strings.TrimSpace(member.Mode)
+		if modeWithinCapability(declared, mode) {
+			mode = declared
+		}
+	}
+	requestedMode = strings.TrimSpace(requestedMode)
+	if requestedMode == "" {
+		return mode, nil
+	}
+	if !modeWithinCapability(requestedMode, mode) {
+		return "", fmt.Errorf("requested mode %q exceeds member/session capability %q", requestedMode, mode)
+	}
+	return requestedMode, nil
+}
+
+// modeWithinCapability reports whether candidate can be run without granting
+// more capability than cap. Keeping OS separate is intentional: bash-only OS
+// mode can still execute arbitrary commands outside the sandbox.
+func modeWithinCapability(candidate, cap string) bool {
+	switch cap {
+	case "plan":
+		return candidate == "plan"
+	case "agent":
+		return candidate == "agent" || candidate == "plan"
+	case "yolo":
+		return candidate == "yolo" || candidate == "agent" || candidate == "plan"
+	case "os":
+		return candidate == "os" || candidate == "plan"
+	default:
+		return false
+	}
+}
+
+// restrictMemberTools returns the requested subset of a member's declared
+// tools. An empty request retains the declaration; unknown or broader tool
+// names are simply excluded so an LLM cannot turn a restrictive persona into
+// an all-tools child by supplying a different list.
+func restrictMemberTools(requested, allowed []string) []string {
+	if len(allowed) == 0 {
+		return requested
+	}
+	if len(requested) == 0 {
+		return append([]string(nil), allowed...)
+	}
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, name := range allowed {
+		allowedSet[name] = struct{}{}
+	}
+	result := make([]string, 0, len(requested))
+	seen := make(map[string]struct{}, len(requested))
+	for _, name := range requested {
+		if _, ok := allowedSet[name]; !ok {
+			continue
+		}
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result
 }
 
 func sendParentEvent(ctx context.Context, ch chan<- Event, ev Event) (ok bool) {

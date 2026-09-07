@@ -3,11 +3,13 @@ package acp
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,10 +19,20 @@ import (
 func TestACPStdioProcessInitializeNewPromptClose(t *testing.T) {
 	configDir := t.TempDir()
 	workDir := t.TempDir()
+	knowledgeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(knowledgeDir, "runtime.md"), []byte("# Runtime\n\nThe Runtime owns durable Runs.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	providerRequests := make(chan string, 1)
 	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" {
 			t.Errorf("provider request = %s %s, want POST /v1/chat/completions", r.Method, r.URL.Path)
 		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read provider request: %v", err)
+		}
+		providerRequests <- string(body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-process\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ACP smoke response\"},\"finish_reason\":null}]}\n"))
 		_, _ = w.Write([]byte("data: {\"id\":\"chatcmpl-process\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
@@ -75,22 +87,74 @@ func TestACPStdioProcessInitializeNewPromptClose(t *testing.T) {
 		t.Fatalf("session/new response = %#v, missing sessionId", newSession)
 	}
 
+	// Desktop inserts /expert-creater from ACP's available command projection.
+	// The command must activate the same built-in Skill before the next prompt
+	// reaches the current Agent.
+	sendACPRequest(t, stdin, map[string]any{
+		"jsonrpc": "2.0", "id": 90, "method": "session/prompt",
+		"params": map[string]any{"sessionId": sessionID, "prompt": []map[string]any{{"type": "text", "text": "/expert-creater"}}},
+	})
+	activation := assertACPResponseID(t, reader, 90)
+	activationResult, _ := activation["result"].(map[string]any)
+	if activationResult["stopReason"] != "end_turn" {
+		t.Fatalf("expert creator activation = %#v", activation)
+	}
+
+	// Knowledge-base management is an ACP capability, not a Desktop-only
+	// operation.  Create and index a deterministic base before the generic ACP
+	// prompt references it.
 	sendACPRequest(t, stdin, map[string]any{
 		"jsonrpc": "2.0",
 		"id":      3,
+		"method":  "mothx/manage/knowledge-bases/create",
+		"params": map[string]any{"knowledgeBase": map[string]any{
+			"name": "Runtime docs", "rootDir": knowledgeDir, "preprocessProfile": "documents",
+			"mode": "yolo", "schedule": "manual", "enabled": true,
+		}},
+	})
+	created := assertACPResponseID(t, reader, 3)
+	createdResult, ok := created["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("knowledge base create result = %#v", created["result"])
+	}
+	base, _ := createdResult["knowledgeBase"].(map[string]any)
+	baseID, _ := base["id"].(string)
+	if baseID == "" {
+		t.Fatalf("knowledge base create result = %#v, missing id", createdResult)
+	}
+	sendACPRequest(t, stdin, map[string]any{
+		"jsonrpc": "2.0", "id": 4, "method": "mothx/manage/knowledge-bases/scan", "params": map[string]any{"id": baseID},
+	})
+	assertACPResponseID(t, reader, 4)
+
+	sendACPRequest(t, stdin, map[string]any{
+		"jsonrpc": "2.0",
+		"id":      5,
 		"method":  "session/prompt",
 		"params": map[string]any{
-			"sessionId": sessionID,
-			"prompt":    []map[string]any{{"type": "text", "text": "Say hello"}},
+			"sessionId":         sessionID,
+			"prompt":            []map[string]any{{"type": "text", "text": "Who owns durable Runs?"}},
+			"knowledgeBaseRefs": []map[string]any{{"knowledgeBaseId": baseID, "required": true}},
 		},
 	})
-	notifications := assertACPResponseIDCollecting(t, reader, 3)
+	notifications := assertACPResponseIDCollecting(t, reader, 5)
 	if !containsACPNotification(notifications, "session/update", "agent_message_chunk", "ACP smoke response") {
 		t.Fatalf("prompt notifications missing assistant message: %#v", notifications)
 	}
+	select {
+	case request := <-providerRequests:
+		if !strings.Contains(request, "Runtime-managed knowledge-base references") || !strings.Contains(request, "runtime.md") {
+			t.Fatalf("generic ACP prompt did not include the Runtime knowledge context: %s", request)
+		}
+		if !strings.Contains(request, "## Active Skill: expert-creater") || !strings.Contains(request, "expert.json") {
+			t.Fatalf("generic ACP prompt did not include the activated expert creator Skill: %s", request)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("provider did not receive the generic ACP prompt")
+	}
 
-	sendACPRequest(t, stdin, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "session/close", "params": map[string]any{"sessionId": sessionID}})
-	assertACPResponseID(t, reader, 4)
+	sendACPRequest(t, stdin, map[string]any{"jsonrpc": "2.0", "id": 6, "method": "session/close", "params": map[string]any{"sessionId": sessionID}})
+	assertACPResponseID(t, reader, 6)
 	if err := stdin.Close(); err != nil {
 		t.Fatal(err)
 	}

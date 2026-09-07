@@ -8,13 +8,20 @@
   - Replacing an existing expert creates a fork instead of overwriting the source session. The WebUI expert panel and Desktop ACP **Expert** option use the same Runtime-owned binding and fork path.
   - Member lifecycle projections now carry the member name, emoji, role, and expert identity for TUI, WebUI, and Desktop cards. Member completion is delivered at a lead boundary and never starts a new run by itself.
   - ESM continues only from a genuinely idle, runnable objective. Pending input, decisions, or a member terminal event cannot bypass that gate.
+  - Added the built-in `expert-creater` Skill. Activate it with `/skill expert-creater` in TUI/WebUI or `/expert-creater` in Desktop/ACP, then let the current Agent create and install a validated project team under `.mothx/experts/`.
 
 - **WebUI: Slash Command Suggestions in the Chat Composer**
   - Typing `/` in the chat input now shows a suggestion dropdown covering every supported slash command (`/clear`, `/mode`, `/model`, `/defaultModel`, `/models`, `/sessions`, `/status`, `/compact`, `/delegate`, `/alloweditpath`, `/allowautoedit`, `/workflows`, `/skill`, `/skills`, `/rule`, `/esm`, `/help`), with a dedicated subcommand filter for `/esm` (objective/edit/pause/resume/clear/guide).
   - Navigate with ↑/↓, complete with Tab or Enter (Enter sends the prompt when the input already matches the selection), dismiss with Esc, or click an entry; accepting a suggestion places the cursor at the end of the inserted command. The composer keeps proper combobox/listbox ARIA state (`aria-expanded`, `aria-activedescendant`, `aria-selected`).
   - Suggestions are suppressed while a run is active, the API is disabled, or the input spans multiple lines.
 
+- **WebUI: Runtime-Owned Knowledge Base Management**
+  - The new **Knowledge** workspace lists, creates, edits, scans, queries, and deletes directory-backed knowledge bases through the same Runtime/session services used by ACP and Desktop. Directory selection falls back to the built-in browser when a native picker is unavailable; source files and index storage remain server-owned.
+
 ### 🐛 Bug Fixes
+
+- **Browser: Built-in Skill No Longer Writes into Projects**
+  - Browser guidance now ships as the built-in `vibe-browser` Skill. Enabling Browser in TUI, WebUI, Desktop, ACP, or a channel no longer creates `.skills/vibe-browser/SKILL.md`; intentionally created project or global skills with that name still override the built-in guidance.
 
 - **Channels: Browser Selection Survives Runtime Rehydration**
   - A channel session's persisted Browser selection now drives both initial registry construction and Runtime resource rehydration. Explicitly enabling Browser no longer has the tool removed after the session Runtime attaches.

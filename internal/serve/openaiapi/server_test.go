@@ -2705,7 +2705,7 @@ func TestAPISessionCreatesAndActivatesWorkflowSkillForWorkDir(t *testing.T) {
 	}
 }
 
-func TestAPISessionCreatesAndActivatesBrowserSkillForWorkDir(t *testing.T) {
+func TestAPISessionUsesBuiltInBrowserSkillWithoutProjectWrite(t *testing.T) {
 	srv := newTestServer(t)
 	workDir := t.TempDir()
 	srv.cfg.EnableBrowser = true
@@ -2717,11 +2717,11 @@ func TestAPISessionCreatesAndActivatesBrowserSkillForWorkDir(t *testing.T) {
 	if sess == nil {
 		t.Fatal("expected session")
 	}
-	skillPath := filepath.Join(workDir, ".skills", browserfeature.SkillName, "SKILL.md")
-	if _, err := os.Stat(skillPath); err != nil {
-		t.Fatalf("expected browser skill at %s: %v", skillPath, err)
+	projectSkillsDir := filepath.Join(workDir, ".skills")
+	if _, err := os.Stat(projectSkillsDir); !os.IsNotExist(err) {
+		t.Fatalf("browser session created project skills directory %s: %v", projectSkillsDir, err)
 	}
-	if sess.SkillsMgr == nil || sess.SkillsMgr.Get(browserfeature.SkillName) == nil {
+	if sess.SkillsMgr == nil || sess.SkillsMgr.Get(browserfeature.SkillName) == nil || sess.SkillsMgr.Get(browserfeature.SkillName).Source != "builtin" {
 		t.Fatal("expected session skills manager to load browser skill")
 	}
 	if !strings.Contains(sess.ExtraContext, "## Active Skill: "+browserfeature.SkillName) {

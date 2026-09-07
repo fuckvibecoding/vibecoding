@@ -1949,7 +1949,7 @@ func (s *server) handleNewSession(req rpcRequest) {
 		registry.SetAdditionalDirectories(runtime.AdditionalDirectoriesSnapshot())
 	}
 	if err == nil {
-		err = runtime.ConnectMCP(context.Background(), agentruntime.MCPPolicy{Servers: in.McpServers, Callbacks: s.buildMCPCallbacks(id)})
+		err = runtime.ConnectConfiguredMCP(context.Background(), agentruntime.MCPPolicy{Servers: in.McpServers, Callbacks: s.buildMCPCallbacks(id)})
 	}
 	if err != nil {
 		runtime.Close()
@@ -2355,7 +2355,7 @@ func (s *server) openSessionRuntime(sessionID, cwd string, servers []mcp.ServerC
 		registry.SetAdditionalDirectories(runtime.AdditionalDirectoriesSnapshot())
 	}
 	if err == nil {
-		err = runtime.ConnectMCP(context.Background(), agentruntime.MCPPolicy{Servers: servers, Callbacks: s.buildMCPCallbacks(sessionID)})
+		err = runtime.ConnectConfiguredMCP(context.Background(), agentruntime.MCPPolicy{Servers: servers, Callbacks: s.buildMCPCallbacks(sessionID)})
 	}
 	if err != nil {
 		runtime.Close()
@@ -2416,6 +2416,46 @@ func (s *server) notifyAvailableCommands(sessionID string) error {
 	return s.notify(sessionID, sessionUpdate{SessionUpdate: "available_commands_update", AvailableCommands: commands})
 }
 
+// activateSkillPrompt recognizes the same explicit skill directives exposed by
+// TUI and Serve. Desktop inserts /<skill> from available_commands_update, and
+// ACP clients may use /skill <name> or /skill:<name>. The shared Runtime owns
+// the reload and prompt context; ACP only recognizes its wire command.
+func (s *server) activateSkillPrompt(rt *sessionRuntime, text string) (bool, error) {
+	if rt == nil || rt.runtime == nil {
+		return false, nil
+	}
+	parts := strings.Fields(strings.TrimSpace(text))
+	if len(parts) == 0 {
+		return false, nil
+	}
+	name := ""
+	switch {
+	case len(parts) == 1 && strings.HasPrefix(parts[0], "/skill:"):
+		name = strings.TrimPrefix(parts[0], "/skill:")
+	case len(parts) == 2 && parts[0] == "/skill":
+		name = parts[1]
+	case len(parts) == 1 && strings.HasPrefix(parts[0], "/"):
+		name = strings.TrimPrefix(parts[0], "/")
+	default:
+		return false, nil
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || rt.runtime.SkillsMgr == nil || rt.runtime.SkillsMgr.Get(name) == nil {
+		return false, nil
+	}
+	_, browserEnabled, _ := rt.runtime.CapabilitySnapshot()
+	if err := rt.runtime.RefreshResources(s.settings, agentruntime.RefreshOptions{
+		Workflows: s.workflows,
+		Browser:   browserEnabled,
+		ActiveSkills: map[string]bool{
+			name: true,
+		},
+	}); err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
 func (s *server) handlePrompt(req rpcRequest) {
 	var in promptRequest
 	if err := json.Unmarshal(req.Params, &in); err != nil {
@@ -2447,11 +2487,10 @@ func (s *server) handlePrompt(req rpcRequest) {
 		}
 	}
 	promptKey := mcp.RawIDKey(req.ID)
-	if len(in.KnowledgeBaseRefs) > 0 && !strings.EqualFold(in.Meta.surface(), "desktop") {
-		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32602, "knowledge_base_context_not_supported",
-			"knowledgeBaseRefs are available only to the Desktop runtime surface", nil))
-		return
-	}
+	// knowledgeBaseRefs is an additive ACP input capability.  Its contents are
+	// resolved by the shared Runtime, so an ACP client does not need to claim a
+	// particular UI surface (and a caller-controlled metadata value must not be
+	// treated as an authorization boundary).
 	promptText, promptIngresses, err := promptToIngresses(in.Prompt, workspaceCwd, workspaceAdditional, "acp:"+promptKey)
 	if err != nil {
 		s.writeResponse(req.ID, nil, acpFailureRPCError(err, nil, agentruntime.PhaseAdmission))
@@ -2461,6 +2500,17 @@ func (s *server) handlePrompt(req rpcRequest) {
 	if userText == "" && len(promptIngresses) == 0 {
 		s.writeResponse(req.ID, nil, &mcp.RPCError{Code: -32602, Message: "empty prompt"})
 		return
+	}
+	if len(promptIngresses) == 0 {
+		activated, activateErr := s.activateSkillPrompt(rt, userText)
+		if activateErr != nil {
+			s.writeResponse(req.ID, nil, acpFailureRPCError(activateErr, nil, agentruntime.PhaseAdmission))
+			return
+		}
+		if activated {
+			s.writeResponse(req.ID, promptResult{StopReason: "end_turn"}, nil)
+			return
+		}
 	}
 	editorContextText := formatEditorContext(in.Meta.editorContext())
 	sessionProvider, sessionProviderName, sessionModel, sessionMode, sessionThinking := rt.runtime.ConfigSnapshot()

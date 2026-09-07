@@ -330,7 +330,7 @@ func (a *App) localizedExpertText(text expert.LocalizedText) string {
 // enforcement remain the existing Runtime/provider policy, not a TUI fork.
 func (a *App) teamExpertUsageHint() string {
 	if a != nil && a.translator.Language() == "zh" {
-		return "消耗提示：团队专家通常会并行调用多个成员，Token 与工具调用消耗可能是单专家的数倍。"
+		return "消耗提示：团队主角通常会并行调用多个成员，Token 与工具调用消耗可能是单主角的数倍。"
 	}
 	return "Usage note: team experts may run several members in parallel, so token and tool-call usage can be several times higher than a single expert."
 }
