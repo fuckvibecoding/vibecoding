@@ -3,7 +3,7 @@
 
 import { desktop, invoke } from './api';
 import { refreshDraftConfigOptions } from './composer';
-import { t } from './i18n';
+import { getLocale, t } from './i18n';
 import { hasFeature, state } from './state';
 import { confirmDialog, el, iconSpan, promptModal, require$, toast } from './ui';
 
@@ -258,6 +258,47 @@ interface EnvPatch {
   set?: { name: string; value: string }[];
   unset?: string[];
 }
+export interface ExpertLocalizedText { zh?: string; en?: string; }
+export interface ExpertMemberMeta {
+  id: string;
+  name?: ExpertLocalizedText;
+  profession?: ExpertLocalizedText;
+  avatar?: string;
+  role: string;
+}
+export interface ExpertTeamInfo { leadAgent: string; memberAgents: string[]; }
+export interface ExpertManifest {
+  schemaVersion?: number;
+  name: string;
+  expertType?: string;
+  agentName?: string;
+  displayName?: ExpertLocalizedText;
+  categoryId?: string;
+  quickPrompts?: ExpertLocalizedText[];
+  defaultInitPrompt?: ExpertLocalizedText;
+  teamInfo?: ExpertTeamInfo;
+  members?: ExpertMemberMeta[];
+}
+export interface ExpertBundle {
+  scope: 'global' | 'project' | 'builtin' | string;
+  manifest: ExpertManifest;
+  agents: Record<string, string>;
+}
+export interface ExpertSummary {
+  name: string;
+  expertType?: string;
+  displayName?: ExpertLocalizedText;
+  source?: string;
+  invalid?: boolean;
+  invalidReason?: string;
+}
+export interface ExpertListView {
+  scope: string;
+  cwd?: string;
+  experts?: ExpertSummary[];
+  effectiveExperts?: ExpertSummary[];
+  bundle?: ExpertBundle;
+}
 
 const cache: {
   settings?: SettingsView;
@@ -274,10 +315,12 @@ const cache: {
   serve?: ServeConfigView;
   channels?: ChannelsConfigView;
   env?: EnvView;
+  experts?: ExpertListView;
 } = {};
 
 type ProviderCatalogScope = 'configured' | 'all';
 type ProviderEditorTab = 'connection' | 'models' | 'advanced';
+type ExpertScope = 'global' | 'project';
 
 // This is intentionally renderer-only state. ACP remains the source of truth
 // for settings; these values only preserve where a person is in the settings
@@ -289,6 +332,9 @@ let providerDraft: ProviderConfigView | undefined;
 let providerEditorTab: ProviderEditorTab = 'connection';
 let cronDraft: CronJobView | undefined;
 let creatingKnowledgeBase = false;
+let expertScope: ExpertScope = 'global';
+let expertDraft: ExpertBundle | undefined;
+let creatingExpert = false;
 
 async function guard<T>(feature: string, fn: () => Promise<T>, fallback: T): Promise<T> {
   if (!hasFeature(feature)) return fallback;
@@ -310,7 +356,7 @@ function unsupportedRow(container: HTMLElement, feature: string): void {
 // Settings owns tab navigation; this module only maps an active management
 // tab to its ACP-backed projection. Keeping requests one-tab-at-a-time avoids
 // loading every hidden settings panel at startup or on every settings entry.
-export type ManagedSettingsTab = 'application' | 'providers' | 'knowledge' | 'skills' | 'skillhub' | 'mcp' | 'memory' | 'env' | 'cron' | 'channels' | 'serve' | 'stats';
+export type ManagedSettingsTab = 'application' | 'providers' | 'knowledge' | 'skills' | 'skillhub' | 'experts' | 'mcp' | 'memory' | 'env' | 'cron' | 'channels' | 'serve' | 'stats';
 
 const manageSectionRequests = new Map<ManagedSettingsTab, Promise<void>>();
 
@@ -325,6 +371,7 @@ export function renderManageSection(tab: ManagedSettingsTab): Promise<void> {
     case 'knowledge': request = renderKnowledgeBases(); break;
     case 'skills': request = renderSkills(); break;
     case 'skillhub': request = renderSkillHub(); break;
+    case 'experts': request = renderExperts(); break;
     case 'mcp': request = renderMcp(); break;
     case 'memory': request = renderMemory(); break;
     case 'env': request = renderEnv(); break;
@@ -2617,5 +2664,430 @@ async function renderStats(): Promise<void> {
     bar.style.borderRadius = '3px';
     bar.title = `${point.date || ''} · ${point.runs || 0} runs`;
     chart.appendChild(bar);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Expert team (主角团) management
+// ---------------------------------------------------------------------------
+
+function expertWorkspace(): string {
+  return state.activeSessionCwd || state.newSessionCwd || '';
+}
+
+async function renderExperts(): Promise<void> {
+  const container = require$('#manage-experts');
+  if (!hasFeature('manageExperts')) {
+    unsupportedRow(container, 'manageExperts');
+    return;
+  }
+  const scope = expertScope;
+  const cwd = scope === 'project' ? expertWorkspace() : undefined;
+  const params: Record<string, unknown> = { scope };
+  if (cwd) params.cwd = cwd;
+
+  const view = await guard('manageExperts', () => invoke<ExpertListView>('mothx/manage/experts/list', params), cache.experts);
+  cache.experts = view || cache.experts;
+  container.textContent = '';
+  if (!cache.experts) {
+    unsupportedRow(container, 'manageExperts');
+    return;
+  }
+  renderExpertsWorkspace(container, cache.experts);
+}
+
+function renderExpertsWorkspace(container: HTMLElement, listView: ExpertListView): void {
+  const scope = (listView.scope || expertScope) as ExpertScope;
+  const cwd = listView.cwd || expertWorkspace();
+
+  const root = el('div', 'application-settings-workspace');
+  const header = el('div', 'application-settings-header');
+  const copy = el('div');
+  copy.append(
+    el('div', 'provider-section-eyebrow', t('settings.experts')),
+    el('div', 'provider-section-title', t('settings.expertsTitle')),
+    el('div', 'row-desc', t('settings.expertsDesc')),
+  );
+  const add = el('button', 'btn-primary', t('settings.expertsAdd')) as HTMLButtonElement;
+  add.prepend(iconSpan('plus', 'sm'));
+  add.addEventListener('click', () => {
+    void createExpertDraft();
+  });
+  header.append(copy, add);
+  root.appendChild(header);
+
+  const scopeCard = applicationCard(t('settings.expertsScope'), t('settings.expertsScopeDesc'));
+  const scopeToggle = el('div', 'provider-scope-toggle');
+  const globalBtn = el('button', scope === 'global' ? 'active' : '', t('settings.expertsScopeGlobal'));
+  const projectBtn = el('button', scope === 'project' ? 'active' : '', t('settings.expertsScopeProject'));
+  globalBtn.addEventListener('click', () => {
+    if (expertScope === 'global') return;
+    expertScope = 'global';
+    expertDraft = undefined;
+    creatingExpert = false;
+    cache.experts = undefined;
+    void renderExperts();
+  });
+  projectBtn.addEventListener('click', () => {
+    if (expertScope === 'project') return;
+    if (!expertWorkspace()) {
+      toast(t('settings.expertsProjectCwdRequired'));
+      return;
+    }
+    expertScope = 'project';
+    expertDraft = undefined;
+    creatingExpert = false;
+    cache.experts = undefined;
+    void renderExperts();
+  });
+  scopeToggle.append(globalBtn, projectBtn);
+  scopeCard.grid.appendChild(scopeToggle);
+  if (scope === 'project') {
+    scopeCard.grid.appendChild(el('div', 'row-desc', t('settings.expertsProjectCwd', { w: cwd })));
+  }
+  root.appendChild(scopeCard.card);
+
+  if (expertDraft) {
+    root.appendChild(renderExpertEditor(listView));
+  }
+
+  const listCard = applicationCard(t('settings.expertsCatalog'), t('settings.expertsCatalogDesc'));
+  const list = el('div', 'row-list');
+  const items = listView.effectiveExperts || listView.experts || [];
+  if (items.length === 0) {
+    list.appendChild(el('div', 'row-item', t('settings.expertsEmpty')));
+  }
+  for (const item of items) {
+    list.appendChild(renderExpertRow(item, scope));
+  }
+  listCard.grid.appendChild(list);
+  root.appendChild(listCard.card);
+
+  container.appendChild(root);
+}
+
+function renderExpertRow(item: ExpertSummary, scope: ExpertScope): HTMLElement {
+  const row = el('div', 'row-item');
+  const iconBox = el('div', 'row-icon');
+  iconBox.appendChild(iconSpan(item.source === 'builtin' ? 'book' : 'users'));
+  const main = el('div', 'row-main');
+  const title = el('div', 'row-title');
+  title.appendChild(el('span', '', displayName(item)));
+  const sourceBadge = el('span', `badge ${item.source === 'builtin' ? 'badge-blue' : 'badge-accent'}`, sourceLabel(item.source));
+  title.appendChild(sourceBadge);
+  if (item.invalid) {
+    title.appendChild(el('span', 'badge', t('settings.expertsInvalid')));
+  }
+  const detail = [item.name, item.expertType, item.invalidReason].filter(Boolean).join(' · ');
+  main.append(title, el('div', 'row-desc', detail));
+  row.append(iconBox, main);
+
+  if (item.source !== 'builtin') {
+    const canEdit = item.source === scope;
+    const edit = el('button', 'btn-ghost', t('settings.expertsEdit')) as HTMLButtonElement;
+    edit.disabled = !canEdit;
+    if (!canEdit) edit.title = t('settings.expertsEditScopeHint');
+    edit.addEventListener('click', () => {
+      if (!canEdit) return;
+      void editExpert(scope, item.name);
+    });
+    const remove = el('button', 'btn-deny', t('settings.expertsDelete')) as HTMLButtonElement;
+    remove.disabled = !canEdit;
+    if (!canEdit) remove.title = t('settings.expertsDeleteScopeHint');
+    remove.addEventListener('click', () => {
+      if (!canEdit) return;
+      if (!confirmDialog(t('settings.expertsDeleteConfirm', { n: item.name }))) return;
+      void deleteExpert(scope, item.name);
+    });
+    row.append(edit, remove);
+  }
+  return row;
+}
+
+function displayName(item: ExpertSummary): string {
+  if (item.displayName) {
+    const locale = getLocale();
+    if (locale === 'en') return item.displayName.en || item.displayName.zh || item.name;
+    return item.displayName.zh || item.displayName.en || item.name;
+  }
+  return item.name;
+}
+
+function sourceLabel(source?: string): string {
+  if (source === 'builtin') return t('settings.expertsBuiltin');
+  if (source === 'project') return t('settings.expertsProject');
+  if (source === 'global') return t('settings.expertsGlobal');
+  return source || '';
+}
+
+async function createExpertDraft(): Promise<void> {
+  const name = await promptModal({ title: t('settings.expertsNewName'), initialValue: '', okLabel: t('modal.ok'), cancelLabel: t('modal.cancel') });
+  const trimmed = name?.trim();
+  if (!trimmed) return;
+  creatingExpert = true;
+  expertDraft = {
+    scope: expertScope,
+    manifest: {
+      schemaVersion: 1,
+      name: trimmed,
+      expertType: 'agent',
+      agentName: 'lead',
+      displayName: { zh: '', en: '' },
+      members: [{ id: 'lead', name: { zh: '主角', en: 'Lead' }, role: 'lead' }],
+    },
+    agents: {
+      lead: '---\nname: lead\n---\n',
+    },
+  };
+  void renderExperts();
+}
+
+async function editExpert(scope: ExpertScope, name: string): Promise<void> {
+  const params: Record<string, unknown> = { scope, name };
+  const cwd = scope === 'project' ? expertWorkspace() : undefined;
+  if (cwd) params.cwd = cwd;
+  try {
+    const result = await invoke<ExpertListView>('mothx/manage/experts/get', params);
+    if (result?.bundle) {
+      creatingExpert = false;
+      expertDraft = result.bundle as ExpertBundle;
+      void renderExperts();
+    }
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function renderExpertEditor(listView: ExpertListView): HTMLElement {
+  const draft = expertDraft!;
+  const isNew = creatingExpert;
+  const card = applicationCard(isNew ? t('settings.expertNew') : draft.manifest.name, isNew ? t('settings.expertNewDesc') : t('settings.expertEditDesc'));
+
+  const nameInput = applicationInput(draft.manifest.name);
+  nameInput.disabled = !isNew;
+  const displayZh = applicationInput(draft.manifest.displayName?.zh || '');
+  const displayEn = applicationInput(draft.manifest.displayName?.en || '');
+  const typeSelect = applicationSelect(draft.manifest.expertType || 'agent', ['agent', 'team']);
+  const agentName = applicationInput(draft.manifest.agentName || '');
+  const categoryId = applicationInput(draft.manifest.categoryId || '');
+
+  card.grid.append(
+    applicationField(t('settings.expertName'), nameInput),
+    applicationField(t('settings.expertDisplayZh'), displayZh),
+    applicationField(t('settings.expertDisplayEn'), displayEn),
+    applicationField(t('settings.expertType'), typeSelect),
+    applicationField(t('settings.expertAgentName'), agentName),
+    applicationField(t('settings.expertCategoryId'), categoryId),
+  );
+
+  const membersCard = applicationCard(t('settings.expertMembers'), t('settings.expertMembersDesc'));
+  const membersList = el('div', 'provider-model-list');
+  const memberEditors: Array<{ id: HTMLInputElement; role: HTMLSelectElement; nameZh: HTMLInputElement; nameEn: HTMLInputElement }> = [];
+  const members = [...(draft.manifest.members || [])];
+
+  function renderMemberEditors(): void {
+    membersList.textContent = '';
+    memberEditors.length = 0;
+    for (const member of members) {
+      const row = el('div', 'provider-model-row');
+      const idInput = applicationInput(member.id || '');
+      idInput.disabled = true;
+      const roleSelect = applicationSelect(member.role || 'member', ['lead', 'member']);
+      const nameZhInput = applicationInput(member.name?.zh || '');
+      const nameEnInput = applicationInput(member.name?.en || '');
+      const remove = el('button', 'btn-deny', t('settings.expertRemoveAgent')) as HTMLButtonElement;
+      remove.addEventListener('click', () => {
+        const idx = members.indexOf(member);
+        if (idx >= 0) members.splice(idx, 1);
+        renderMemberEditors();
+      });
+      row.append(
+        labeledControl(t('settings.expertMemberId'), idInput),
+        labeledControl(t('settings.expertMemberRole'), roleSelect),
+        labeledControl(t('settings.expertMemberNameZh'), nameZhInput),
+        labeledControl(t('settings.expertMemberNameEn'), nameEnInput),
+        remove,
+      );
+      membersList.appendChild(row);
+      memberEditors.push({ id: idInput, role: roleSelect, nameZh: nameZhInput, nameEn: nameEnInput });
+    }
+  }
+  renderMemberEditors();
+
+  const addMember = el('button', 'btn-ghost', t('settings.expertAddMember')) as HTMLButtonElement;
+  addMember.prepend(iconSpan('plus', 'sm'));
+  addMember.addEventListener('click', async () => {
+    const id = await promptModal({ title: t('settings.expertMemberId'), initialValue: '', okLabel: t('modal.ok'), cancelLabel: t('modal.cancel') });
+    const trimmed = id?.trim();
+    if (!trimmed) return;
+    if (members.some((member) => member.id === trimmed)) {
+      toast(t('settings.expertMemberIdExists'));
+      return;
+    }
+    members.push({ id: trimmed, name: { zh: '', en: '' }, role: 'member' });
+    renderMemberEditors();
+  });
+  membersCard.grid.append(membersList, addMember);
+  card.card.appendChild(membersCard.card);
+
+  const agentsCard = applicationCard(t('settings.expertAgents'), t('settings.expertAgentsDesc'));
+  const agentsList = el('div', 'provider-model-list');
+  const agentEditors: Array<{ id: HTMLInputElement; source: HTMLTextAreaElement }> = [];
+  const agents = { ...(draft.agents || {}) };
+
+  function renderAgentEditors(): void {
+    agentsList.textContent = '';
+    agentEditors.length = 0;
+    for (const [id, source] of Object.entries(agents)) {
+      const row = el('div', 'provider-model-row');
+      const idInput = applicationInput(id);
+      idInput.disabled = true;
+      const sourceInput = applicationTextarea(source, 5);
+      const remove = el('button', 'btn-deny', t('settings.expertRemoveAgent')) as HTMLButtonElement;
+      remove.addEventListener('click', () => {
+        delete agents[id];
+        renderAgentEditors();
+      });
+      row.append(labeledControl(t('settings.expertAgentId'), idInput), labeledControl(t('settings.expertAgentSource'), sourceInput), remove);
+      agentsList.appendChild(row);
+      agentEditors.push({ id: idInput, source: sourceInput });
+    }
+  }
+  renderAgentEditors();
+
+  const addAgent = el('button', 'btn-ghost', t('settings.expertAddAgent')) as HTMLButtonElement;
+  addAgent.prepend(iconSpan('plus', 'sm'));
+  addAgent.addEventListener('click', async () => {
+    const id = await promptModal({ title: t('settings.expertAgentId'), initialValue: '', okLabel: t('modal.ok'), cancelLabel: t('modal.cancel') });
+    const trimmed = id?.trim();
+    if (!trimmed) return;
+    if (agents[trimmed] !== undefined) {
+      toast(t('settings.expertAgentIdExists'));
+      return;
+    }
+    agents[trimmed] = `---\nname: ${trimmed}\n---\n`;
+    renderAgentEditors();
+  });
+
+  agentsCard.grid.append(agentsList, addAgent);
+  card.card.appendChild(agentsCard.card);
+
+  const actions = el('div', 'provider-editor-actions');
+  const save = el('button', 'btn-primary', isNew ? t('settings.expertCreate') : t('settings.expertSave')) as HTMLButtonElement;
+  const cancel = el('button', 'btn-ghost', t('modal.cancel')) as HTMLButtonElement;
+  cancel.addEventListener('click', () => {
+    expertDraft = undefined;
+    creatingExpert = false;
+    void renderExperts();
+  });
+  save.addEventListener('click', async () => {
+    const nextName = isNew ? nameInput.value.trim() : draft.manifest.name;
+    if (!nextName) {
+      toast(t('settings.expertNameRequired'));
+      return;
+    }
+    const nextAgents: Record<string, string> = {};
+    for (const editor of agentEditors) {
+      const id = editor.id.value.trim();
+      if (!id) continue;
+      nextAgents[id] = editor.source.value;
+    }
+    if (Object.keys(nextAgents).length === 0) {
+      toast(t('settings.expertAgentsRequired'));
+      return;
+    }
+    const nextMembers: ExpertMemberMeta[] = [];
+    for (const editor of memberEditors) {
+      const id = editor.id.value.trim();
+      if (!id) continue;
+      nextMembers.push({
+        id,
+        role: editor.role.value || 'member',
+        name: { zh: editor.nameZh.value.trim(), en: editor.nameEn.value.trim() },
+      });
+    }
+    if (nextMembers.length === 0) {
+      toast(t('settings.expertMembersRequired'));
+      return;
+    }
+    const lead = nextMembers.find((member) => member.role === 'lead') || nextMembers[0];
+    if (typeSelect.value === 'team' && (!lead || lead.role !== 'lead')) {
+      toast(t('settings.expertLeadRequired'));
+      return;
+    }
+    const teamInfo: ExpertTeamInfo | undefined = typeSelect.value === 'team'
+      ? { leadAgent: lead.id, memberAgents: nextMembers.filter((member) => member.id !== lead.id).map((member) => member.id) }
+      : undefined;
+    const next: ExpertBundle = {
+      scope: draft.scope || expertScope,
+      manifest: {
+        ...draft.manifest,
+        schemaVersion: draft.manifest.schemaVersion || 1,
+        name: nextName,
+        displayName: { zh: displayZh.value.trim(), en: displayEn.value.trim() },
+        expertType: typeSelect.value || 'agent',
+        agentName: agentName.value.trim() || lead.id,
+        categoryId: categoryId.value.trim(),
+        members: nextMembers,
+        ...(teamInfo ? { teamInfo } : {}),
+      },
+      agents: nextAgents,
+    };
+    await saveExpertBundle(save, isNew, next);
+  });
+  actions.append(save, cancel);
+  if (!isNew) {
+    const remove = el('button', 'btn-deny', t('settings.expertDelete')) as HTMLButtonElement;
+    remove.addEventListener('click', async () => {
+      if (!confirmDialog(t('settings.expertsDeleteConfirm', { n: draft.manifest.name }))) return;
+      await deleteExpert(expertScope, draft.manifest.name);
+    });
+    actions.appendChild(remove);
+  }
+  card.card.appendChild(actions);
+  return card.card;
+}
+
+async function saveExpertBundle(button: HTMLButtonElement, isNew: boolean, bundle: ExpertBundle): Promise<void> {
+  button.disabled = true;
+  const label = button.textContent;
+  button.textContent = t('settings.expertSaving');
+  try {
+    const scope = bundle.scope as ExpertScope;
+    const params: Record<string, unknown> = { scope };
+    const cwd = scope === 'project' ? expertWorkspace() : undefined;
+    if (cwd) params.cwd = cwd;
+    if (isNew) {
+      await invoke<ExpertBundle>('mothx/manage/experts/create', { ...params, bundle });
+      toast(t('settings.expertCreated'));
+    } else {
+      await invoke<ExpertBundle>('mothx/manage/experts/update', { ...params, bundle });
+      toast(t('settings.expertSaved'));
+    }
+    expertDraft = undefined;
+    creatingExpert = false;
+    cache.experts = undefined;
+    await renderExperts();
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error));
+  } finally {
+    button.disabled = false;
+    button.textContent = label || t('settings.expertSave');
+  }
+}
+
+async function deleteExpert(scope: ExpertScope, name: string): Promise<void> {
+  try {
+    const params: Record<string, unknown> = { scope, name };
+    const cwd = scope === 'project' ? expertWorkspace() : undefined;
+    if (cwd) params.cwd = cwd;
+    await invoke('mothx/manage/experts/delete', params);
+    toast(t('settings.expertDeleted'));
+    expertDraft = undefined;
+    creatingExpert = false;
+    cache.experts = undefined;
+    await renderExperts();
+  } catch (error) {
+    toast(error instanceof Error ? error.message : String(error));
   }
 }

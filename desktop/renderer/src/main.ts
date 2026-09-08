@@ -11,12 +11,13 @@ import { bindHistory, renderHistory } from './projects';
 import { createMothxLogo, hydrateIcons } from './icons';
 import { applyStaticI18n, setLocale, t } from './i18n';
 import { activateSettingsView, applyHomeBackground, renderSettings, bindSettings } from './settings';
-import { refreshProjects, refreshSessions, renameSession, deleteSession, forkSession, chooseWorkingDirectory, startNewTaskWithDirectory } from './sessions';
+import { refreshProjects, refreshSessions, renameSession, deleteSession, forkSession, chooseWorkingDirectory, changeSessionWorkingDirectory, loadOlderTranscript } from './sessions';
 import { bindSidebar, renderSidebar, applyTheme } from './sidebar';
 import { renderSkills } from './skills';
 import { currentModelLabel, currentProviderLabel, emit, state, subscribe } from './state';
 import { el, iconSpan, require$ } from './ui';
 import { switchView } from './views';
+import { applyWorkspacePickerTarget } from './workspace-picker';
 
 function basename(path: string): string {
   const parts = path.split(/[\\/]/);
@@ -25,11 +26,16 @@ function basename(path: string): string {
 
 function renderChrome(): void {
   // 已打开的会话优先显示它自己的工作目录；没有会话时显示下一次新建任务的
-  // 候选目录。connection.workspace 只是 ACP 进程的连接根目录。
-  const workspace = state.activeSessionCwd || state.newSessionCwd || state.connection.workspace || state.store.lastWorkspace || '…';
-  const chipName = require$('#workspace-chip-name');
-  chipName.textContent = basename(workspace);
-  require$('#workspace-chip').title = workspace;
+  // 候选目录。connection.workspace 只是 ACP 进程目录，不能作为任一会话目录。
+  const workspace = state.activeSessionCwd || state.newSessionCwd || state.store.lastWorkspace || '…';
+  const workspaceContext = state.activeSessionId ? t('composer.workspaceSession') : t('composer.workspaceNew');
+  document.querySelectorAll<HTMLButtonElement>('#workspace-btn, #workspace-btn2').forEach((workspaceButton) => {
+    workspaceButton.title = `${workspaceContext}: ${workspace}`;
+    workspaceButton.setAttribute('aria-label', `${workspaceContext}: ${workspace}`);
+  });
+  document.querySelectorAll<HTMLElement>('.workspace-label').forEach((label) => {
+    label.textContent = basename(workspace);
+  });
   require$('#sb-workspace-label').textContent = basename(workspace);
   require$('#sb-model-label').textContent = currentModelLabel();
   require$('#sb-mode-label').textContent = state.currentMode || '…';
@@ -121,7 +127,11 @@ function renderChatHeader(): void {
   const runningHere = state.promptInFlight && state.runningSessionId === state.activeSessionId;
   require$('#cancel-chat').hidden = !runningHere;
   (require$('#send-chat') as HTMLButtonElement).disabled = runningHere;
-  (require$('#send-home') as HTMLButtonElement).disabled = state.promptInFlight;
+	(require$('#send-home') as HTMLButtonElement).disabled = state.promptInFlight;
+	const loadMore = require$('#chat-load-more') as HTMLButtonElement;
+	loadMore.hidden = !state.transcriptNextCursor;
+	loadMore.disabled = state.transcriptLoading;
+	loadMore.textContent = state.transcriptLoading ? '…' : t('chat.loadEarlier');
 }
 
 function renderAll(): void {
@@ -143,6 +153,20 @@ function renderAll(): void {
   const model = currentModelLabel();
   modelLabels.forEach((node) => {
     node.textContent = provider && model !== '…' ? `${provider} · ${model}` : model;
+  });
+  const expertOption = state.activeSessionId ? state.configOptions.find((option) => option.id === 'expert') : state.draftConfigOptions.find((option) => option.id === 'expert');
+  const expertAvailable = Boolean(expertOption?.options?.length);
+  const currentExpert = expertOption?.options?.find((choice) => choice.value === expertOption.currentValue);
+  const expertLabel = currentExpert?.name || t('composer.expertNone');
+  const expertTitle = `${t('composer.expert')}: ${expertLabel}`;
+  document.querySelectorAll<HTMLButtonElement>('#expert-btn, #expert-btn2').forEach((expertPicker) => {
+    expertPicker.hidden = !expertAvailable;
+    expertPicker.disabled = !expertAvailable;
+    expertPicker.setAttribute('aria-label', expertTitle);
+    expertPicker.title = expertTitle;
+  });
+  document.querySelectorAll<HTMLElement>('.expert-label, .expert-label2').forEach((node) => {
+    node.textContent = expertLabel;
   });
 }
 
@@ -211,14 +235,18 @@ async function bootstrap(): Promise<void> {
   require$('#win-min').addEventListener('click', () => desktop.windowControl('minimize'));
   require$('#win-max').addEventListener('click', () => desktop.windowControl('maximize'));
   require$('#win-close').addEventListener('click', () => desktop.windowControl('close'));
-  require$('#workspace-chip').addEventListener('click', () => {
-    // 不能就地修改已有 session 的工作目录。当前有会话时，目录选择明确开始
-    // 一个新任务；首页则仅更新下一次 session/new 的候选目录。
-    if (state.activeSessionId) void startNewTaskWithDirectory();
-    else void chooseWorkingDirectory();
-  });
+  const chooseWorkspace = () => {
+    // A session's directory is canonical ACP state. Without a session this
+    // only updates the default supplied to a future session/new request.
+    applyWorkspacePickerTarget(state.activeSessionId, {
+      changeSessionWorkingDirectory,
+      chooseNextSessionWorkingDirectory: chooseWorkingDirectory,
+    });
+  };
+  require$('#workspace-btn').addEventListener('click', chooseWorkspace);
+  require$('#workspace-btn2').addEventListener('click', chooseWorkspace);
 
-  bindChatScroll();
+	bindChatScroll(() => { void loadOlderTranscript(); });
   bindSidebar();
   bindHome();
   bindSettings();
@@ -256,7 +284,7 @@ async function bootstrap(): Promise<void> {
   state.connection = await acp.getState().catch(() => state.connection);
   if (state.connection.state === 'ready') {
     desktop.log('renderer conn ready');
-    state.newSessionCwd = state.store.lastWorkspace || state.connection.workspace || '';
+    state.newSessionCwd = state.store.lastWorkspace || await desktop.defaultNewSessionDirectory();
     state.dirConfirmed = state.newSessionCwd !== '';
     await refreshSessions();
     await refreshDraftConfigOptions();

@@ -78,6 +78,7 @@ interface MothxBridge {
     version: string;
     appInfo: () => Promise<AppInfo>;
     chooseDirectory: (defaultPath?: string) => Promise<string | null>;
+    defaultNewSessionDirectory: () => Promise<string>;
     chooseHomeBackground: (defaultPath?: string) => Promise<string | null>;
     chooseFiles: () => Promise<{ path: string; grant: string }[]>;
     readFileBase64: (grant: string) => Promise<{ ok: true; data: string; size: number } | { ok: false; error: string }>;
@@ -125,6 +126,7 @@ export const desktop = {
   platform: () => bridge().platform,
   appInfo: () => bridge().desktop.appInfo(),
   chooseDirectory: (defaultPath?: string) => bridge().desktop.chooseDirectory(defaultPath),
+  defaultNewSessionDirectory: () => bridge().desktop.defaultNewSessionDirectory(),
   chooseHomeBackground: (defaultPath?: string) => bridge().desktop.chooseHomeBackground(defaultPath),
   chooseFiles: () => bridge().desktop.chooseFiles(),
   readFileBase64: (grant: string) => bridge().desktop.readFileBase64(grant),

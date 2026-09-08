@@ -3,6 +3,7 @@ import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { AcpClient } from './acp-client';
+import { initialNewSessionDirectory } from './default-new-session-directory';
 import { createDiagnosticLogger, DiagnosticLogBuffer } from './diagnostic-logs';
 import { registerIpc, sendRendererEvent, type IpcDeps } from './ipc';
 import { DesktopStore } from './store';
@@ -54,16 +55,17 @@ function binaryPath(): string {
 // directories are supplied independently in ACP requests and are never
 // constrained by this process startup path.
 function resolveRuntimeCwd(): string {
-  const home = app.getPath('home');
   const last = store.get().lastWorkspace;
   if (last) {
     try {
       if (statSync(last).isDirectory()) return last;
     } catch {
-      logDesktopEvent(`stored default work directory is unavailable, falling back to home: ${last}`);
+      logDesktopEvent(`stored default work directory is unavailable, creating a fresh session directory: ${last}`);
     }
   }
-  return home;
+  // This is only the ACP child startup cwd. Session cwd remains independent
+  // and is sent in the canonical session/new and session/setWorkDir flows.
+  return initialNewSessionDirectory();
 }
 
 const client = new AcpClient({
@@ -175,7 +177,6 @@ async function startRuntime(): Promise<void> {
     permissionTimeout: '30m',
     questionTimeout: '30m',
   });
-  store.set({ lastWorkspace: runtimeCwd });
 }
 
 const gotLock = app.requestSingleInstanceLock();

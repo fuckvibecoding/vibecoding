@@ -28,12 +28,12 @@ type Center struct {
 // Summary is a lightweight List entry built from the manifest only; persona
 // bodies are never loaded during listing.
 type Summary struct {
-	Name          string
-	ExpertType    string
-	DisplayName   LocalizedText
-	Source        string // builtin | global | project
-	Invalid       bool
-	InvalidReason string
+	Name          string        `json:"name"`
+	ExpertType    string        `json:"expertType"`
+	DisplayName   LocalizedText `json:"displayName"`
+	Source        string        `json:"source"` // builtin | global | project
+	Invalid       bool          `json:"invalid"`
+	InvalidReason string        `json:"invalidReason,omitempty"`
 }
 
 // GlobalExpertsDir returns the global experts directory

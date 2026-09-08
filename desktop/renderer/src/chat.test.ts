@@ -80,6 +80,29 @@ test('tool_call and tool_call_update initialize tool disclosure state to collaps
   );
 });
 
+test('older transcript pages preserve transcript order and the current scroll position', () => {
+  assert.match(
+    chatSrc,
+    /export function applyTranscriptPage\(sessionId: string, updates: Record<string, unknown>\[\], prepend: boolean\)/,
+    'chat must accept ACP-projected transcript pages without a separate local history format',
+  );
+  assert.match(
+    chatSrc,
+    /state\.transcript\.unshift\(\.\.\.resolved\)/,
+    'older pages must be prepended before the already visible latest transcript',
+  );
+  assert.match(
+    chatSrc,
+    /stream\.scrollTop = previousTop \+ stream\.scrollHeight - previousHeight;/,
+    'prepending a page must keep the reader at the same visible message',
+  );
+  assert.match(
+    chatSrc,
+    /\/\/ appendChild also moves existing nodes[\s\S]*?inner\.appendChild\(node\);/,
+    'DOM nodes must be reordered to match a prepended transcript page while preserving disclosure state',
+  );
+});
+
 test('styles make the button toggles full-width and keyboard-focusable', () => {
   assert.match(
     stylesSrc,

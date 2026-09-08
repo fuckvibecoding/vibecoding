@@ -639,6 +639,47 @@ func TestLoadSessionReplaysAllMessages(t *testing.T) {
 	}
 }
 
+func TestLoadSessionHistoryPagingProjectsNewestMessagesFirst(t *testing.T) {
+	dir := t.TempDir()
+	cwd := t.TempDir()
+	newTestSession(t, cwd, dir, "paged-history", 5)
+
+	var out bytes.Buffer
+	s := &server{
+		settings:   &config.Settings{SessionDir: dir},
+		sbMgr:      sandbox.NewManager(cwd),
+		sessions:   make(map[string]*sessionRuntime),
+		toolTitles: make(map[string]string),
+		mcpNotify:  make(map[string]bool),
+		w:          &out,
+	}
+	s.handleLoadSession(rpcRequest{
+		ID:     json.RawMessage("1"),
+		Params: json.RawMessage(fmt.Sprintf(`{"sessionId":"paged-history","cwd":%q,"historyLimit":2}`, cwd)),
+	})
+
+	messages := jsonLines(t, &out)
+	if len(messages) != 1 {
+		t.Fatalf("initial lazy load emitted %#v, want only its response", messages)
+	}
+	result := messages[0]["result"].(map[string]any)
+	history := result["history"].(map[string]any)
+	updates := history["updates"].([]any)
+	if len(updates) != 2 || history["nextCursor"] == "" {
+		t.Fatalf("initial history = %#v, want two newest updates and a cursor", history)
+	}
+
+	out.Reset()
+	s.handleSessionHistory(rpcRequest{
+		ID:     json.RawMessage("2"),
+		Params: json.RawMessage(fmt.Sprintf(`{"sessionId":"paged-history","cursor":%q,"limit":2}`, history["nextCursor"])),
+	})
+	page := jsonLines(t, &out)[0]["result"].(map[string]any)
+	if got := len(page["updates"].([]any)); got != 2 || page["nextCursor"] == "" {
+		t.Fatalf("older history page = %#v, want two updates and one final cursor", page)
+	}
+}
+
 func TestLoadSessionSwitchesToPersistedProvider(t *testing.T) {
 	dir := t.TempDir()
 	cwd := t.TempDir()

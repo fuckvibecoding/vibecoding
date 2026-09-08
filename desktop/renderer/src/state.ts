@@ -85,6 +85,13 @@ export interface NewSessionResultShape {
   parentSessionId?: string;
   modes?: { currentModeId?: string; availableModes?: { id: string; name: string }[] };
   configOptions?: SessionConfigOptionShape[];
+	  history?: TranscriptPageShape;
+}
+
+export interface TranscriptPageShape {
+  sessionId: string;
+  updates: Record<string, unknown>[];
+  nextCursor?: string;
 }
 
 export type TranscriptItem =
@@ -158,6 +165,10 @@ export interface AppState {
   runStatus: RunStatus;
   transcript: TranscriptItem[];
   transcriptSessionId: string | null;
+	// Ephemeral ACP transcript paging projection. This never becomes Desktop
+	// persistence; the Runtime session remains the canonical history owner.
+  transcriptNextCursor: string;
+  transcriptLoading: boolean;
   // Provider/model choices for a task that has not created a session yet.
   // They are a UI projection of mothx/manage/providers/list, never a second
   // provider catalog; sessionConfigOptions take over once a session is open.
@@ -196,6 +207,8 @@ export const state: AppState = {
   runStatus: 'idle',
   transcript: [],
   transcriptSessionId: null,
+	  transcriptNextCursor: '',
+	  transcriptLoading: false,
   draftConfigOptions: [],
   configOptions: [],
   currentMode: 'yolo',
@@ -231,10 +244,10 @@ export function activeSessionWorkspace(): string {
   return state.activeSessionCwd;
 }
 
-// 新会话优先使用 Desktop 保存的默认目录。只有首次启动且尚无设置时，才以
-// ACP 子进程启动目录作为本地默认值；它不是协议工作区或权限边界。
+// New sessions use only the Desktop-selected default. The ACP child process
+// startup cwd is never a session default, workspace, or access boundary.
 export function newSessionWorkspace(): string {
-  return state.newSessionCwd || state.store.lastWorkspace || state.connection.workspace || '';
+  return state.newSessionCwd || state.store.lastWorkspace || '';
 }
 
 export function isReady(): boolean {

@@ -1,0 +1,52 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+import { applyWorkspacePickerTarget, workspacePickerTarget } from './workspace-picker.ts';
+
+const indexSrc = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const mainSrc = await readFile(new URL('./main.ts', import.meta.url), 'utf8');
+const stateSrc = await readFile(new URL('./state.ts', import.meta.url), 'utf8');
+const pickerSrc = await readFile(new URL('./workspace-picker.ts', import.meta.url), 'utf8');
+
+test('working-directory picker follows the model picker in both composer toolbars', () => {
+  for (const [model, workspace] of [['model-btn', 'workspace-btn'], ['model-btn2', 'workspace-btn2']]) {
+    assert.ok(indexSrc.indexOf(`id="${model}"`) < indexSrc.indexOf(`id="${workspace}"`), `${workspace} must follow ${model}`);
+  }
+  assert.doesNotMatch(indexSrc, /id="workspace-chip"/, 'the title bar must not own a working-directory selector');
+});
+
+test('picker changes only the active session cwd and never starts a replacement task', () => {
+  assert.match(mainSrc, /applyWorkspacePickerTarget\(state\.activeSessionId/);
+  assert.match(mainSrc, /changeSessionWorkingDirectory,/);
+  assert.match(mainSrc, /chooseNextSessionWorkingDirectory: chooseWorkingDirectory/);
+  assert.doesNotMatch(mainSrc, /startNewTaskWithDirectory/);
+});
+
+test('picker routing cannot mistake a next-session default for a session cwd', () => {
+  assert.deepEqual(workspacePickerTarget(null), { kind: 'next-session' });
+  assert.deepEqual(workspacePickerTarget('session-123'), { kind: 'session', sessionId: 'session-123' });
+  assert.match(pickerSrc, /owns no directory value or persistence/);
+});
+
+test('picker action calls exactly one canonical destination', () => {
+  const calls: string[] = [];
+  const actions = {
+    changeSessionWorkingDirectory: (sessionId: string) => calls.push(`session:${sessionId}`),
+    chooseNextSessionWorkingDirectory: () => calls.push('next-session'),
+  };
+
+  assert.deepEqual(applyWorkspacePickerTarget('session-123', actions), { kind: 'session', sessionId: 'session-123' });
+  assert.deepEqual(calls, ['session:session-123']);
+
+  calls.length = 0;
+  assert.deepEqual(applyWorkspacePickerTarget(null, actions), { kind: 'next-session' });
+  assert.deepEqual(calls, ['next-session']);
+});
+
+test('new-session default does not fall back to the ACP process cwd', () => {
+  assert.match(mainSrc, /state\.newSessionCwd = state\.store\.lastWorkspace \|\| await desktop\.defaultNewSessionDirectory\(\)/);
+  const newSessionWorkspace = stateSrc.match(/export function newSessionWorkspace\(\): string \{[\s\S]*?\n\}/)?.[0] || '';
+  assert.match(newSessionWorkspace, /return state\.newSessionCwd \|\| state\.store\.lastWorkspace \|\| '';/);
+  assert.doesNotMatch(newSessionWorkspace, /state\.connection\.workspace/);
+});

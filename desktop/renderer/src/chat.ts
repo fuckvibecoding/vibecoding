@@ -42,16 +42,21 @@ export function scrollChat(force = false): void {
   if (autoScroll) stream.scrollTop = stream.scrollHeight;
 }
 
-export function bindChatScroll(): void {
-  const stream = require$('#chat-stream');
-  stream.addEventListener('scroll', () => {
-    autoScroll = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
-  });
+export function bindChatScroll(onReachStart?: () => void): void {
+	const stream = require$('#chat-stream');
+	stream.addEventListener('scroll', () => {
+		autoScroll = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
+		if (stream.scrollTop < 80 && state.transcriptNextCursor && !state.transcriptLoading) onReachStart?.();
+	});
+	const loadMore = document.querySelector<HTMLButtonElement>('#chat-load-more');
+	loadMore?.addEventListener('click', () => onReachStart?.());
 }
 
 export function clearTranscript(sessionId: string | null): void {
   state.transcript = [];
-  state.transcriptSessionId = sessionId;
+	state.transcriptSessionId = sessionId;
+	state.transcriptNextCursor = '';
+	state.transcriptLoading = false;
   state.currentPlanKey = null;
   state.artifactRunCount = 0;
   state.pendingUserKey = null;
@@ -65,6 +70,52 @@ function upsert(item: TranscriptItem): void {
   const existing = state.transcript.find((entry) => entry.key === item.key);
   if (existing) Object.assign(existing, item);
   else state.transcript.push(item);
+}
+
+// Prepends an older ACP transcript page without inventing a second message
+// format. Existing DOM nodes are retained, so disclosure choices survive.
+export function applyTranscriptPage(sessionId: string, updates: Record<string, unknown>[], prepend: boolean): void {
+  if (!matchesTranscript(sessionId) || updates.length === 0) return;
+  const stream = require$('#chat-stream');
+  const previousHeight = stream.scrollHeight;
+  const previousTop = stream.scrollTop;
+  const existing = new Set(state.transcript.map((item) => item.key));
+  const pageItems: TranscriptItem[] = [];
+  const originalPush = state.transcript.push.bind(state.transcript);
+  state.transcript.push = (...items: TranscriptItem[]) => {
+    for (const item of items) {
+      if (!existing.has(item.key)) {
+        existing.add(item.key);
+        pageItems.push(item);
+      }
+    }
+    return state.transcript.length;
+  };
+  try {
+    for (const update of updates) applySessionUpdate(sessionId, update);
+  } finally {
+    state.transcript.push = originalPush;
+  }
+  const resolved: TranscriptItem[] = [];
+  const byKey = new Map<string, TranscriptItem>();
+  for (const item of pageItems) {
+    const prior = byKey.get(item.key);
+    if (!prior) {
+      byKey.set(item.key, item);
+      resolved.push(item);
+    } else if ((prior.kind === 'agent' || prior.kind === 'user' || prior.kind === 'thought') && prior.kind === item.kind) {
+      prior.text += item.text;
+    } else {
+      Object.assign(prior, item);
+    }
+  }
+  if (prepend && resolved.length > 0) {
+    state.transcript.unshift(...resolved);
+  } else if (!prepend) {
+    state.transcript.push(...resolved);
+  }
+  syncTranscript();
+  if (prepend) stream.scrollTop = previousTop + stream.scrollHeight - previousHeight;
 }
 
 function findItem(key: string): TranscriptItem | undefined {
@@ -506,10 +557,12 @@ export function syncTranscript(): void {
     if (!node) {
       node = buildItem(item);
       itemElements.set(item.key, node);
-      inner.appendChild(node);
     } else {
       updateItem(node, item);
     }
+		// appendChild also moves existing nodes. This keeps DOM order aligned
+		// when an older transcript page is prepended.
+		inner.appendChild(node);
   }
   for (const [key, node] of [...itemElements.entries()]) {
     if (!seen.has(key)) {

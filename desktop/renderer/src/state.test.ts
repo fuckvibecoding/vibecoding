@@ -86,3 +86,27 @@ test('a historical session keeps its own cwd regardless of the next-task default
     state.newSessionCwd = previous.newSessionCwd;
   }
 });
+
+test('a missing next-session preference never adopts the ACP process cwd', () => {
+  const previous = {
+    connection: state.connection,
+    store: state.store,
+    newSessionCwd: state.newSessionCwd,
+    activeSessionCwd: state.activeSessionCwd,
+  };
+  try {
+    state.connection = { state: 'ready', workspace: '/runtime/only' };
+    state.store = { ...state.store, lastWorkspace: '' };
+    state.newSessionCwd = '';
+    state.activeSessionCwd = '';
+
+    assert.equal(newSessionWorkspace(), '');
+    assert.equal(activeSessionWorkspace(), '');
+    assert.equal(workspace(), '');
+  } finally {
+    state.connection = previous.connection;
+    state.store = previous.store;
+    state.newSessionCwd = previous.newSessionCwd;
+    state.activeSessionCwd = previous.activeSessionCwd;
+  }
+});

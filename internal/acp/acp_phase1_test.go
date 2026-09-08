@@ -93,10 +93,11 @@ func assertACPRPCErrorCode(t *testing.T, message map[string]any, code string) {
 
 func newPhase1FixtureServer(output *syncedBuffer) *server {
 	return &server{
-		w:         output,
-		pending:   make(map[string]chan json.RawMessage),
-		sessions:  make(map[string]*sessionRuntime),
-		subagents: make(map[string]*subagentProjection),
+		w:          output,
+		pending:    make(map[string]chan json.RawMessage),
+		sessions:   make(map[string]*sessionRuntime),
+		subagents:  make(map[string]*subagentProjection),
+		toolTitles: make(map[string]string),
 	}
 }
 
@@ -592,6 +593,42 @@ func TestACPHandleAgentEventProjectsToolResultImages(t *testing.T) {
 	rawOutput, _ := update["rawOutput"].(map[string]any)
 	if raw, _ := rawOutput["content"].(string); raw != "image attached" {
 		t.Fatalf("rawOutput content = %#v", rawOutput)
+	}
+}
+
+func TestACPToolBoundaryStartsNewAssistantMessage(t *testing.T) {
+	output := &syncedBuffer{}
+	s := newPhase1FixtureServer(output)
+	s.sessions["session-1"] = &sessionRuntime{
+		id:               "session-1",
+		promptID:         "prompt-1",
+		messageID:        acpStreamMessageID("session-1", "prompt-1", "message", 0),
+		thoughtMessageID: acpStreamMessageID("session-1", "prompt-1", "thought", 0),
+	}
+
+	s.handleAgentEvent("session-1", agentpkg.Event{Type: agentpkg.EventTextDelta, TextDelta: "before tool"})
+	s.handleAgentEvent("session-1", agentpkg.Event{Type: agentpkg.EventToolCall, ToolCall: &agentpkg.ToolCallBlock{ID: "call-1", Name: "read"}})
+	s.handleAgentEvent("session-1", agentpkg.Event{Type: agentpkg.EventToolExecutionEnd, ToolCallID: "call-1", ToolName: "read", ToolResult: "done"})
+	s.handleAgentEvent("session-1", agentpkg.Event{Type: agentpkg.EventTurnStart})
+	s.handleAgentEvent("session-1", agentpkg.Event{Type: agentpkg.EventTextDelta, TextDelta: "final answer"})
+
+	messages := parseACPMessages(t, output.String())
+	updates := make([]map[string]any, 0, 4)
+	for _, message := range messages {
+		if message["method"] != "session/update" {
+			continue
+		}
+		params, _ := message["params"].(map[string]any)
+		updates = append(updates, params["update"].(map[string]any))
+	}
+	if len(updates) != 4 {
+		t.Fatalf("updates = %#v, want pre-tool text, tool call, tool result, and final text", updates)
+	}
+	if updates[0]["sessionUpdate"] != "agent_message_chunk" || updates[1]["sessionUpdate"] != "tool_call" || updates[2]["sessionUpdate"] != "tool_call_update" || updates[3]["sessionUpdate"] != "agent_message_chunk" {
+		t.Fatalf("update order = %#v, want text, tool call, tool result, final text", updates)
+	}
+	if updates[0]["messageId"] == updates[3]["messageId"] {
+		t.Fatalf("pre-tool and final message IDs = %q, want distinct model-turn IDs", updates[0]["messageId"])
 	}
 }
 

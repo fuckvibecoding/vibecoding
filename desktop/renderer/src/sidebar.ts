@@ -4,7 +4,7 @@
 import { desktop } from './api';
 import { renderAutomation } from './automation';
 import { renderLibrary } from './library';
-import { activateSettingsView } from './settings';
+import { activateSettingsView, openSettingsTab } from './settings';
 import { t } from './i18n';
 import { iconSVG } from './icons';
 import {
@@ -185,6 +185,8 @@ function projectBranch(project: ProjectShape, keyword: string): HTMLElement {
 }
 
 export function renderSidebar(): void {
+  const expertsNav = document.querySelector<HTMLElement>('.nav-item[data-nav="experts"]');
+  if (expertsNav) expertsNav.hidden = !hasFeature('manageExperts');
   const keyword = (document.querySelector<HTMLInputElement>('#task-search')?.value || '').trim().toLowerCase();
   const projects = require$('#task-project-tree');
   const recent = require$('#task-recent-list');
@@ -207,6 +209,11 @@ export function renderSidebar(): void {
 }
 
 export function bindSidebar(): void {
+  // Gate experts sidebar entry on ACP feature advertisement, matching the
+  // Settings tab behavior. renderSidebar also refreshes this on every emit.
+  const expertsNav = document.querySelector<HTMLElement>('.nav-item[data-nav="experts"]');
+  if (expertsNav) expertsNav.hidden = !hasFeature('manageExperts');
+
   const newTask = () => startNewTask();
   require$('#btn-new-task').addEventListener('click', newTask);
   require$('#btn-new-task2').addEventListener('click', newTask);
@@ -222,6 +229,12 @@ export function bindSidebar(): void {
   document.querySelectorAll<HTMLElement>('.nav-item[data-nav]').forEach((nav) => {
     nav.addEventListener('click', () => {
       const view = nav.dataset.nav || 'home';
+      if (view === 'experts') {
+        switchView('settings');
+        openSettingsTab('experts');
+        emit();
+        return;
+      }
       switchView(view);
       if (view === 'history') void refreshHistory();
       if (view === 'library') void renderLibrary();

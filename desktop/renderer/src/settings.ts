@@ -8,7 +8,7 @@ import { applyTheme } from './sidebar';
 import { emit, hasFeature, state } from './state';
 import { el, iconSpan, require$, toast } from './ui';
 
-export type SettingsTabID = 'workspace' | 'appearance' | 'application' | 'providers' | 'knowledge' | 'skills' | 'skillhub' | 'mcp' | 'memory' | 'env' | 'cron' | 'channels' | 'serve' | 'runtime' | 'stats' | 'about';
+export type SettingsTabID = 'workspace' | 'appearance' | 'application' | 'providers' | 'knowledge' | 'skills' | 'skillhub' | 'experts' | 'mcp' | 'memory' | 'env' | 'cron' | 'channels' | 'serve' | 'runtime' | 'stats' | 'about';
 
 interface SettingsCategory {
   id: string;
@@ -37,6 +37,7 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
       { id: 'knowledge', label: 'settings.tab.knowledge', description: 'settings.tab.knowledgeDesc', icon: 'book' },
       { id: 'skills', label: 'settings.tab.skills', description: 'settings.tab.skillsDesc', icon: 'zap' },
       { id: 'skillhub', label: 'settings.tab.skillhub', description: 'settings.tab.skillhubDesc', icon: 'shop' },
+      { id: 'experts', label: 'settings.tab.experts', description: 'settings.tab.expertsDesc', icon: 'users' },
       { id: 'env', label: 'settings.tab.env', description: 'settings.tab.envDesc', icon: 'terminal' },
     ],
   },
@@ -69,7 +70,7 @@ let activeSettingsCategory = 'workspace';
 let activeSettingsTab: SettingsTabID = 'workspace';
 
 const MANAGED_SETTINGS_TABS = new Set<ManagedSettingsTab>([
-  'application', 'providers', 'knowledge', 'skills', 'skillhub', 'mcp',
+  'application', 'providers', 'knowledge', 'skills', 'skillhub', 'experts', 'mcp',
   'memory', 'env', 'cron', 'channels', 'serve', 'stats',
 ]);
 
@@ -83,7 +84,7 @@ let unsubscribeDiagnosticLogs: (() => void) | undefined;
 
 export function renderSettings(): void {
   renderSettingsNavigation();
-  const defaultWorkDir = state.newSessionCwd || state.store.lastWorkspace || state.connection.workspace || '…';
+  const defaultWorkDir = state.newSessionCwd || state.store.lastWorkspace || '…';
   require$('#settings-ws-path').textContent = defaultWorkDir;
 
   const recent = require$('#settings-ws-recent');
@@ -161,7 +162,11 @@ function loadActiveManagedSettingsTab(): void {
 function renderSettingsNavigation(): void {
   const category = SETTINGS_CATEGORIES.find((entry) => entry.id === activeSettingsCategory) || SETTINGS_CATEGORIES[0];
   if (!category) return;
-  const visibleTabs = category.tabs.filter((tab) => tab.id !== 'knowledge' || hasFeature('manageKnowledgeBases'));
+  const visibleTabs = category.tabs.filter((tab) => {
+    if (tab.id === 'knowledge') return hasFeature('manageKnowledgeBases');
+    if (tab.id === 'experts') return hasFeature('manageExperts');
+    return true;
+  });
   if (!visibleTabs.some((tab) => tab.id === activeSettingsTab)) activeSettingsTab = visibleTabs[0]?.id || 'workspace';
 
   const categoryNav = require$('#settings-category-nav');
@@ -302,7 +307,7 @@ export async function setDefaultWorkingDirectory(cwd: string): Promise<void> {
 }
 
 async function chooseDefaultWorkingDirectory(): Promise<void> {
-  const current = state.newSessionCwd || state.store.lastWorkspace || state.connection.workspace || '';
+  const current = state.newSessionCwd || state.store.lastWorkspace || '';
   const picked = await desktop.chooseDirectory(current);
   if (!picked) return;
   await setDefaultWorkingDirectory(picked);
@@ -314,7 +319,7 @@ async function runDoctor(): Promise<void> {
   container.appendChild(el('div', 'group-label', '…'));
   try {
     const result = await invoke<{ checks?: { id?: string; title?: string; status?: string; detail?: string; fix?: string }[]; version?: string }>('mothx/doctor', {
-      cwd: state.newSessionCwd || state.connection.workspace || undefined,
+      cwd: state.newSessionCwd || undefined,
     });
     container.textContent = '';
     const card = el('div', 'row-list doctor-card');

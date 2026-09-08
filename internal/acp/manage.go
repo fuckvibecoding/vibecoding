@@ -111,6 +111,16 @@ func (s *server) handleManageRequest(req rpcRequest) {
 		s.handleManageSkillHubGet(req)
 	case "mothx/manage/skillhub/patch":
 		s.handleManageSkillHubPatch(req)
+	case "mothx/manage/experts/list":
+		s.handleManageExpertsList(req)
+	case "mothx/manage/experts/get":
+		s.handleManageExpertsGet(req)
+	case "mothx/manage/experts/create":
+		s.handleManageExpertsCreate(req)
+	case "mothx/manage/experts/update":
+		s.handleManageExpertsUpdate(req)
+	case "mothx/manage/experts/delete":
+		s.handleManageExpertsDelete(req)
 	case "mothx/manage/knowledge-bases/list":
 		s.handleManageKnowledgeBasesList(req)
 	case "mothx/manage/knowledge-bases/get":

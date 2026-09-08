@@ -195,7 +195,7 @@ func TestACPStdioProcessManageSettingsProvidersAndSecrets(t *testing.T) {
 			features[name] = true
 		}
 	}
-	for _, want := range []string{"manageSettings", "manageApplicationSettings", "manageProviders", "manageProviderConfig", "manageSkills", "manageMcp", "manageCron", "manageStats", "manageMemory", "manageSkillHub"} {
+	for _, want := range []string{"manageSettings", "manageApplicationSettings", "manageProviders", "manageProviderConfig", "manageSkills", "manageMcp", "manageCron", "manageStats", "manageMemory", "manageSkillHub", "manageExperts"} {
 		if !features[want] {
 			t.Fatalf("initialize features = %#v, want %q", rawFeatures, want)
 		}

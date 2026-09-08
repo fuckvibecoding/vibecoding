@@ -312,3 +312,58 @@ test('env settings render an ACP-backed panel with a container in the HTML', () 
   assert.match(manage, /EnvView/, 'env settings need a typed view');
   assert.match(index, /id=\"manage-env\"/, 'env settings need a container in the HTML');
 });
+
+
+test('expert team settings use the ACP management projection and never persist locally', () => {
+  for (const method of [
+    'mothx/manage/experts/list',
+    'mothx/manage/experts/get',
+    'mothx/manage/experts/create',
+    'mothx/manage/experts/update',
+    'mothx/manage/experts/delete',
+  ]) {
+    assert.match(manage, new RegExp(method.replaceAll('/', '\\/')), `${method} must be used through ACP`);
+  }
+  assert.match(manage, /manageExperts/, 'experts panel must gate on the ACP capability');
+  assert.match(manage, /hasFeature\('manageExperts'\)/, 'experts panel must check the manageExperts feature');
+  assert.doesNotMatch(manage, /desktop\.storeSet\([^)]*(expert|team)/i, 'expert team configuration must not enter the Desktop store');
+  assert.doesNotMatch(manage, /localStorage[^\n]*(expert|team)/i, 'expert drafts must not be persisted locally');
+});
+
+test('expert team management translations remain bilingual', () => {
+  for (const key of [
+    'settings.tab.experts', 'settings.tab.expertsDesc', 'settings.expertsGroup',
+    'settings.expertsTitle', 'settings.expertsDesc', 'settings.expertsAdd',
+    'settings.expertsScope', 'settings.expertsScopeGlobal', 'settings.expertsScopeProject',
+    'settings.expertsCatalog', 'settings.expertsEmpty', 'settings.expertsEdit',
+    'settings.expertsDelete', 'settings.expertsBuiltin', 'settings.expertsGlobal',
+    'settings.expertsProject', 'settings.expertName', 'settings.expertDisplayZh',
+    'settings.expertDisplayEn', 'settings.expertType', 'settings.expertAgents',
+    'settings.expertAddAgent', 'settings.expertCreate', 'settings.expertSave',
+    'settings.expertSaved', 'settings.expertCreated', 'settings.expertDeleted',
+    'settings.expertsDeleteConfirm', 'menu.expert',
+    'settings.expertMembers', 'settings.expertMembersDesc', 'settings.expertMemberId',
+    'settings.expertMemberRole', 'settings.expertAddMember', 'settings.expertMembersRequired',
+  ]) {
+    const occurrences = translations.split(`'${key}'`).length - 1;
+    assert.equal(occurrences, 2, `${key} must be present in both translation maps`);
+  }
+});
+
+test('expert team settings render an ACP-backed panel with a container in the HTML', () => {
+  assert.match(manage, /renderExperts/, 'expert team settings need a dedicated renderer');
+  assert.match(manage, /ExpertBundle/, 'expert team settings need a typed bundle view');
+  assert.match(index, /id=\"manage-experts\"/, 'expert team settings need a container in the HTML');
+});
+
+test('expert team scope defaults to global and supports explicit project scope', () => {
+  assert.match(manage, /expertScope\s*=\s*['"]global['"]/, 'default expert scope must be global');
+  assert.match(manage, /expertScope\s*=\s*['"]project['"]/, 'project scope must be selectable');
+  assert.match(manage, /state\.activeSessionCwd\s*\|\|\s*state\.newSessionCwd/, 'project scope must derive from the active/new workspace cwd');
+  assert.doesNotMatch(manage, /desktop\.chooseDirectory[^\n]*expert/i, 'expert scope must not open a directory picker');
+});
+
+test('expert team UI treats built-in teams as read-only catalog entries', () => {
+  assert.match(manage, /item\.source\s*===\s*['"]builtin['"]/, 'builtin teams must be detected in the catalog');
+  assert.match(manage, /settings\.expertsBuiltin/, 'builtin source must have a translated label');
+});

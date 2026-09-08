@@ -1298,7 +1298,7 @@ func TestInitializeFeaturesIncludeManageKeys(t *testing.T) {
 			features[name] = true
 		}
 	}
-	for _, want := range []string{"manageSettings", "manageApplicationSettings", "manageProviders", "manageSkills", "manageMcp", "manageCron", "manageStats", "manageMemory", "manageSkillHub", "manageKnowledgeBases", "knowledgeGraphIndex", "knowledgeBaseContext"} {
+	for _, want := range []string{"manageSettings", "manageApplicationSettings", "manageProviders", "manageSkills", "manageMcp", "manageCron", "manageStats", "manageMemory", "manageSkillHub", "manageExperts", "manageKnowledgeBases", "knowledgeGraphIndex", "knowledgeBaseContext"} {
 		if !features[want] {
 			t.Fatalf("features = %#v, want %q", rawFeatures, want)
 		}

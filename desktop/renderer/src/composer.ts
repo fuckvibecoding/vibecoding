@@ -113,13 +113,17 @@ export function buildPromptBlocks(text: string): ContentBlock[] {
 }
 
 // 会话创建前用户在 home 选择的 model/provider/mode 暂存，session/new 后应用。
-const pendingConfig: { provider?: string; model?: string; mode?: string } = {};
+const pendingConfig: { provider?: string; model?: string; mode?: string; expert?: string; thinking_level?: string } = {};
 
 interface ProviderCatalogResult {
   providers?: { name?: string }[];
   models?: { id?: string; name?: string; provider?: string; reasoning?: boolean }[];
   defaultProvider?: string;
   defaultModel?: string;
+}
+
+interface DraftConfigOptionsResult {
+  configOptions?: SessionConfigOptionShape[];
 }
 
 // Ephemeral menu cache of the ACP response. It is not a provider catalog: it
@@ -160,6 +164,10 @@ export async function refreshDraftConfigOptions(): Promise<void> {
       { type: 'select', id: 'provider', name: 'Provider', currentValue: provider, options: providerChoices },
       { type: 'select', id: 'model', name: 'Model', currentValue: model, options: modelChoices },
     ];
+    const draft = await invoke<DraftConfigOptionsResult>('mothx/session/draft-config-options', { cwd: newSessionWorkspace() });
+    for (const option of draft.configOptions || []) {
+      if (option.id !== 'provider' && option.id !== 'model') state.draftConfigOptions.push(option);
+    }
     if (provider) pendingConfig.provider = provider;
     if (model) pendingConfig.model = model;
     emit();
@@ -193,6 +201,7 @@ export async function applyConfigOption(configId: string, value: string): Promis
   if (configId === 'model') pendingConfig.model = value;
   if (configId === 'mode') pendingConfig.mode = value;
   if (!state.activeSessionId) {
+    if (configId === 'expert' || configId === 'thinking_level') pendingConfig[configId] = value;
     setDraftConfigOption(configId, value);
     if (configId === 'mode') state.currentMode = value;
     emit();
@@ -229,6 +238,8 @@ async function flushPendingConfig(sessionId: string): Promise<void> {
   pendingConfig.provider = undefined;
   pendingConfig.model = undefined;
   pendingConfig.mode = undefined;
+  pendingConfig.expert = undefined;
+  pendingConfig.thinking_level = undefined;
 }
 
 export async function sendPrompt(text: string, source: 'home' | 'chat'): Promise<void> {
@@ -424,7 +435,8 @@ export function renderModelMenu(): void {
 export function renderModeMenu(): void {
   const menu = require$('#mode-menu');
   menu.textContent = '';
-  const modeOption = state.configOptions.find((option) => option.id === 'mode');
+  const configOptions = currentConfigOptions();
+  const modeOption = configOptions.find((option) => option.id === 'mode');
   const modes = modeOption?.options?.length
     ? modeOption.options
     : [
@@ -441,34 +453,57 @@ export function renderModeMenu(): void {
       hideMenus();
     }));
   }
-  const thinkingOption = state.configOptions.find((option) => option.id === 'thinking_level');
+  const thinkingOption = configOptions.find((option) => option.id === 'thinking_level');
   if (thinkingOption && thinkingOption.options?.length) {
     menu.appendChild(menuHead('Thinking'));
     for (const choice of thinkingOption.options) {
       menu.appendChild(menuItem('sparkle', choice.name, '', choice.value === thinkingOption.currentValue, () => {
         void applyConfigOption('thinking_level', choice.value);
-      hideMenus();
-    }));
-  }
-  const expertOption = state.configOptions.find((option) => option.id === 'expert');
-  if (expertOption && expertOption.options?.length && state.activeSessionId) {
-    menu.appendChild(menuHead('Expert'));
-    for (const choice of expertOption.options) {
-      menu.appendChild(menuItem('users', choice.name, choice.description || '', choice.value === expertOption.currentValue, () => {
-        const sessionId = state.activeSessionId;
         hideMenus();
-        if (!sessionId || choice.value === expertOption.currentValue) return;
-        // Session identity cannot be overwritten. Choosing another expert
-        // creates a Runtime-owned fork; initial bind/unbind stays in-place.
-        if (expertOption.currentValue) {
-          void forkSession(sessionId, choice.value);
-          return;
-        }
-        void applyConfigOption('expert', choice.value);
       }));
     }
   }
 }
+
+// renderExpertMenu is the dedicated, visible picker beside the active chat
+// composer. It only projects the canonical Runtime config option; it owns no
+// team catalog, session state, or persistence of its own.
+export function renderExpertMenu(): void {
+  const menu = require$('#expert-menu');
+  menu.textContent = '';
+  const expertOption = currentConfigOptions().find((option) => option.id === 'expert');
+  if (!expertOption?.options?.length) {
+    menu.appendChild(menuHead(t('composer.expertUnavailable')));
+    return;
+  }
+  menu.appendChild(menuHead(t('composer.expert')));
+  menu.appendChild(menuItem('x', t('composer.expertNone'), '', expertOption.currentValue === '', () => {
+    chooseSessionExpert(expertOption, '');
+  }));
+  menu.appendChild(el('div', 'pop-sep'));
+  for (const choice of expertOption.options) {
+    menu.appendChild(menuItem('users', choice.name, choice.description || '', choice.value === expertOption.currentValue, () => {
+      chooseSessionExpert(expertOption, choice.value);
+    }));
+  }
+}
+
+// chooseSessionExpert preserves Runtime-owned identity semantics. An initial
+// bind and an unbind mutate the current idle session; replacing one non-empty
+// expert requires the existing fork path.
+function chooseSessionExpert(expertOption: SessionConfigOptionShape, value: string): void {
+  const sessionID = state.activeSessionId;
+  hideMenus();
+  if (value === expertOption.currentValue) return;
+  if (!sessionID) {
+    void applyConfigOption('expert', value);
+    return;
+  }
+  if (expertOption.currentValue && value) {
+    void forkSession(sessionID, value);
+    return;
+  }
+  void applyConfigOption('expert', value);
 }
 
 function menuHead(label: string): HTMLElement {
@@ -544,6 +579,15 @@ export function bindMenus(): void {
   require$('#mode-btn').addEventListener('click', openMode);
   require$('#mode-btn2').addEventListener('click', openMode);
 
+  const expertMenu = require$('#expert-menu');
+  const openExpert = (event: MouseEvent) => {
+    event.stopPropagation();
+    renderExpertMenu();
+    showMenu(expertMenu, event.currentTarget as HTMLElement);
+  };
+  require$('#expert-btn').addEventListener('click', openExpert);
+  require$('#expert-btn2').addEventListener('click', openExpert);
+
   const capsMenu = require$('#caps-menu');
   const openCaps = (event: MouseEvent) => {
     event.stopPropagation();
@@ -555,7 +599,7 @@ export function bindMenus(): void {
 
   document.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
-    if (!target.closest('.pop-menu') && !target.closest('#plus-btn') && !target.closest('#plus-btn2') && !target.closest('#model-btn') && !target.closest('#model-btn2') && !target.closest('#mode-btn') && !target.closest('#mode-btn2') && !target.closest('#caps-btn') && !target.closest('#caps-btn2')) {
+    if (!target.closest('.pop-menu') && !target.closest('#plus-btn') && !target.closest('#plus-btn2') && !target.closest('#model-btn') && !target.closest('#model-btn2') && !target.closest('#mode-btn') && !target.closest('#mode-btn2') && !target.closest('#expert-btn') && !target.closest('#expert-btn2') && !target.closest('#caps-btn') && !target.closest('#caps-btn2')) {
       hideMenus();
     }
   });

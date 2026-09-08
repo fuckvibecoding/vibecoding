@@ -192,11 +192,15 @@ type sessionRuntime struct {
 	closed           bool
 	terminalNotified bool
 	cancelMu         sync.Mutex
-	// ACP message IDs group streamed chunks into logical messages. They are
-	// scoped to the active prompt and are reset before each turn.
+	// ACP message IDs group streamed chunks into logical messages. A single
+	// prompt can contain several model turns when tools are used, so IDs must
+	// advance at each Agent turn. Otherwise text emitted after a tool is merged
+	// into the pre-tool message by ACP clients and is rendered before the tool
+	// execution that produced it.
 	messageID        string
 	thoughtMessageID string
 	userMessageID    string
+	streamSegment    int
 	activeModel      *provider.Model
 	activeMode       string
 	activeThinking   provider.ThinkingLevel
@@ -468,11 +472,35 @@ type newSessionRequest struct {
 	Meta                  requestMeta        `json:"_meta,omitempty"`
 }
 
+// draftConfigOptionsRequest is an additive, pre-session projection. It has no
+// persistence side effect: Desktop uses it to let a user choose the same
+// Runtime-owned initial options before sending session/new.
+type draftConfigOptionsRequest struct {
+	Cwd  string      `json:"cwd"`
+	Meta requestMeta `json:"_meta,omitempty"`
+}
+
 type newSessionResult struct {
 	SessionID       string                             `json:"sessionId"`
 	ParentSessionID string                             `json:"parentSessionId,omitempty"`
 	Modes           *sessionModeState                  `json:"modes,omitempty"`
 	ConfigOptions   []agentruntime.SessionConfigOption `json:"configOptions,omitempty"`
+	History         *transcriptPageResult              `json:"history,omitempty"`
+}
+
+type transcriptPageRequest struct {
+	SessionID string `json:"sessionId"`
+	Cursor    string `json:"cursor,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+// transcriptPageResult is an additive ACP projection of canonical session
+// messages. Updates use the normal session/update shape so clients do not
+// gain a second transcript or content model.
+type transcriptPageResult struct {
+	SessionID  string          `json:"sessionId"`
+	Updates    []sessionUpdate `json:"updates"`
+	NextCursor string          `json:"nextCursor,omitempty"`
 }
 
 type sessionModeState struct {
@@ -522,7 +550,10 @@ type loadSessionRequest struct {
 	Cwd                   string             `json:"cwd"`
 	AdditionalDirectories []string           `json:"additionalDirectories,omitempty"`
 	McpServers            []mcp.ServerConfig `json:"mcpServers,omitempty"`
-	Meta                  requestMeta        `json:"_meta,omitempty"`
+	// HistoryLimit limits only the initial ACP transcript projection. The
+	// shared SessionRuntime continues to own its complete replay for execution.
+	HistoryLimit int         `json:"historyLimit,omitempty"`
+	Meta         requestMeta `json:"_meta,omitempty"`
 }
 
 type resumeSessionRequest struct {
@@ -1080,6 +1111,10 @@ func Run(opts RunOptions) (runErr error) {
 			srv.handleNewSession(req)
 		case "session/load":
 			srv.handleLoadSession(req)
+		case "mothx/session/history":
+			srv.handleSessionHistory(req)
+		case "mothx/session/draft-config-options":
+			srv.handleDraftConfigOptions(req)
 		case "session/resume":
 			srv.handleResumeSession(req)
 		case "session/fork":
@@ -1495,11 +1530,13 @@ func (s *server) handleInitialize(req rpcRequest) {
 			"attachmentFetch":    true,
 			"features": []string{
 				"sessionConfigProvider",
+				"sessionDraftConfigOptions",
 				"sessionDelete",
 				"sessionSetTitle",
 				"sessionListCwd",
 				"sessionListAll",
 				"sessionWorkDir",
+				"sessionHistoryPaging",
 				"sessionFork",
 				"editorContext",
 				"doctor",
@@ -1526,6 +1563,7 @@ func (s *server) handleInitialize(req rpcRequest) {
 				"manageStats",
 				"manageMemory",
 				"manageSkillHub",
+				"manageExperts",
 				"manageKnowledgeBases",
 				"manageEnv",
 				"knowledgeGraphIndex",
@@ -1979,6 +2017,30 @@ func (s *server) handleNewSession(req rpcRequest) {
 	_ = s.notifyAvailableCommands(id)
 }
 
+func (s *server) handleDraftConfigOptions(req rpcRequest) {
+	var in draftConfigOptionsRequest
+	if err := json.Unmarshal(req.Params, &in); err != nil {
+		s.writeResponse(req.ID, nil, &mcp.RPCError{Code: -32602, Message: "invalid params"})
+		return
+	}
+	cwd, _, err := s.resolveWorkspace(in.Meta, in.Cwd)
+	if err != nil || strings.TrimSpace(cwd) == "" {
+		message := "cwd is required"
+		if err != nil {
+			message = err.Error()
+		}
+		s.writeResponse(req.ID, nil, &mcp.RPCError{Code: -32602, Message: message})
+		return
+	}
+	if s.p == nil {
+		s.writeResponse(req.ID, map[string]any{"configOptions": []agentruntime.SessionConfigOption{}}, nil)
+		return
+	}
+	options := agentruntime.SessionConfigOptionsWithProviders(s.providerName, s.providers, s.p.Models(), s.m, s.mode, s.thinkingLevel)
+	options = append(options, agentruntime.ExpertConfigOption(cwd, ""))
+	s.writeResponse(req.ID, map[string]any{"configOptions": options}, nil)
+}
+
 func (s *server) handleLoadSession(req rpcRequest) {
 	var in loadSessionRequest
 	if err := json.Unmarshal(req.Params, &in); err != nil {
@@ -2008,11 +2070,13 @@ func (s *server) handleLoadSession(req rpcRequest) {
 			s.writeResponse(req.ID, nil, acpFailureRPCError(err, nil, agentruntime.PhasePersistence))
 			return
 		}
-		for _, msg := range existing.mgr.GetMessages() {
-			s.emitMessage(in.SessionID, msg)
+		history, err := s.projectInitialTranscript(in.SessionID, existing.mgr, in.HistoryLimit)
+		if err != nil {
+			s.writeResponse(req.ID, nil, &mcp.RPCError{Code: -32602, Message: err.Error()})
+			return
 		}
 		s.replayGeneratedArtifacts(in.SessionID)
-		s.writeResponse(req.ID, newSessionResult{SessionID: in.SessionID, Modes: sessionModes(existing.runtime), ConfigOptions: s.sessionConfigOptions(in.SessionID)}, nil)
+		s.writeResponse(req.ID, newSessionResult{SessionID: in.SessionID, Modes: sessionModes(existing.runtime), ConfigOptions: s.sessionConfigOptions(in.SessionID), History: history}, nil)
 		_ = s.notifyAvailableCommands(in.SessionID)
 		return
 	}
@@ -2028,13 +2092,37 @@ func (s *server) handleLoadSession(req rpcRequest) {
 	}
 	rt.registry.SetAdditionalDirectories(rt.runtime.AdditionalDirectoriesSnapshot())
 	s.installSessionRuntime(rt)
-	allMsgs := rt.mgr.GetMessages()
-	for _, msg := range allMsgs {
-		s.emitMessage(in.SessionID, msg)
+	history, err := s.projectInitialTranscript(in.SessionID, rt.mgr, in.HistoryLimit)
+	if err != nil {
+		rt.closeResources()
+		s.writeResponse(req.ID, nil, &mcp.RPCError{Code: -32602, Message: err.Error()})
+		return
 	}
 	s.replayGeneratedArtifacts(in.SessionID)
-	s.writeResponse(req.ID, newSessionResult{SessionID: in.SessionID, Modes: sessionModes(rt.runtime), ConfigOptions: s.sessionConfigOptions(in.SessionID)}, nil)
+	s.writeResponse(req.ID, newSessionResult{SessionID: in.SessionID, Modes: sessionModes(rt.runtime), ConfigOptions: s.sessionConfigOptions(in.SessionID), History: history}, nil)
 	_ = s.notifyAvailableCommands(in.SessionID)
+}
+
+// handleSessionHistory returns one earlier transcript page for an already
+// loaded session. It is intentionally a read-only ACP projection of the
+// Runtime-owned manager, not a Desktop-owned history store.
+func (s *server) handleSessionHistory(req rpcRequest) {
+	var in transcriptPageRequest
+	if err := json.Unmarshal(req.Params, &in); err != nil || strings.TrimSpace(in.SessionID) == "" {
+		s.writeResponse(req.ID, nil, &mcp.RPCError{Code: -32602, Message: "invalid params"})
+		return
+	}
+	rt := s.sessionRuntime(in.SessionID)
+	if rt == nil || rt.mgr == nil {
+		s.writeResponse(req.ID, nil, &mcp.RPCError{Code: -32000, Message: "unknown session"})
+		return
+	}
+	page, err := s.transcriptPage(in.SessionID, rt.mgr, in.Cursor, in.Limit)
+	if err != nil {
+		s.writeResponse(req.ID, nil, &mcp.RPCError{Code: -32602, Message: err.Error()})
+		return
+	}
+	s.writeResponse(req.ID, page, nil)
 }
 
 func (s *server) handleResumeSession(req rpcRequest) {
@@ -2651,8 +2739,9 @@ func (s *server) handlePrompt(req rpcRequest) {
 	rt.cancel = cancel
 	rt.promptID = promptKey
 	rt.runID = runID
-	rt.messageID = "acp_" + rt.id + "_" + promptKey + "_message"
-	rt.thoughtMessageID = "acp_" + rt.id + "_" + promptKey + "_thought"
+	rt.streamSegment = 0
+	rt.messageID = acpStreamMessageID(rt.id, promptKey, "message", rt.streamSegment)
+	rt.thoughtMessageID = acpStreamMessageID(rt.id, promptKey, "thought", rt.streamSegment)
 	rt.userMessageID = "acp_" + rt.id + "_" + promptKey + "_user"
 	rt.activeModel = sessionModel
 	rt.activeMode = effectiveMode
@@ -3665,7 +3754,17 @@ func (s *server) handleAgentEvent(sessionID string, ev agentpkg.Event) {
 			"event":     "status",
 			"message":   ev.StatusMessage,
 		})
-	case agentpkg.EventCompactionStart, agentpkg.EventCompactionEnd, agentpkg.EventTurnStart, agentpkg.EventTurnEnd:
+	case agentpkg.EventTurnStart:
+		// A model turn begins after any preceding tool executions. Assigning a
+		// new ID here keeps its streamed text/thought separate from earlier
+		// turns and leaves the tool cards at their canonical transcript point.
+		s.advanceStreamSegment(sessionID)
+		s.notifyExtension("_mothx/session_event", map[string]any{
+			"sessionId": sessionID,
+			"event":     acpEventName(ev.Type),
+			"message":   ev.StatusMessage,
+		})
+	case agentpkg.EventCompactionStart, agentpkg.EventCompactionEnd, agentpkg.EventTurnEnd:
 		s.notifyExtension("_mothx/session_event", map[string]any{
 			"sessionId": sessionID,
 			"event":     acpEventName(ev.Type),
@@ -3681,9 +3780,33 @@ func toolCallLocations(diff *agentpkg.FileDiff) []toolCallLocation {
 	return []toolCallLocation{{Path: diff.Path}}
 }
 
-// streamMessageID returns the active prompt's stable ACP message ID. Fixture
-// sessions that emit events without a prompt still receive a deterministic ID
-// so their wire payload remains schema-valid.
+func acpStreamMessageID(sessionID, promptID, kind string, segment int) string {
+	return fmt.Sprintf("acp_%s_%s_%s_%d", sessionID, promptID, kind, segment)
+}
+
+// advanceStreamSegment starts a new model turn. Tool calls already have
+// stable toolCallId values, while the following text/thought chunks need a
+// new messageId to preserve their transcript position in ACP clients.
+func (s *server) advanceStreamSegment(sessionID string) {
+	s.mu.Lock()
+	rt := s.sessions[sessionID]
+	s.mu.Unlock()
+	if rt == nil {
+		return
+	}
+	rt.cancelMu.Lock()
+	defer rt.cancelMu.Unlock()
+	if rt.promptID == "" || rt.messageID == "" {
+		return
+	}
+	rt.streamSegment++
+	rt.messageID = acpStreamMessageID(rt.id, rt.promptID, "message", rt.streamSegment)
+	rt.thoughtMessageID = acpStreamMessageID(rt.id, rt.promptID, "thought", rt.streamSegment)
+}
+
+// streamMessageID returns the active model turn's stable ACP message ID.
+// Fixture sessions that emit events without a prompt still receive a
+// deterministic ID so their wire payload remains schema-valid.
 func (s *server) streamMessageID(sessionID string, thought bool, _ string) string {
 	s.mu.Lock()
 	rt := s.sessions[sessionID]
@@ -4647,17 +4770,101 @@ func (s *server) deliverResponse(id json.RawMessage, result json.RawMessage, err
 }
 
 func (s *server) emitMessage(sessionID string, msg provider.Message) {
+	for _, update := range s.messageUpdates(sessionID, msg, "") {
+		_ = s.notify(sessionID, update)
+	}
+}
+
+const transcriptPageDefaultSize = 40
+const transcriptPageMaxSize = 100
+
+func encodeTranscriptCursor(before int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("acp-history-v1:%d", before)))
+}
+
+func decodeTranscriptCursor(cursor string) (int, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil || !strings.HasPrefix(string(raw), "acp-history-v1:") {
+		return 0, fmt.Errorf("invalid history cursor")
+	}
+	before, err := strconv.Atoi(strings.TrimPrefix(string(raw), "acp-history-v1:"))
+	if err != nil || before < 0 {
+		return 0, fmt.Errorf("invalid history cursor")
+	}
+	return before, nil
+}
+
+func transcriptPageSize(limit int) int {
+	if limit <= 0 {
+		return transcriptPageDefaultSize
+	}
+	if limit > transcriptPageMaxSize {
+		return transcriptPageMaxSize
+	}
+	return limit
+}
+
+func (s *server) transcriptPage(sessionID string, mgr *session.Manager, cursor string, limit int) (transcriptPageResult, error) {
+	if mgr == nil {
+		return transcriptPageResult{}, fmt.Errorf("session is unavailable")
+	}
+	state := mgr.GetReplayState()
+	before := len(state.Messages)
+	if cursor != "" {
+		var err error
+		before, err = decodeTranscriptCursor(cursor)
+		if err != nil || before > len(state.Messages) {
+			return transcriptPageResult{}, fmt.Errorf("invalid history cursor")
+		}
+	}
+	start := max(0, before-transcriptPageSize(limit))
+	result := transcriptPageResult{SessionID: sessionID}
+	for index := start; index < before; index++ {
+		entryID := ""
+		if index < len(state.EntryIDs) {
+			entryID = state.EntryIDs[index]
+		}
+		result.Updates = append(result.Updates, s.messageUpdates(sessionID, state.Messages[index], entryID)...)
+	}
+	if start > 0 {
+		result.NextCursor = encodeTranscriptCursor(start)
+	}
+	return result, nil
+}
+
+func (s *server) projectInitialTranscript(sessionID string, mgr *session.Manager, limit int) (*transcriptPageResult, error) {
+	if limit <= 0 {
+		for _, msg := range mgr.GetMessages() {
+			s.emitMessage(sessionID, msg)
+		}
+		return nil, nil
+	}
+	page, err := s.transcriptPage(sessionID, mgr, "", limit)
+	if err != nil {
+		return nil, err
+	}
+	return &page, nil
+}
+
+func (s *server) messageUpdates(sessionID string, msg provider.Message, entryID string) []sessionUpdate {
+	messageID := func(kind string, index int, text string) string {
+		if entryID == "" {
+			return replayMessageID(sessionID, kind, text)
+		}
+		return replayMessageID(sessionID, kind, fmt.Sprintf("%s:%d", entryID, index))
+	}
+	var updates []sessionUpdate
 	if msg.Role == "assistant" {
-		for _, c := range msg.Contents {
+		for index, c := range msg.Contents {
 			if c.Type == "thinking" && c.Thinking != "" {
-				s.notify(sessionID, sessionUpdate{SessionUpdate: "agent_thought_chunk", MessageID: replayMessageID(sessionID, "thought", c.Thinking), Content: &contentBlock{Type: "text", Text: c.Thinking}})
+				updates = append(updates, sessionUpdate{SessionUpdate: "agent_thought_chunk", MessageID: messageID("thought", index, c.Thinking), Content: &contentBlock{Type: "text", Text: c.Thinking}})
 			} else if c.Type == "text" && c.Text != "" {
-				s.notify(sessionID, sessionUpdate{SessionUpdate: "agent_message_chunk", MessageID: replayMessageID(sessionID, "message", c.Text), Content: &contentBlock{Type: "text", Text: c.Text}})
+				updates = append(updates, sessionUpdate{SessionUpdate: "agent_message_chunk", MessageID: messageID("message", index, c.Text), Content: &contentBlock{Type: "text", Text: c.Text}})
 			} else if c.Type == "toolCall" && c.ToolCall != nil {
 				var rawInput map[string]any
 				_ = json.Unmarshal(c.ToolCall.Arguments, &rawInput)
 				title := s.rememberToolTitle(c.ToolCall.ID, c.ToolCall.Name, rawInput)
-				s.notify(sessionID, sessionUpdate{
+				updates = append(updates, sessionUpdate{
 					SessionUpdate: "tool_call",
 					ToolCallID:    c.ToolCall.ID,
 					Title:         title,
@@ -4667,7 +4874,7 @@ func (s *server) emitMessage(sessionID string, msg provider.Message) {
 				})
 			}
 		}
-		return
+		return updates
 	}
 	if msg.Role == "user" {
 		text := msg.Content
@@ -4680,9 +4887,9 @@ func (s *server) emitMessage(sessionID string, msg provider.Message) {
 			}
 		}
 		if text != "" {
-			s.notify(sessionID, sessionUpdate{SessionUpdate: "user_message_chunk", MessageID: replayMessageID(sessionID, "user", text), Content: &contentBlock{Type: "text", Text: text}})
+			updates = append(updates, sessionUpdate{SessionUpdate: "user_message_chunk", MessageID: messageID("user", 0, text), Content: &contentBlock{Type: "text", Text: text}})
 		}
-		return
+		return updates
 	}
 	if msg.Role == "toolResult" {
 		rawOutput := map[string]any{"content": msg.Content}
@@ -4691,7 +4898,7 @@ func (s *server) emitMessage(sessionID string, msg provider.Message) {
 			status = "failed"
 		}
 		title := s.toolTitleFor(msg.ToolCallID, msg.ToolName)
-		s.notify(sessionID, sessionUpdate{
+		updates = append(updates, sessionUpdate{
 			SessionUpdate: "tool_call_update",
 			ToolCallID:    msg.ToolCallID,
 			Title:         title,
@@ -4701,6 +4908,7 @@ func (s *server) emitMessage(sessionID string, msg provider.Message) {
 			RawOutput:     rawOutput,
 		})
 	}
+	return updates
 }
 
 func replayMessageID(sessionID, kind, text string) string {

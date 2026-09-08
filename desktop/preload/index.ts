@@ -27,6 +27,7 @@ export interface MothxDesktopBridge {
     version: string;
     appInfo: () => Promise<{ version: string; platform: string; arch: string; runtimeBinary: string }>;
     chooseDirectory: (defaultPath?: string) => Promise<string | null>;
+    defaultNewSessionDirectory: () => Promise<string>;
     chooseHomeBackground: (defaultPath?: string) => Promise<string | null>;
     chooseFiles: () => Promise<{ path: string; grant: string }[]>;
     readFileBase64: (grant: string) => Promise<{ ok: true; data: string; size: number } | { ok: false; error: string }>;
@@ -59,6 +60,7 @@ const bridge: MothxDesktopBridge = {
     version: process.env.npm_package_version || 'dev',
     appInfo: () => ipcRenderer.invoke('desktop:app-info'),
     chooseDirectory: (defaultPath = '') => ipcRenderer.invoke('desktop:choose-directory', defaultPath),
+    defaultNewSessionDirectory: () => ipcRenderer.invoke('desktop:default-new-session-directory'),
     chooseHomeBackground: (defaultPath = '') => ipcRenderer.invoke('desktop:choose-home-background', defaultPath),
     chooseFiles: () => ipcRenderer.invoke('desktop:choose-files'),
     readFileBase64: (grant) => ipcRenderer.invoke('desktop:read-file-base64', grant),

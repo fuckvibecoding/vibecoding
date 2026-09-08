@@ -2,6 +2,7 @@ import { BrowserWindow, dialog, ipcMain } from 'electron';
 import { realpathSync, readFileSync, statSync } from 'node:fs';
 
 import type { AcpClient, AcpClientSnapshot } from './acp-client';
+import { initialNewSessionDirectory } from './default-new-session-directory';
 import type { DiagnosticLogBuffer, DiagnosticLogEntry } from './diagnostic-logs';
 import { SelectedFileGrants } from './file-grants';
 import type { DesktopStore, DesktopStoreData } from './store';
@@ -113,6 +114,11 @@ export function registerIpc(deps: IpcDeps): void {
       return selected;
     }
   });
+
+  // The renderer has no Node access. Keep generation and creation of the
+  // first new-session directory in the privileged process, while leaving its
+  // use as a next-session preference to the renderer/ACP session flow.
+  ipcMain.handle('desktop:default-new-session-directory', () => initialNewSessionDirectory());
 
   ipcMain.handle('desktop:choose-home-background', async (event, defaultPath?: string) => {
     if (!event.sender || event.sender.isDestroyed()) return null;

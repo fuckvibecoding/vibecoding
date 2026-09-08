@@ -116,13 +116,24 @@ func (r *SessionRuntime) expertConfigOption() SessionConfigOption {
 			current = strings.TrimSpace(r.Manager.GetExpertID())
 		}
 		r.mu.RUnlock()
+		r.mu.RLock()
+		workDir := r.WorkDir
+		r.mu.RUnlock()
+		return ExpertConfigOption(workDir, current)
 	}
+	return ExpertConfigOption("", current)
+}
+
+// ExpertConfigOption projects the shared expert catalog for a work directory
+// without creating or mutating a session. It lets adapters render the initial
+// session picker while Runtime remains the sole discovery authority.
+func ExpertConfigOption(workDir, current string) SessionConfigOption {
 	choices := []SessionConfigOptionChoice{{
 		Value:       "",
 		Name:        "No expert",
 		Description: "Use the standard session identity",
 	}}
-	for _, summary := range r.ListExperts() {
+	for _, summary := range ListExperts(workDir) {
 		if summary.Invalid || strings.TrimSpace(summary.Name) == "" {
 			continue
 		}

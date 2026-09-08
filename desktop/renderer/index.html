@@ -14,10 +14,6 @@
       <span class="app-logo" id="app-logo"></span>
       <span class="app-name">MothX</span>
       <span class="app-ver" id="app-ver">dev</span>
-      <button class="workspace-chip" id="workspace-chip" title="">
-        <span class="wc-icon" id="workspace-chip-icon"></span>
-        <span class="wc-name" id="workspace-chip-name">…</span>
-      </button>
     </div>
     <div class="win-controls" id="win-controls">
       <button class="win-btn" id="win-min" data-i18n-title="win.minimize"><span class="wi" data-icon="minus"></span></button>
@@ -40,6 +36,7 @@
         <div class="nav-item" data-nav="skills"><span class="wi" data-icon="zap"></span><span class="nav-label" data-i18n="nav.skills">技能</span><span class="nav-sub" data-i18n="nav.skillsSub">/指令</span></div>
         <div class="nav-item" data-nav="history"><span class="wi" data-icon="list"></span><span class="nav-label" data-i18n="nav.history">历史</span><span class="nav-sub" data-i18n="nav.historySub">全部会话</span></div>
         <div class="nav-item" data-nav="automation"><span class="wi" data-icon="clock"></span><span class="nav-label" data-i18n="nav.automation">自动化</span><span class="nav-sub" data-i18n="nav.automationSub">定时任务</span></div>
+        <div class="nav-item" data-nav="experts"><span class="wi" data-icon="users"></span><span class="nav-label" data-i18n="nav.experts">主角团</span><span class="nav-sub" data-i18n="nav.expertsSub">Expert teams</span></div>
         <div class="nav-item" data-nav="library"><span class="wi" data-icon="book"></span><span class="nav-label" data-i18n="nav.library">资料库</span><span class="nav-sub" data-i18n="nav.gapSub">ACP 缺口</span></div>
 
         <div class="nav-sep"></div>
@@ -96,7 +93,9 @@
                   <button class="composer-tool" id="plus-btn" title=""><span class="wi sm" data-icon="plus"></span></button>
                   <button class="composer-tool" id="caps-btn" title=""><span class="wi sm" data-icon="shield"></span></button>
                   <button class="composer-tool" id="mode-btn"><span class="wi sm" data-icon="sliders"></span><span id="mode-label">yolo</span></button>
+                  <button class="composer-tool expert-picker" id="expert-btn" hidden data-i18n-title="composer.expert" data-i18n-aria-label="composer.expert" aria-label="主角团"><span class="wi sm" data-icon="users"></span><span class="expert-label">主角团</span><span class="wi sm" data-icon="chevron"></span></button>
                   <button class="composer-tool model" id="model-btn"><span class="wi sm" data-icon="cpu"></span><span id="model-label">…</span><span class="wi sm" data-icon="chevron"></span></button>
+                  <button class="composer-tool workspace-picker" id="workspace-btn" data-i18n-title="composer.workspace" data-i18n-aria-label="composer.workspace" aria-label="工作目录"><span class="wi sm" data-icon="folder"></span><span class="workspace-label">…</span></button>
                   <div class="composer-spacer"></div>
                   <button class="btn-send" id="send-home" title=""><span class="wi" data-icon="send"></span></button>
                 </div>
@@ -118,6 +117,7 @@
           </div>
         </div>
         <div class="chat-stream" id="chat-stream">
+          <div class="chat-history-more"><button class="btn-ghost" id="chat-load-more" hidden></button></div>
           <div class="chat-inner" id="chat-inner"></div>
         </div>
         <div class="chat-footer">
@@ -127,9 +127,11 @@
               <textarea id="chat-input" rows="1" data-i18n-placeholder="chat.inputPlaceholder" placeholder="输入消息..."></textarea>
               <div class="composer-bar">
                   <button class="composer-tool" id="plus-btn2" title=""><span class="wi sm" data-icon="plus"></span></button>
-                  <button class="composer-tool" id="caps-btn2" title=""><span class="wi sm" data-icon="shield"></span></button>
+                <button class="composer-tool" id="caps-btn2" title=""><span class="wi sm" data-icon="shield"></span></button>
                 <button class="composer-tool" id="mode-btn2"><span class="wi sm" data-icon="sliders"></span><span class="mode-label2">yolo</span></button>
+                <button class="composer-tool expert-picker" id="expert-btn2" hidden data-i18n-title="composer.expert" data-i18n-aria-label="composer.expert" aria-label="主角团"><span class="wi sm" data-icon="users"></span><span class="expert-label2" data-i18n="composer.expert">主角团</span><span class="wi sm" data-icon="chevron"></span></button>
                 <button class="composer-tool model" id="model-btn2"><span class="wi sm" data-icon="cpu"></span><span class="model-label2">…</span><span class="wi sm" data-icon="chevron"></span></button>
+                <button class="composer-tool workspace-picker" id="workspace-btn2" data-i18n-title="composer.workspace" data-i18n-aria-label="composer.workspace" aria-label="工作目录"><span class="wi sm" data-icon="folder"></span><span class="workspace-label">…</span></button>
                 <div class="composer-spacer"></div>
                 <button class="btn-send stop" id="cancel-chat" hidden title=""><span class="wi" data-icon="stop"></span></button>
                 <button class="btn-send" id="send-chat" title=""><span class="wi" data-icon="send"></span></button>
@@ -333,6 +335,11 @@
           <div class="application-settings-root" id="manage-env"></div>
           </section>
 
+          <section class="settings-panel" data-settings-panel="experts">
+          <div class="group-label" data-i18n="settings.expertsGroup">主角团</div>
+          <div class="application-settings-root" id="manage-experts"></div>
+          </section>
+
           <section class="settings-panel" data-settings-panel="runtime">
           <div class="group-label" data-i18n="settings.runtime">运行时（ACP）</div>
           <div class="row-list">
@@ -471,6 +478,7 @@
 
 <div class="pop-menu" id="model-menu"></div>
 <div class="pop-menu" id="mode-menu"></div>
+<div class="pop-menu" id="expert-menu"></div>
 <div class="pop-menu" id="caps-menu"></div>
 
 <!-- 重命名对话框 -->

@@ -3,7 +3,7 @@
 // pages: ACP owns those facts and this module only renders its projections.
 
 import { desktop, invoke } from './api';
-import { clearTranscript, scrollChat } from './chat';
+import { applyTranscriptPage, clearTranscript, scrollChat } from './chat';
 import { t } from './i18n';
 import { sortTaskSessions } from './task-tree';
 import {
@@ -16,12 +16,14 @@ import {
   type NewSessionResultShape,
   type ProjectShape,
   type SessionListScope,
-  type SessionPageState,
+	  type SessionPageState,
+	  type TranscriptPageShape,
 } from './state';
 import { confirmDialog, promptModal, toast } from './ui';
 import { switchView } from './views';
 
 const RECENT_SESSION_LIMIT = 8;
+const TRANSCRIPT_PAGE_SIZE = 40;
 
 interface SessionListResult {
   sessions?: ListedSessionShape[];
@@ -225,13 +227,15 @@ export async function openSession(sessionId: string): Promise<void> {
   state.runStatus = 'loading';
   switchView('chat');
   emit();
-  try {
-    const result = await invoke<NewSessionResultShape>('session/load', {
-      sessionId,
-      cwd,
-      _meta: { mothx: { workspace: { cwd } } },
-    });
-    applySessionResult(result);
+	try {
+		const params: Record<string, unknown> = {
+			sessionId,
+			cwd,
+			_meta: { mothx: { workspace: { cwd } } },
+		};
+		if (hasFeature('sessionHistoryPaging')) params.historyLimit = TRANSCRIPT_PAGE_SIZE;
+		const result = await invoke<NewSessionResultShape>('session/load', params);
+		applySessionResult(result);
     const remembered = state.store.sessionStatus[sessionId];
     state.runStatus = remembered === 'failed' ? 'failed' : remembered === 'pending' ? 'pending' : 'completed';
   } catch (error) {
@@ -249,7 +253,34 @@ export function applySessionResult(result: NewSessionResultShape | undefined | n
     const mode = result.configOptions.find((option) => option.id === 'mode');
     if (mode) state.currentMode = mode.currentValue;
   }
-  if (result.modes?.currentModeId) state.currentMode = result.modes.currentModeId;
+	if (result.modes?.currentModeId) state.currentMode = result.modes.currentModeId;
+	if (result.history) applyTranscriptResult(result.history, false);
+}
+
+function applyTranscriptResult(page: TranscriptPageShape, prepend: boolean): void {
+  if (!state.activeSessionId || page.sessionId !== state.activeSessionId) return;
+  applyTranscriptPage(page.sessionId, page.updates || [], prepend);
+  state.transcriptNextCursor = page.nextCursor || '';
+  state.transcriptLoading = false;
+}
+
+export async function loadOlderTranscript(): Promise<void> {
+  const sessionId = state.activeSessionId;
+  if (!sessionId || !state.transcriptNextCursor || state.transcriptLoading || !hasFeature('sessionHistoryPaging')) return;
+  state.transcriptLoading = true;
+  emit();
+  try {
+    const page = await invoke<TranscriptPageShape>('mothx/session/history', {
+      sessionId,
+      cursor: state.transcriptNextCursor,
+      limit: TRANSCRIPT_PAGE_SIZE,
+    });
+    applyTranscriptResult(page, true);
+  } catch (error) {
+    state.transcriptLoading = false;
+    toast(error instanceof Error ? error.message : String(error));
+  }
+  emit();
 }
 
 export async function createSession(): Promise<{ sessionId: string; cwd: string }> {
