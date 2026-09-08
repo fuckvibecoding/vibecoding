@@ -1,4 +1,4 @@
-// 首页视图：hero、场景预设（日常办公/代码开发/设计创意）、快捷操作、目标切换。
+// 首页视图：hero、场景预设（办公/代码/创作）、快捷操作、目标切换。
 
 import { t, PRESETS, getLocale } from './i18n';
 import { state } from './state';
@@ -16,14 +16,18 @@ export function renderHome(): void {
 
   const quick = require$('#quick-actions');
   quick.textContent = '';
-  const items = getLocale() === 'zh' ? preset.quickZh : preset.quickEn;
-  for (const label of items) {
+  const isZh = getLocale() === 'zh';
+  const items = isZh ? preset.quickZh : preset.quickEn;
+  const prompts = isZh ? preset.promptsZh : preset.promptsEn;
+  for (let i = 0; i < items.length; i++) {
+    const label = items[i];
+    const prompt = prompts[i] ?? label;
     const chip = el('button', 'quick-chip');
     chip.appendChild(iconSpan('sparkle'));
     chip.appendChild(el('span', '', label));
     chip.addEventListener('click', () => {
       const input = require$('#home-input') as HTMLTextAreaElement;
-      input.value = `${label}：`;
+      input.value = prompt;
       input.focus();
     });
     quick.appendChild(chip);

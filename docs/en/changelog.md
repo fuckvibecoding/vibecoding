@@ -18,6 +18,10 @@
 - **WebUI: Runtime-Owned Knowledge Base Management**
   - The new **Knowledge** workspace lists, creates, edits, scans, queries, and deletes directory-backed knowledge bases through the same Runtime/session services used by ACP and Desktop. Directory selection falls back to the built-in browser when a native picker is unavailable; source files and index storage remain server-owned.
 
+- **Desktop: Streamlined Home Presets and Prompt-Filling Quick Actions**
+  - Home preset tabs are shortened to Work / Code / Create (办公 / 代码 / 创作) with tightened descriptions in both languages.
+  - Quick-action chips now fill the composer with a complete, ready-to-send prompt (including editable `[topic]`-style placeholders) instead of a bare label, so one click can start a real task.
+
 ### 🐛 Bug Fixes
 
 - **Browser: Built-in Skill No Longer Writes into Projects**
