@@ -42,6 +42,9 @@ export interface StoreData {
   homeBackgroundImage: string;
   homeBackgroundOpacity: number;
   homeBackgroundBlur: number;
+  homeBackgroundScope: 'app' | 'home';
+  homeBackgroundFit: 'cover' | 'contain' | 'stretch' | 'tile';
+  homeBackgroundPosition: 'center' | 'left' | 'right' | 'top' | 'bottom';
   lastWorkspace: string;
   recentWorkspaces: string[];
   pinnedSessions: string[];

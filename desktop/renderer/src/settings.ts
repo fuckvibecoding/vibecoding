@@ -26,6 +26,11 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
     id: 'workspace', label: 'settings.category.workspace', icon: 'folder',
     tabs: [
       { id: 'workspace', label: 'settings.tab.workspace', description: 'settings.tab.workspaceDesc', icon: 'folder' },
+    ],
+  },
+  {
+    id: 'appearance', label: 'settings.tab.appearance', icon: 'sun',
+    tabs: [
       { id: 'appearance', label: 'settings.tab.appearance', description: 'settings.tab.appearanceDesc', icon: 'sun' },
     ],
   },
@@ -254,20 +259,32 @@ function homeImageURL(path: string): string {
 // Home imagery is a Desktop-only visual preference. Keep the file path in the
 // local UI store rather than copying the image into session or ACP storage.
 export function applyHomeBackground(): void {
+  const app = document.querySelector<HTMLElement>('#app');
   const home = document.querySelector<HTMLElement>('#view-home');
-  if (!home) return;
+  if (!app || !home) return;
   const source = homeImageURL(state.store.homeBackgroundImage);
   if (!source) {
+    app.classList.remove('has-app-background');
     home.classList.remove('has-home-background');
-    home.style.removeProperty('--home-user-image');
-    home.style.removeProperty('--home-user-image-opacity');
-    home.style.removeProperty('--home-user-image-blur');
+    for (const property of ['--app-user-image', '--app-user-image-opacity', '--app-user-image-blur', '--app-user-image-size', '--app-user-image-repeat', '--app-user-image-position', '--app-background-veil', '--app-surface-veil', '--app-surface-blur']) app.style.removeProperty(property);
     return;
   }
-  home.classList.add('has-home-background');
-  home.style.setProperty('--home-user-image', `url("${source}")`);
-  home.style.setProperty('--home-user-image-opacity', String(clampNumber(state.store.homeBackgroundOpacity, 0, 100) / 100));
-  home.style.setProperty('--home-user-image-blur', `${clampNumber(state.store.homeBackgroundBlur, 0, 24)}px`);
+  const fit = state.store.homeBackgroundFit;
+  const positions: Record<typeof state.store.homeBackgroundPosition, string> = { center: 'center', left: 'left center', right: 'right center', top: 'center top', bottom: 'center bottom' };
+  const opacity = clampNumber(state.store.homeBackgroundOpacity, 0, 100) / 100;
+  app.classList.toggle('has-app-background', state.store.homeBackgroundScope === 'app');
+  home.classList.toggle('has-home-background', state.store.homeBackgroundScope === 'home');
+  app.style.setProperty('--app-user-image', `url("${source}")`);
+  app.style.setProperty('--app-user-image-opacity', String(opacity));
+  app.style.setProperty('--app-user-image-blur', `${clampNumber(state.store.homeBackgroundBlur, 0, 24)}px`);
+  app.style.setProperty('--app-user-image-size', fit === 'stretch' ? '100% 100%' : fit === 'tile' ? 'auto' : fit);
+  app.style.setProperty('--app-user-image-repeat', fit === 'tile' ? 'repeat' : 'no-repeat');
+  app.style.setProperty('--app-user-image-position', positions[state.store.homeBackgroundPosition]);
+  // A full-opacity image deliberately removes the former fixed pale/dark veils
+  // and surface blur, so the selected image remains genuinely visible.
+  app.style.setProperty('--app-background-veil', String((1 - opacity) * 0.72));
+  app.style.setProperty('--app-surface-veil', String((1 - opacity) * 0.68));
+  app.style.setProperty('--app-surface-blur', `${Math.round((1 - opacity) * 10)}px`);
 }
 
 function renderHomeBackgroundControls(): void {
@@ -282,12 +299,22 @@ function renderHomeBackgroundControls(): void {
   const blurInput = require$('#settings-home-bg-blur') as HTMLInputElement;
   blurInput.value = String(blur);
   require$('#settings-home-bg-blur-value').textContent = `${blur}px`;
+  (require$('#settings-home-bg-fit') as HTMLSelectElement).value = state.store.homeBackgroundFit;
+  (require$('#settings-home-bg-position') as HTMLSelectElement).value = state.store.homeBackgroundPosition;
+  document.querySelectorAll<HTMLButtonElement>('#settings-home-bg-scope-toggle button').forEach((button) => {
+    const active = button.dataset.homeBackgroundScope === state.store.homeBackgroundScope;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
 }
 
-function updateHomeBackground(patch: Partial<Pick<typeof state.store, 'homeBackgroundImage' | 'homeBackgroundOpacity' | 'homeBackgroundBlur'>>, persist: boolean): void {
+function updateHomeBackground(patch: Partial<Pick<typeof state.store, 'homeBackgroundImage' | 'homeBackgroundOpacity' | 'homeBackgroundBlur' | 'homeBackgroundScope' | 'homeBackgroundFit' | 'homeBackgroundPosition'>>, persist: boolean): void {
   if (patch.homeBackgroundImage !== undefined) state.store.homeBackgroundImage = patch.homeBackgroundImage;
   if (patch.homeBackgroundOpacity !== undefined) state.store.homeBackgroundOpacity = clampNumber(patch.homeBackgroundOpacity, 0, 100);
   if (patch.homeBackgroundBlur !== undefined) state.store.homeBackgroundBlur = clampNumber(patch.homeBackgroundBlur, 0, 24);
+  if (patch.homeBackgroundScope !== undefined) state.store.homeBackgroundScope = patch.homeBackgroundScope;
+  if (patch.homeBackgroundFit !== undefined) state.store.homeBackgroundFit = patch.homeBackgroundFit;
+  if (patch.homeBackgroundPosition !== undefined) state.store.homeBackgroundPosition = patch.homeBackgroundPosition;
   applyHomeBackground();
   renderHomeBackgroundControls();
   if (persist) void desktop.storeSet(patch);
@@ -452,6 +479,19 @@ export function bindSettings(): void {
   });
   blurInput.addEventListener('change', () => {
     updateHomeBackground({ homeBackgroundBlur: Number(blurInput.value) }, true);
+  });
+  const fitInput = require$('#settings-home-bg-fit') as HTMLSelectElement;
+  fitInput.addEventListener('change', () => {
+    updateHomeBackground({ homeBackgroundFit: fitInput.value as typeof state.store.homeBackgroundFit }, true);
+  });
+  const positionInput = require$('#settings-home-bg-position') as HTMLSelectElement;
+  positionInput.addEventListener('change', () => {
+    updateHomeBackground({ homeBackgroundPosition: positionInput.value as typeof state.store.homeBackgroundPosition }, true);
+  });
+  document.querySelectorAll<HTMLButtonElement>('#settings-home-bg-scope-toggle button').forEach((button) => {
+    button.addEventListener('click', () => {
+      updateHomeBackground({ homeBackgroundScope: (button.dataset.homeBackgroundScope as typeof state.store.homeBackgroundScope) || 'app' }, true);
+    });
   });
   require$('#settings-restart').addEventListener('click', () => {
     void acp.restart().then((outcome) => {

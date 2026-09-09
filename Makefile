@@ -1,6 +1,6 @@
 .PHONY: help build build-all install test test-all test-ui test-desktop test-npm test-pypi fuzz lint fmt clean run serve docs-llms
 .PHONY: ui-install ui-build ui-dev ui-preview
-.PHONY: desktop-runtime desktop-vendor desktop-build desktop-dist desktop-version-check desktop-dist-dev-mac desktop-dist-dev-win desktop-dist-dev-linux
+.PHONY: desktop-runtime desktop-vendor desktop-build desktop-dev desktop-dist desktop-version-check desktop-dist-dev-mac desktop-dist-dev-win desktop-dist-dev-linux
 .PHONY: build-linux build-linux-loong64 build-linux-musl build-darwin build-windows
 .PHONY: build-freebsd build-openbsd build-netbsd
 .PHONY: dist dist-linux dist-darwin dist-windows
@@ -97,6 +97,7 @@ help:
 	@echo "Desktop targets:"
 	@echo "  desktop-vendor     Vendor the platform MothX runtime for the desktop app"
 	@echo "  desktop-build      Build the desktop Electron shell"
+	@echo "  desktop-dev        Run Desktop with renderer watch/reload, DevTools, and local CDP debugging"
 	@echo "  desktop-dist       Package the desktop app for the current platform"
 	@echo "  desktop-version-check Check desktop/runtime version alignment"
 	@echo "  desktop-dist-dev-mac Build unsigned macOS development package"
@@ -268,6 +269,9 @@ desktop-vendor: desktop-runtime
 
 desktop-build:
 	cd desktop && npm run build
+
+desktop-dev: desktop-runtime
+	cd desktop && npm run dev
 
 desktop-dist: desktop-runtime desktop-build
 	cd desktop && npm run version:set && npx electron-builder --config electron-builder.yml

@@ -3,6 +3,13 @@ import { createWriteStream, existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { AcpClient } from './acp-client';
+import {
+  configureDevModeSwitches,
+  devRemoteDebuggingPort,
+  enableDevModeWindow,
+  isDesktopDevMode,
+  rendererDistPath,
+} from './dev-mode';
 import { initialNewSessionDirectory } from './default-new-session-directory';
 import { createDiagnosticLogger, DiagnosticLogBuffer } from './diagnostic-logs';
 import { registerIpc, sendRendererEvent, type IpcDeps } from './ipc';
@@ -96,6 +103,10 @@ const deps: IpcDeps = {
   diagnosticLogs,
 };
 
+// Dev mode switches (remote debugging port, etc.) must be configured before
+// the application is ready.
+configureDevModeSwitches(app.commandLine);
+
 // AppImage mounts are commonly `nosuid`, so Electron's SUID sandbox helper
 // cannot be used even though the application itself is otherwise valid. The
 // desktop app only spawns its bundled ACP runtime, so use Chromium's fallback
@@ -132,7 +143,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: !(process.platform === 'linux' && app.isPackaged),
-      devTools: !app.isPackaged,
+      devTools: !app.isPackaged || isDesktopDevMode(),
     },
   });
   const win = windowRef;
@@ -153,6 +164,15 @@ function createWindow(): void {
   void win.loadFile(rendererIndex()).catch((error: unknown) => {
     showStartupError(error);
   });
+
+  if (isDesktopDevMode()) {
+    const port = devRemoteDebuggingPort();
+    logDesktopEvent(`dev mode active: DevTools enabled, remote debugging on localhost:${port}`);
+    const cleanupDevMode = enableDevModeWindow(win, rendererDistPath(__dirname));
+    win.once('closed', () => {
+      cleanupDevMode();
+    });
+  }
 }
 
 function showStartupError(error: unknown): void {

@@ -155,6 +155,7 @@
             <span class="wi lg" data-icon="zap"></span>
             <div class="empty-title" data-i18n="skills.empty">当前会话还没有可用技能</div>
           </div>
+          <section class="skillhub-catalog" id="skillhub-catalog" hidden aria-live="polite"></section>
         </div></div>
       </section>
 
@@ -292,24 +293,62 @@
             <div class="row-item appearance-background-row">
               <div class="row-icon" id="settings-home-bg-icon"></div>
               <div class="row-main">
-                <div class="row-title" data-i18n="settings.homeBackground">首页背景图片</div>
-                <div class="row-desc" id="settings-home-bg-path" data-i18n="settings.homeBackgroundNone">未设置，将使用默认首页背景</div>
+                <div class="row-title" data-i18n="settings.homeBackground">应用背景图片</div>
+                <div class="row-desc" id="settings-home-bg-path" data-i18n="settings.homeBackgroundNone">未设置，将使用默认应用背景</div>
               </div>
               <div class="appearance-actions">
                 <button class="btn-ghost" id="settings-home-bg-choose"><span class="wi sm" data-icon="image"></span><span data-i18n="settings.homeBackgroundChoose">选择图片</span></button>
                 <button class="btn-ghost" id="settings-home-bg-clear"><span class="wi sm" data-icon="x"></span><span data-i18n="settings.homeBackgroundClear">清除</span></button>
               </div>
             </div>
+            <div class="row-item">
+              <div class="row-icon"><span class="wi sm" data-icon="layout"></span></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.homeBackgroundScope">图片显示范围</div>
+                <div class="row-desc" data-i18n="settings.homeBackgroundScopeDesc">选择背景显示在整个应用或仅首页</div>
+              </div>
+              <div class="seg-toggle" id="settings-home-bg-scope-toggle">
+                <button data-home-background-scope="app" data-i18n="settings.homeBackgroundScopeApp">全局应用</button>
+                <button data-home-background-scope="home" data-i18n="settings.homeBackgroundScopeHome">仅首页</button>
+              </div>
+            </div>
             <div class="row-item appearance-range-row">
               <div class="row-icon" id="settings-home-opacity-icon"></div>
               <div class="row-main">
                 <div class="row-title" data-i18n="settings.homeBackgroundOpacity">图片透明度</div>
-                <div class="row-desc" data-i18n="settings.homeBackgroundOpacityDesc">降低透明度可提高首页文字的可读性</div>
+                <div class="row-desc" data-i18n="settings.homeBackgroundOpacityDesc">降低透明度可提高界面文字的可读性</div>
               </div>
               <div class="appearance-range-control">
                 <input type="range" id="settings-home-bg-opacity" min="0" max="100" step="1" value="32" aria-label="Home background image opacity">
                 <output id="settings-home-bg-opacity-value">32%</output>
               </div>
+            </div>
+            <div class="row-item appearance-range-row">
+              <div class="row-icon"><span class="wi sm" data-icon="frame"></span></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.homeBackgroundFit">图片适配</div>
+                <div class="row-desc" data-i18n="settings.homeBackgroundFitDesc">控制图片缩放、拉伸或循环平铺方式</div>
+              </div>
+              <select class="appearance-select-control" id="settings-home-bg-fit" aria-label="Background image fit">
+                <option value="cover" data-i18n="settings.homeBackgroundFitCover">填满裁切</option>
+                <option value="contain" data-i18n="settings.homeBackgroundFitContain">完整显示</option>
+                <option value="stretch" data-i18n="settings.homeBackgroundFitStretch">拉伸铺满</option>
+                <option value="tile" data-i18n="settings.homeBackgroundFitTile">循环平铺</option>
+              </select>
+            </div>
+            <div class="row-item appearance-range-row">
+              <div class="row-icon"><span class="wi sm" data-icon="align-left"></span></div>
+              <div class="row-main">
+                <div class="row-title" data-i18n="settings.homeBackgroundPosition">图片位置</div>
+                <div class="row-desc" data-i18n="settings.homeBackgroundPositionDesc">将图片对齐到中心或一侧</div>
+              </div>
+              <select class="appearance-select-control" id="settings-home-bg-position" aria-label="Background image position">
+                <option value="center" data-i18n="settings.homeBackgroundPositionCenter">居中</option>
+                <option value="left" data-i18n="settings.homeBackgroundPositionLeft">靠左</option>
+                <option value="right" data-i18n="settings.homeBackgroundPositionRight">靠右</option>
+                <option value="top" data-i18n="settings.homeBackgroundPositionTop">靠上</option>
+                <option value="bottom" data-i18n="settings.homeBackgroundPositionBottom">靠下</option>
+              </select>
             </div>
             <div class="row-item appearance-range-row">
               <div class="row-icon" id="settings-home-blur-icon"></div>

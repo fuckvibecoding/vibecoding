@@ -57,7 +57,8 @@
   --home-aurora-start: rgba(90, 200, 250, 0.28);
   --home-aurora-end: rgba(52, 211, 153, 0.2);
   --home-shadow: 0 18px 50px rgba(35, 35, 40, 0.12);
-  --home-image-overlay: rgba(245, 245, 247, 0.72);
+  --home-image-overlay-rgb: 245 245 247;
+  --app-outline-rgb: 24 24 27;
   --titlebar-h: 38px;
   --sidebar-w: 220px;
   --statusbar-h: 22px;
@@ -115,7 +116,8 @@
   --home-aurora-start: rgba(10, 132, 255, 0.25);
   --home-aurora-end: rgba(52, 211, 153, 0.22);
   --home-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
-  --home-image-overlay: rgba(0, 0, 0, 0.68);
+  --home-image-overlay-rgb: 0 0 0;
+  --app-outline-rgb: 245 245 247;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 [hidden] { display: none !important; }
@@ -142,7 +144,34 @@ input, textarea { font-family: inherit; font-size: inherit; color: inherit; }
 .wi svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ========== 应用骨架 ========== */
-#app { display: flex; flex-direction: column; height: 100vh; }
+#app { display: flex; flex-direction: column; height: 100vh; position: relative; isolation: isolate; overflow: hidden; }
+#app.has-app-background::before {
+  content: ''; position: absolute; inset: -28px; z-index: 0; pointer-events: none;
+  background-image: var(--app-user-image); background-position: var(--app-user-image-position, center);
+  background-size: var(--app-user-image-size, cover); background-repeat: var(--app-user-image-repeat, no-repeat);
+  opacity: var(--app-user-image-opacity, .32); filter: blur(var(--app-user-image-blur, 0px)); transform: scale(1.04);
+}
+#app.has-app-background::after {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: rgb(var(--home-image-overlay-rgb) / var(--app-background-veil, 0));
+}
+/* Global-background surface system: keep structural panels quiet and blurred,
+   while controls/cards/inputs carry their own stable contrast layer so they
+   stay readable over arbitrary user images without harsh opaque panels. */
+#app.has-app-background {
+  --app-control-bg: rgb(var(--home-image-overlay-rgb) / .78);
+  --app-control-bg-hover: rgb(var(--home-image-overlay-rgb) / .9);
+  --app-control-border: rgb(var(--app-outline-rgb) / .22);
+  --app-control-border-strong: rgb(var(--app-outline-rgb) / .34);
+  --app-control-shadow: 0 2px 10px rgb(var(--app-outline-rgb) / .12);
+  --app-titlebar-control-bg: rgb(var(--home-image-overlay-rgb) / .46);
+  --app-titlebar-control-hover: rgb(var(--home-image-overlay-rgb) / .6);
+  --app-titlebar-control-border: rgb(var(--app-outline-rgb) / .12);
+  --app-titlebar-control-shadow: 0 1px 4px rgb(var(--app-outline-rgb) / .06);
+  --hover: rgb(var(--home-image-overlay-rgb) / .18);
+  --active: rgb(var(--home-image-overlay-rgb) / .28);
+}
+#app.has-app-background > .titlebar, #app.has-app-background > .app-body, #app.has-app-background > .statusbar { position: relative; z-index: 1; }
 .app-body { display: flex; flex: 1; min-height: 0; }
 
 /* ========== 标题栏 ========== */
@@ -155,6 +184,33 @@ input, textarea { font-family: inherit; font-size: inherit; color: inherit; }
   user-select: none;
   -webkit-app-region: drag;
 }
+#app.has-app-background .titlebar { background: rgb(var(--home-image-overlay-rgb) / var(--app-surface-veil, .52)); border-bottom-color: transparent; backdrop-filter: blur(var(--app-surface-blur, 8px)); }
+#app.has-app-background .titlebar-left,
+#app.has-app-background .win-controls {
+  background: var(--app-titlebar-control-bg);
+  border: 1px solid var(--app-titlebar-control-border);
+  border-radius: 8px;
+  box-shadow: var(--app-titlebar-control-shadow);
+  backdrop-filter: blur(10px) saturate(140%);
+}
+#app.has-app-background .titlebar-left { padding: 2px 7px 2px 3px; }
+#app.has-app-background .app-name { color: var(--fg-strong); text-shadow: 0 1px 2px rgb(var(--app-outline-rgb) / .12); }
+#app.has-app-background .app-ver {
+  background: rgb(var(--app-outline-rgb) / .07);
+  color: var(--fg-muted);
+  border: 1px solid rgb(var(--app-outline-rgb) / .1);
+  text-shadow: none;
+}
+#app.has-app-background .win-controls { padding: 2px; gap: 2px; }
+#app.has-app-background .win-btn {
+  color: var(--fg-strong);
+  text-shadow: 0 1px 2px rgb(var(--app-outline-rgb) / .12);
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+#app.has-app-background .win-btn:hover { background: var(--app-titlebar-control-hover); border-color: var(--app-control-border-strong); color: var(--fg-strong); }
+#app.has-app-background .win-btn.close:hover { background: var(--red); border-color: transparent; color: var(--danger-contrast); box-shadow: 0 1px 6px var(--danger-shadow); }
+#app.has-app-background .win-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 body.platform-darwin .titlebar { padding-left: 78px; }
 .titlebar button { -webkit-app-region: no-drag; }
 .titlebar-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -176,15 +232,27 @@ body.platform-darwin .win-controls { display: none; }
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-.sidebar-scroll { flex: 1; overflow-y: auto; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+#app.has-app-background .sidebar { background: rgb(var(--home-image-overlay-rgb) / var(--app-surface-veil, .52)); border-right-color: transparent; backdrop-filter: blur(var(--app-surface-blur, 8px)); }
+.sidebar-scroll {
+  flex: 1; overflow-y: auto; padding: 10px 10px 8px; display: flex; flex-direction: column; gap: 2px;
+  overscroll-behavior: contain; scrollbar-gutter: stable; scrollbar-width: none;
+}
+.sidebar-scroll.scrolling { scrollbar-width: thin; scrollbar-color: var(--fg-faint) transparent; }
+.sidebar-scroll::-webkit-scrollbar { width: 0; height: 0; }
+.sidebar-scroll.scrolling::-webkit-scrollbar { width: 8px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: var(--fg-faint); border: 2px solid transparent; border-radius: 999px; background-clip: content-box; }
+.sidebar-scroll::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
 .btn-new-task {
-  height: 36px; border-radius: 8px; margin-bottom: 8px;
+  width: 100%; min-width: 0; min-height: 36px; height: auto; box-sizing: border-box;
+  padding: 0 12px; overflow: hidden; border-radius: 8px; margin-bottom: 10px;
   background: var(--accent); color: var(--accent-contrast);
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  font-weight: 600; font-size: 13px;
+  font-weight: 600; font-size: 13px; white-space: nowrap;
   box-shadow: 0 1px 4px var(--accent-shadow);
   transition: background .15s;
 }
+.btn-new-task > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .btn-new-task:hover { background: var(--accent-hover); }
 .search-box {
   display: flex; align-items: center; gap: 6px;
@@ -196,10 +264,11 @@ body.platform-darwin .win-controls { display: none; }
 .search-box input::placeholder { color: var(--fg-muted); }
 .nav-item {
   display: flex; align-items: center; gap: 8px;
-  height: 30px; padding: 0 8px; border-radius: 6px;
+  height: 30px; margin: 3px 0; padding: 0 8px; border-radius: 6px;
   color: var(--fg); cursor: pointer; position: relative;
   transition: background .12s;
 }
+.nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .nav-item:hover { background: var(--hover); }
 .nav-item.active { background: var(--active); font-weight: 600; }
 .nav-item.active::before {
@@ -208,7 +277,7 @@ body.platform-darwin .win-controls { display: none; }
 }
 .nav-item .wi { color: var(--fg-muted); }
 .nav-item.active .wi { color: var(--accent); }
-.nav-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-sub { font-size: 10.5px; color: var(--fg-faint); flex-shrink: 0; }
 .nav-sep { height: 1px; background: var(--border); margin: 8px 4px; }
 .section-title {
@@ -270,6 +339,12 @@ body.platform-darwin .win-controls { display: none; }
 
 /* ========== 主内容区 ========== */
 .content { flex: 1; min-width: 0; position: relative; background: var(--bg); overflow: hidden; }
+#app.has-app-background .content { background: rgb(var(--home-image-overlay-rgb) / var(--app-surface-veil, .52)); backdrop-filter: blur(var(--app-surface-blur, 8px)); }
+#app.has-app-background .chat-footer { background: transparent; border-top-color: transparent; }
+#app.has-app-background .chat-header { background: transparent; border-bottom-color: transparent; }
+#app.has-app-background .settings-three-pane,
+#app.has-app-background .settings-category-pane,
+#app.has-app-background .settings-tab-pane { background: transparent; border-color: transparent; }
 .view { position: absolute; inset: 0; display: none; flex-direction: column; }
 .view.active { display: flex; }
 
@@ -281,19 +356,25 @@ body.platform-darwin .win-controls { display: none; }
     radial-gradient(640px circle at 88% 2%, var(--home-aurora-end), transparent 62%),
     var(--home-bg);
 }
-#view-home { isolation: isolate; overflow: hidden; }
+#app.has-app-background #view-home .home-scroll {
+  background:
+    radial-gradient(760px circle at 16% -18%, var(--home-aurora-start), transparent 64%),
+    radial-gradient(640px circle at 88% 2%, var(--home-aurora-end), transparent 62%),
+    transparent;
+}
+#view-home.has-home-background { isolation: isolate; overflow: hidden; }
 #view-home.has-home-background::before {
   content: ''; position: absolute; inset: -28px; z-index: 0; pointer-events: none;
-  background-image: var(--home-user-image); background-position: center; background-size: cover;
-  background-repeat: no-repeat; opacity: var(--home-user-image-opacity, .32);
-  filter: blur(var(--home-user-image-blur, 0px)); transform: scale(1.04);
+  background-image: var(--app-user-image); background-position: var(--app-user-image-position, center);
+  background-size: var(--app-user-image-size, cover); background-repeat: var(--app-user-image-repeat, no-repeat);
+  opacity: var(--app-user-image-opacity, .32); filter: blur(var(--app-user-image-blur, 0px)); transform: scale(1.04);
 }
 #view-home.has-home-background .home-scroll {
   position: relative; z-index: 1;
   background:
     radial-gradient(760px circle at 16% -18%, var(--home-aurora-start), transparent 64%),
     radial-gradient(640px circle at 88% 2%, var(--home-aurora-end), transparent 62%),
-    var(--home-image-overlay);
+    rgb(var(--home-image-overlay-rgb) / var(--app-background-veil, .72));
 }
 .home-inner { width: min(740px, 92%); display: flex; flex-direction: column; padding: 38px 0 48px; }
 .hero { text-align: center; margin: 8px 0 30px; }
@@ -683,6 +764,7 @@ body.platform-darwin .win-controls { display: none; }
 .appearance-range-control { width: min(270px, 34%); min-width: 180px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 .appearance-range-control input { flex: 1; accent-color: var(--accent); }
 .appearance-range-control output { width: 40px; text-align: right; color: var(--fg-muted); font: 11.5px var(--font-mono); }
+.appearance-select-control { width: min(270px, 34%); min-width: 180px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 8px; background: var(--input-bg); color: var(--fg); font: inherit; }
 .doctor-card { margin-top: 12px; }
 .doctor-check { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
 .doctor-check:last-child { border-bottom: none; }
@@ -1059,6 +1141,106 @@ body.platform-darwin .win-controls { display: none; }
   display: flex; align-items: center; justify-content: space-between;
   padding: 0 12px; font-size: 11px; color: var(--fg-muted); user-select: none;
 }
+#app.has-app-background .statusbar { background: rgb(var(--home-image-overlay-rgb) / var(--app-surface-veil, .52)); border-top-color: transparent; backdrop-filter: blur(var(--app-surface-blur, 8px)); }
+
+/* Global imagery keeps structural surfaces quiet, while actionable controls
+   retain a stable contrast layer over arbitrary user-provided images. */
+#app.has-app-background .search-box,
+#app.has-app-background .history-search,
+#app.has-app-background .history-controls select,
+#app.has-app-background .composer,
+#app.has-app-background .decision-input input,
+#app.has-app-background .settings-input,
+#app.has-app-background .settings-select,
+#app.has-app-background .appearance-select-control,
+#app.has-app-background .provider-catalog-search,
+#app.has-app-background .modal-input,
+#app.has-app-background .icon-btn,
+#app.has-app-background .btn-ghost,
+#app.has-app-background .btn-deny,
+#app.has-app-background .composer-tool.model,
+#app.has-app-background .composer-tool.expert-picker,
+#app.has-app-background .composer-tool.workspace-picker {
+  background: var(--app-control-bg);
+  border-color: var(--app-control-border);
+  box-shadow: var(--app-control-shadow);
+  backdrop-filter: blur(10px);
+}
+#app.has-app-background .search-box:focus-within,
+#app.has-app-background .history-search:focus-within,
+#app.has-app-background .history-controls select:focus,
+#app.has-app-background .appearance-select-control:focus,
+#app.has-app-background .icon-btn:focus-visible,
+#app.has-app-background .btn-ghost:focus-visible,
+#app.has-app-background .btn-deny:focus-visible,
+#app.has-app-background .composer-tool:focus-visible {
+  border-color: var(--app-control-border-strong);
+}
+#app.has-app-background .btn-ghost:hover,
+#app.has-app-background .btn-deny:hover,
+#app.has-app-background .composer-tool:hover {
+  background: var(--app-control-bg-hover);
+  border-color: var(--app-control-border-strong);
+  color: var(--fg-strong);
+}
+#app.has-app-background .pop-menu,
+#app.has-app-background .modal,
+#app.has-app-background .card,
+#app.has-app-background .row-list,
+#app.has-app-background .artifact-card,
+#app.has-app-background .plan-card,
+#app.has-app-background .tool-card,
+#app.has-app-background .decision-card,
+#app.has-app-background .gap-card,
+#app.has-app-background .provider-defaults-card,
+#app.has-app-background .provider-detail-card,
+#app.has-app-background .provider-catalog-pane,
+#app.has-app-background .provider-model-card,
+#app.has-app-background .provider-editor-pane,
+#app.has-app-background .application-settings-card,
+#app.has-app-background .provider-checkbox-field,
+#app.has-app-background .skillhub-result,
+#app.has-app-background .skillhub-detail {
+  background: var(--app-control-bg);
+  border-color: var(--app-control-border);
+  box-shadow: var(--app-control-shadow);
+  backdrop-filter: blur(10px);
+}
+#app.has-app-background .row-item { border-bottom-color: rgb(var(--app-outline-rgb) / .12); }
+#app.has-app-background .nav-sep { background: rgb(var(--app-outline-rgb) / .14); }
+#app.has-app-background .nav-item:hover { background: rgb(var(--home-image-overlay-rgb) / .3); }
+#app.has-app-background .nav-item.active { background: rgb(var(--home-image-overlay-rgb) / .5); }
+#app.has-app-background .seg-toggle,
+#app.has-app-background .provider-scope-toggle {
+  background: rgb(var(--home-image-overlay-rgb) / .46);
+  box-shadow: var(--app-control-shadow);
+  backdrop-filter: blur(10px);
+}
+#app.has-app-background .seg-toggle button.active,
+#app.has-app-background .provider-scope-toggle button.active {
+  background: var(--app-control-bg-hover);
+  color: var(--fg-strong);
+  box-shadow: 0 1px 5px rgb(var(--app-outline-rgb) / .14);
+}
+#app.has-app-background .btn-primary,
+#app.has-app-background .btn-allow,
+#app.has-app-background .btn-new-task,
+#app.has-app-background .btn-send:not(.stop) {
+  background: color-mix(in srgb, var(--accent) 86%, transparent);
+  box-shadow: 0 2px 10px rgb(var(--app-outline-rgb) / .2);
+}
+#app.has-app-background .btn-primary:hover,
+#app.has-app-background .btn-allow:hover,
+#app.has-app-background .btn-new-task:hover,
+#app.has-app-background .btn-send:not(.stop):hover { background: var(--accent); }
+#app.has-app-background .btn-primary:disabled,
+#app.has-app-background .btn-send:disabled {
+  background: var(--app-control-bg);
+  border: 1px solid var(--app-control-border);
+  color: var(--fg-muted);
+  opacity: .78;
+  box-shadow: none;
+}
 .sb-left, .sb-right { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .sb-item { display: flex; align-items: center; gap: 4px; cursor: default; white-space: nowrap; }
 .sb-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-faint); flex-shrink: 0; }
@@ -1167,6 +1349,23 @@ body.platform-darwin .win-controls { display: none; }
 .skillhub-market-fields .application-settings-field:nth-child(5),
 .skillhub-market-fields .application-settings-field:nth-child(6) { grid-column: span 2; }
 .skillhub-market-item .btn-deny { align-self: flex-start; }
+
+/* SkillHub catalogue: data and installation always arrive through ACP. */
+.skillhub-catalog { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+.skillhub-catalog-head { font-size: 17px; font-weight: 650; color: var(--fg); margin-bottom: 5px; }
+.skillhub-controls, .skillhub-search, .skillhub-detail-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.skillhub-controls .input, .skillhub-search .input { min-width: 150px; flex: 1 1 180px; }
+.skillhub-search .btn-primary { flex: 0 0 auto; }
+.skillhub-workspace { display: grid; grid-template-columns: minmax(220px, .9fr) minmax(250px, 1.1fr); gap: 14px; margin-top: 14px; }
+.skillhub-results, .skillhub-detail { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.skillhub-result, .skillhub-detail { text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--card-bg); color: var(--fg); }
+.skillhub-result:hover { border-color: var(--accent); background: var(--bg-weak); }
+.skillhub-result-title { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-weight: 600; margin-bottom: 5px; }
+.skillhub-detail { align-self: start; min-height: 150px; }
+.skillhub-detail-title { font-size: 16px; font-weight: 650; color: var(--fg-strong); }
+.skillhub-detail-meta { margin-top: 10px; font-size: 12px; color: var(--fg-muted); }
+.skillhub-detail-actions { margin-top: 16px; }
+@media (max-width: 760px) { .skillhub-workspace { grid-template-columns: 1fr; } }
 /* Cron settings workspace (mothx/manage/cron/* projection). */
 .cron-settings-workspace .cron-job-list { margin-top: 4px; }
 .cron-job-row .row-desc { white-space: pre-wrap; }
@@ -1190,3 +1389,20 @@ body.platform-darwin .win-controls { display: none; }
   padding: 28px 16px; color: var(--fg-faint); text-align: center;
 }
 .env-empty strong { color: var(--fg-muted); font-size: 13px; font-weight: 600; }
+
+/* These management cards are declared after the shared rules above. Keep their
+   surfaces consistent with the rest of the global-background experience. */
+#app.has-app-background .skillhub-market-item,
+#app.has-app-background .skillhub-result,
+#app.has-app-background .skillhub-detail,
+#app.has-app-background .env-row,
+#app.has-app-background .subagent-card {
+  background: var(--app-control-bg);
+  border-color: var(--app-control-border);
+  box-shadow: var(--app-control-shadow);
+  backdrop-filter: blur(10px);
+}
+#app.has-app-background .skillhub-result:hover {
+  background: var(--app-control-bg-hover);
+  border-color: var(--app-control-border-strong);
+}

@@ -22,6 +22,20 @@
   - Home preset tabs are shortened to Work / Code / Create (办公 / 代码 / 创作) with tightened descriptions in both languages.
   - Quick-action chips now fill the composer with a complete, ready-to-send prompt (including editable `[topic]`-style placeholders) instead of a bare label, so one click can start a real task.
 
+- **Desktop: Development Mode (`make desktop-dev` / `npm run dev`)**
+  - New dev runner: watches `renderer/src/`, `renderer/index.html`, and `renderer/styles.css`, rebuilds `dist/renderer` on change, and reloads Electron without cache so the ACP child process does not restart; `main/` and `preload/` are built once at startup and require a manual restart after edits.
+  - Dev mode (`MOTHX_DESKTOP_DEV=1`) opens DevTools automatically, binds the Chrome DevTools Protocol to `127.0.0.1:9223` only (change the local port with `MOTHX_DESKTOP_DEBUG_PORT`), and reloads the window when renderer assets change; it does not start `mothx serve` and adds no HTTP/API channel to the renderer.
+
+- **Desktop: Online Skill Marketplace (SkillHub Catalog)**
+  - New ACP feature key `manageSkillHubCatalog` and an additive `mothx/manage/skillhub/*` method family (markets/categories/official/search/detail/targets/installed/install/activate/uninstall) as a pure ACP projection of the shared SkillHub service; every request must bind to an active session, so Desktop cannot pick arbitrary install directories.
+  - The Desktop skills page gains a marketplace section: market/category filters, keyword search, official recommendations, and install/update/activate-into-session/uninstall into the session's project or global skills directory.
+  - ACP sessions now track multiple active skills (previously activating a new skill replaced the previous one), so several skills can stay active in the same session.
+
+- **Desktop: App-Wide Background Image Options**
+  - Background images can now apply to the whole app or the home view only, with fit modes (cover / contain / stretch / tile) and anchor positions (center / left / right / top / bottom).
+  - Background veils and surface blur fade adaptively with image opacity; with an app-wide background, the titlebar gains a readable contrast surface and text shadows so window controls stay legible.
+  - Appearance settings move into a standalone Appearance category.
+
 ### 🐛 Bug Fixes
 
 - **Browser: Built-in Skill No Longer Writes into Projects**

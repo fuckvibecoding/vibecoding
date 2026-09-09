@@ -672,10 +672,10 @@ func TestManageSkillsListSetRoundTrip(t *testing.T) {
 		item, _ := entry.(map[string]any)
 		byName[item["name"].(string)] = item
 	}
-	if len(byName) != 3 {
-		t.Fatalf("skills = %#v, want built-in, global-gen and proj-skill", byName)
+	if len(byName) != 4 {
+		t.Fatalf("skills = %#v, want both built-ins, global-gen and proj-skill", byName)
 	}
-	if byName[skills.ExpertCreaterSkillName]["source"] != "builtin" || byName["global-gen"]["source"] != "global" || byName["proj-skill"]["source"] != "project" {
+	if byName[skills.ExpertCreaterSkillName]["source"] != "builtin" || byName["vibe-browser"]["source"] != "builtin" || byName["global-gen"]["source"] != "global" || byName["proj-skill"]["source"] != "project" {
 		t.Fatalf("skill sources = %#v", byName)
 	}
 	if byName["global-gen"]["enabled"] != true || byName["proj-skill"]["enabled"] != true {
@@ -706,7 +706,7 @@ func TestManageSkillsListSetRoundTrip(t *testing.T) {
 	if !srv.skillsMgr.IsSkillDisabled("global-gen") || srv.skillsMgr.Get("global-gen") != nil {
 		t.Fatal("live skills manager did not apply the disabled toggle")
 	}
-	if len(srv.skillsMgr.ListAll()) != 3 || len(srv.skillsMgr.List()) != 2 {
+	if len(srv.skillsMgr.ListAll()) != 4 || len(srv.skillsMgr.List()) != 3 {
 		t.Fatal("ListAll must keep disabled skills while List filters them")
 	}
 
@@ -763,6 +763,49 @@ func TestACPAvailableCommandsIncludeBuiltInExpertCreater(t *testing.T) {
 		}
 	}
 	t.Fatalf("available commands missing %q", "/"+skills.ExpertCreaterSkillName)
+}
+
+func TestManageSkillHubCatalogProjectsRuntimeOwnedTargets(t *testing.T) {
+	configDir := t.TempDir()
+	workDir := t.TempDir()
+	settings := writeManageSettings(t, configDir, func(settings *config.Settings) {
+		settings.SkillHub.DefaultMarket = "skillhub.cn"
+		settings.SkillHub.DefaultInstallScope = "project"
+	})
+	output := &syncedBuffer{}
+	srv := newManageFixtureServer(output, workDir)
+	rt := &sessionRuntime{id: "catalog-session", runtime: &agentruntime.SessionRuntime{WorkDir: workDir}}
+	srv.mu.Lock()
+	srv.sessions[rt.id] = rt
+	srv.mu.Unlock()
+
+	targets := manageFixtureResult(t, callManageFixture(t, srv, output, 1, "mothx/manage/skillhub/targets", map[string]any{"sessionId": rt.id}))
+	items, ok := targets["targets"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatalf("targets = %#v, want configured project targets", targets)
+	}
+	first, _ := items[0].(map[string]any)
+	path, _ := first["path"].(string)
+	if !filepath.IsAbs(path) || !strings.HasPrefix(path, workDir+string(filepath.Separator)) {
+		t.Fatalf("target path = %q, want an absolute project skills directory below %q", path, workDir)
+	}
+
+	markets := manageFixtureResult(t, callManageFixture(t, srv, output, 2, "mothx/manage/skillhub/markets", map[string]any{"sessionId": rt.id}))
+	if got, ok := markets["markets"].([]any); !ok || len(got) == 0 {
+		t.Fatalf("markets = %#v, want configured SkillHub market projections", markets)
+	}
+
+	message := callManageFixture(t, srv, output, 3, "mothx/manage/skillhub/targets", map[string]any{})
+	if code, _ := manageFixtureError(t, message); code != "skillhub_invalid_request" {
+		t.Fatalf("missing sessionId error = %q", code)
+	}
+	message = callManageFixture(t, srv, output, 4, "mothx/manage/skillhub/install", map[string]any{"sessionId": rt.id, "market": "skillhub.cn", "id": "demo", "scope": "project", "targetDir": "relative"})
+	if code, _ := manageFixtureError(t, message); code != "skillhub_invalid_request" {
+		t.Fatalf("relative install target error = %q", code)
+	}
+	if settings.GetGlobalSkillsDir() == "" {
+		t.Fatal("fixture must have a global skills dir")
+	}
 }
 
 // --- mcp ------------------------------------------------------------------------
@@ -1298,7 +1341,7 @@ func TestInitializeFeaturesIncludeManageKeys(t *testing.T) {
 			features[name] = true
 		}
 	}
-	for _, want := range []string{"manageSettings", "manageApplicationSettings", "manageProviders", "manageSkills", "manageMcp", "manageCron", "manageStats", "manageMemory", "manageSkillHub", "manageExperts", "manageKnowledgeBases", "knowledgeGraphIndex", "knowledgeBaseContext"} {
+	for _, want := range []string{"manageSettings", "manageApplicationSettings", "manageProviders", "manageSkills", "manageMcp", "manageCron", "manageStats", "manageMemory", "manageSkillHub", "manageSkillHubCatalog", "manageExperts", "manageKnowledgeBases", "knowledgeGraphIndex", "knowledgeBaseContext"} {
 		if !features[want] {
 			t.Fatalf("features = %#v, want %q", rawFeatures, want)
 		}

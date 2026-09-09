@@ -8,6 +8,7 @@ const index = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const settings = await readFile(new URL('./settings.ts', import.meta.url), 'utf8');
 const main = await readFile(new URL('./main.ts', import.meta.url), 'utf8');
 const sidebar = await readFile(new URL('./sidebar.ts', import.meta.url), 'utf8');
+const skills = await readFile(new URL('./skills.ts', import.meta.url), 'utf8');
 
 test('provider settings use the ACP management projection instead of desktop persistence', () => {
   for (const method of [
@@ -32,6 +33,49 @@ test('three-pane settings load only the active ACP-backed tab', () => {
   assert.doesNotMatch(manage, /renderManageSections/, 'hidden panels must not be eagerly loaded as a batch');
   assert.doesNotMatch(main, /renderManageSections/, 'startup must not preload hidden management tabs');
   assert.doesNotMatch(sidebar, /renderManageSections/, 'opening settings must not restore eager loading');
+});
+
+test('appearance and language are a first-level settings category', () => {
+  const workspaceStart = settings.indexOf("id: 'workspace'");
+  const appearanceCategory = settings.indexOf("id: 'appearance', label: 'settings.tab.appearance'");
+  assert.ok(workspaceStart >= 0 && appearanceCategory > workspaceStart, 'appearance category must follow workspace');
+  const workspaceCategory = settings.slice(workspaceStart, appearanceCategory);
+  assert.doesNotMatch(workspaceCategory, /id: 'appearance'/, 'workspace must not retain appearance as a nested tab');
+  assert.match(settings.slice(appearanceCategory), /tabs: \[\s*\{ id: 'appearance'/, 'appearance category must retain its appearance tab');
+});
+
+test('app background controls cover the sidebar and preserve a clear full-opacity image', async () => {
+  const styles = await readFile(new URL('../styles.css', import.meta.url), 'utf8');
+  assert.match(settings, /querySelector<HTMLElement>\('#app'\)/, 'background must be applied at application level');
+  assert.match(settings, /has-app-background/, 'application-level background class must be used');
+  assert.match(settings, /--app-background-veil.*\(1 - opacity\)/, 'home veil must be derived from selected opacity');
+  assert.match(settings, /--app-surface-veil.*\(1 - opacity\)/, 'app surfaces must clear as opacity increases');
+  assert.match(settings, /--app-surface-blur.*\(1 - opacity\)/, 'app surface blur must clear as opacity increases');
+  assert.match(styles, /#app\.has-app-background \.sidebar/, 'sidebar must reveal the app background');
+  assert.match(styles, /#app\.has-app-background \.sidebar \{[^}]*border-right-color: transparent/, 'global background must not create a gray sidebar seam');
+  assert.match(styles, /--app-control-bg/, 'global background must provide readable control surfaces');
+  assert.match(styles, /#app\.has-app-background \.btn-ghost/, 'secondary buttons need a dedicated readable background treatment');
+  assert.match(styles, /#app\.has-app-background \.btn-primary/, 'primary buttons need a softer, visible global-background treatment');
+  assert.match(styles, /#app\.has-app-background \.win-controls/, 'window controls need a dedicated readable titlebar surface');
+  assert.match(styles, /#app\.has-app-background \.titlebar-left[^}]*background:\s*var\(--app-titlebar-control-bg\)/, 'titlebar controls must use a lighter-weight surface than regular controls');
+  assert.match(styles, /#app\.has-app-background \.win-btn \{[^}]*color: var\(--fg-strong\)/, 'window controls must retain a high-contrast icon color');
+  assert.match(styles, /#app\.has-app-background \.win-btn\.close:hover/, 'the close control must retain its danger hover state');
+  assert.match(styles, /#view-home\.has-home-background::before/, 'Home-only mode must not leak the image outside Home');
+  assert.match(styles, /var\(--app-surface-veil/, 'surface opacity must be configurable instead of a fixed white veil');
+  for (const id of ['settings-home-bg-fit', 'settings-home-bg-position']) {
+    assert.match(index, new RegExp(`id="${id}"`), `${id} control must exist`);
+  }
+  for (const key of [
+    'settings.homeBackgroundFit', 'settings.homeBackgroundFitCover', 'settings.homeBackgroundFitContain',
+    'settings.homeBackgroundFitStretch', 'settings.homeBackgroundFitTile', 'settings.homeBackgroundPosition',
+    'settings.homeBackgroundPositionCenter', 'settings.homeBackgroundPositionLeft', 'settings.homeBackgroundPositionRight',
+    'settings.homeBackgroundPositionTop', 'settings.homeBackgroundPositionBottom',
+  ]) assert.equal(translations.split(`'${key}'`).length - 1, 2, `${key} must be bilingual`);
+  for (const key of ['settings.homeBackgroundScope', 'settings.homeBackgroundScopeApp', 'settings.homeBackgroundScopeHome']) {
+    assert.equal(translations.split(`'${key}'`).length - 1, 2, `${key} must be bilingual`);
+  }
+  assert.match(index, /id="settings-home-bg-scope-toggle"/, 'the scope toggle must exist');
+  assert.match(settings, /homeBackgroundScope/, 'scope selection must update the Desktop-local background preference');
 });
 
 test('capability-gap copy describes runtime discovery rather than completed historical phases', () => {
@@ -95,6 +139,19 @@ test('skillhub management translations remain bilingual', () => {
   ]) {
     const occurrences = translations.split(`'${key}'`).length - 1;
     assert.equal(occurrences, 2, `${key} must be present in both translation maps`);
+  }
+});
+
+test('online skills catalog is capability-gated and remains an ACP projection', () => {
+  assert.match(skills, /hasFeature\('manageSkillHubCatalog'\)/, 'catalog must be hidden for older ACP runtimes');
+  for (const method of [
+    'mothx/manage/skillhub/markets', 'mothx/manage/skillhub/search', 'mothx/manage/skillhub/detail',
+    'mothx/manage/skillhub/targets', 'mothx/manage/skillhub/install', 'mothx/manage/skillhub/activate',
+    'mothx/manage/skillhub/uninstall',
+  ]) assert.match(skills, new RegExp(method.replaceAll('/', '\\/')), `${method} must use ACP`);
+  assert.doesNotMatch(skills, /fetch\(|desktop\.storeSet|localStorage/i, 'catalog must not add HTTP or Desktop-owned persistence');
+  for (const key of ['skills.marketplace', 'skills.marketplaceSearch', 'skills.install', 'skills.activate', 'skills.uninstall', 'skills.confirmUpdate']) {
+    assert.equal(translations.split(`'${key}'`).length - 1, 2, `${key} must be bilingual`);
   }
 });
 

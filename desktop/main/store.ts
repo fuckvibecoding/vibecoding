@@ -14,6 +14,9 @@ export interface DesktopStoreData {
   homeBackgroundImage: string;
   homeBackgroundOpacity: number;
   homeBackgroundBlur: number;
+  homeBackgroundScope: 'app' | 'home';
+  homeBackgroundFit: 'cover' | 'contain' | 'stretch' | 'tile';
+  homeBackgroundPosition: 'center' | 'left' | 'right' | 'top' | 'bottom';
   lastWorkspace: string;
   recentWorkspaces: string[];
   pinnedSessions: string[];
@@ -26,6 +29,9 @@ const DEFAULTS: DesktopStoreData = {
   homeBackgroundImage: '',
   homeBackgroundOpacity: 32,
   homeBackgroundBlur: 0,
+  homeBackgroundScope: 'app',
+  homeBackgroundFit: 'cover',
+  homeBackgroundPosition: 'center',
   lastWorkspace: '',
   recentWorkspaces: [],
   pinnedSessions: [],
@@ -38,6 +44,18 @@ const MAX_STATUS_ENTRIES = 400;
 function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function backgroundFit(value: unknown): DesktopStoreData['homeBackgroundFit'] {
+  return value === 'contain' || value === 'stretch' || value === 'tile' ? value : 'cover';
+}
+
+function backgroundScope(value: unknown): DesktopStoreData['homeBackgroundScope'] {
+  return value === 'home' ? 'home' : 'app';
+}
+
+function backgroundPosition(value: unknown): DesktopStoreData['homeBackgroundPosition'] {
+  return value === 'left' || value === 'right' || value === 'top' || value === 'bottom' ? value : 'center';
 }
 
 export class DesktopStore {
@@ -59,6 +77,9 @@ export class DesktopStore {
         homeBackgroundImage: typeof parsed.homeBackgroundImage === 'string' ? parsed.homeBackgroundImage.slice(0, 4096) : '',
         homeBackgroundOpacity: clampNumber(parsed.homeBackgroundOpacity, DEFAULTS.homeBackgroundOpacity, 0, 100),
         homeBackgroundBlur: clampNumber(parsed.homeBackgroundBlur, DEFAULTS.homeBackgroundBlur, 0, 24),
+        homeBackgroundScope: backgroundScope(parsed.homeBackgroundScope),
+        homeBackgroundFit: backgroundFit(parsed.homeBackgroundFit),
+        homeBackgroundPosition: backgroundPosition(parsed.homeBackgroundPosition),
         lastWorkspace: typeof parsed.lastWorkspace === 'string' ? parsed.lastWorkspace : '',
         recentWorkspaces: Array.isArray(parsed.recentWorkspaces)
           ? parsed.recentWorkspaces.filter((entry): entry is string => typeof entry === 'string' && entry !== '')
@@ -86,6 +107,9 @@ export class DesktopStore {
     if (typeof patch.homeBackgroundImage === 'string') this.data.homeBackgroundImage = patch.homeBackgroundImage.slice(0, 4096);
     if (patch.homeBackgroundOpacity !== undefined) this.data.homeBackgroundOpacity = clampNumber(patch.homeBackgroundOpacity, this.data.homeBackgroundOpacity, 0, 100);
     if (patch.homeBackgroundBlur !== undefined) this.data.homeBackgroundBlur = clampNumber(patch.homeBackgroundBlur, this.data.homeBackgroundBlur, 0, 24);
+    if (patch.homeBackgroundScope !== undefined) this.data.homeBackgroundScope = backgroundScope(patch.homeBackgroundScope);
+    if (patch.homeBackgroundFit !== undefined) this.data.homeBackgroundFit = backgroundFit(patch.homeBackgroundFit);
+    if (patch.homeBackgroundPosition !== undefined) this.data.homeBackgroundPosition = backgroundPosition(patch.homeBackgroundPosition);
     if (typeof patch.lastWorkspace === 'string' && patch.lastWorkspace !== '') {
       this.data.lastWorkspace = patch.lastWorkspace;
       this.rememberWorkspace(patch.lastWorkspace);

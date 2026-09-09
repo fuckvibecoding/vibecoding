@@ -25,6 +25,20 @@
   - 首页预设标签精简为「办公 / 代码 / 创作」，中英文预设描述同步收紧。
   - 快捷操作改为将完整、可直接发送的提示词（含可替换的 `[主题]` 占位符）填入输入框，一键即可开始真实任务，而不再是空泛的标签文案。
 
+- **Desktop：开发模式（`make desktop-dev` / `npm run dev`）**
+  - 新增开发运行器：监听 `renderer/src/`、`renderer/index.html` 与 `renderer/styles.css`，变更后自动重建 `dist/renderer` 并无缓存刷新 Electron，ACP 子进程无需重启；`main/` 与 `preload/` 仅在启动时构建一次，修改后需手动重启。
+  - 开发模式（`MOTHX_DESKTOP_DEV=1`）自动打开 DevTools，Chrome DevTools Protocol 仅监听 `127.0.0.1:9223`（可用 `MOTHX_DESKTOP_DEBUG_PORT` 更换本地端口），renderer 产物变化时自动重载窗口；不启动 `mothx serve`，也不向 renderer 增加任何 HTTP/API 通道。
+
+- **Desktop：在线技能市场（SkillHub Catalog）**
+  - 新增 ACP 特性键 `manageSkillHubCatalog` 与增量式 `mothx/manage/skillhub/*` 方法族（markets/categories/official/search/detail/targets/installed/install/activate/uninstall），为共享 SkillHub 服务的纯 ACP 投影；请求必须绑定活跃会话，Desktop 无法任意选择安装目录。
+  - Desktop 技能页新增「在线市场」区块：市场/分类筛选、关键词搜索、官方推荐，以及安装/更新/启用到当前会话/卸载，可装入当前会话的项目或全局技能目录。
+  - ACP 会话现在跟踪多个已激活技能（此前启用新技能会顶替上一个），同一会话可同时启用多个技能。
+
+- **Desktop：应用背景图片扩展选项**
+  - 背景图可应用于整个应用或仅首页，支持适配方式（填满裁切 / 完整显示 / 拉伸铺满 / 循环平铺）与对齐位置（中 / 左 / 右 / 上 / 下）。
+  - 背景遮罩与表面毛玻璃随图片透明度自适应减弱；全局背景下的标题栏使用可读性更强的对比表面与文字阴影，保证窗口控制按钮清晰可辨。
+  - 外观设置独立为单独的「外观」设置分类。
+
 ### 🐛 问题修复
 
 - **Browser：内置 Skill 不再写入项目目录**

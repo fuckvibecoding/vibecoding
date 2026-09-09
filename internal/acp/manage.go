@@ -111,6 +111,26 @@ func (s *server) handleManageRequest(req rpcRequest) {
 		s.handleManageSkillHubGet(req)
 	case "mothx/manage/skillhub/patch":
 		s.handleManageSkillHubPatch(req)
+	case "mothx/manage/skillhub/markets":
+		s.handleManageSkillHubMarkets(req)
+	case "mothx/manage/skillhub/categories":
+		s.handleManageSkillHubCategories(req)
+	case "mothx/manage/skillhub/official":
+		s.handleManageSkillHubOfficial(req)
+	case "mothx/manage/skillhub/search":
+		s.handleManageSkillHubSearch(req)
+	case "mothx/manage/skillhub/detail":
+		s.handleManageSkillHubDetail(req)
+	case "mothx/manage/skillhub/targets":
+		s.handleManageSkillHubTargets(req)
+	case "mothx/manage/skillhub/installed":
+		s.handleManageSkillHubInstalled(req)
+	case "mothx/manage/skillhub/install":
+		s.handleManageSkillHubInstall(req)
+	case "mothx/manage/skillhub/activate":
+		s.handleManageSkillHubActivate(req)
+	case "mothx/manage/skillhub/uninstall":
+		s.handleManageSkillHubUninstall(req)
 	case "mothx/manage/experts/list":
 		s.handleManageExpertsList(req)
 	case "mothx/manage/experts/get":

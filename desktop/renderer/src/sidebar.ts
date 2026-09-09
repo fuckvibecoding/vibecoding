@@ -44,6 +44,32 @@ const DOT_COLOR: Record<string, string> = {
   cancelled: 'var(--fg-faint)',
 };
 
+function bindAutoHidingScrollbar(container: HTMLElement): void {
+  if (container.dataset.scrollbarBound === 'true') return;
+  container.dataset.scrollbarBound = 'true';
+  let hideTimer: number | undefined;
+  let pointerInside = false;
+  const show = () => {
+    container.classList.add('scrolling');
+    window.clearTimeout(hideTimer);
+    if (pointerInside) return;
+    hideTimer = window.setTimeout(() => container.classList.remove('scrolling'), 2000);
+  };
+  const enter = () => {
+    pointerInside = true;
+    container.classList.add('scrolling');
+    window.clearTimeout(hideTimer);
+  };
+  const leave = () => {
+    pointerInside = false;
+    show();
+  };
+  container.addEventListener('pointerenter', enter);
+  container.addEventListener('pointerleave', leave);
+  container.addEventListener('wheel', show, { passive: true });
+  container.addEventListener('scroll', show, { passive: true });
+}
+
 function sessionStatus(session: ListedSessionShape): string {
   const lastRun = session._meta?.lastRun;
   if (hasFeature('runStatus') && lastRun) {
@@ -209,6 +235,8 @@ export function renderSidebar(): void {
 }
 
 export function bindSidebar(): void {
+
+  bindAutoHidingScrollbar(require$('.sidebar-scroll'));
   // Gate experts sidebar entry on ACP feature advertisement, matching the
   // Settings tab behavior. renderSidebar also refreshes this on every emit.
   const expertsNav = document.querySelector<HTMLElement>('.nav-item[data-nav="experts"]');

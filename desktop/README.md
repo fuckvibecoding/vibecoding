@@ -55,13 +55,14 @@ renderer (desktop/renderer)          main (desktop/main)                runtime
 ```bash
 make desktop-vendor     # npm ci + version:set + 源码构建 vendor 运行时
 make desktop-build      # esbuild 打包 main/preload/renderer 到 desktop/dist
-cd desktop && npx electron .
+make desktop-dev        # 监听 renderer、自动刷新 Electron，并打开 DevTools / 本地 CDP
 ```
 
 desktop 目录内：
 
 ```bash
 npm run build           # esbuild（main.cjs / preload.cjs / renderer/*）
+npm run dev             # renderer 热更新；DevTools + 127.0.0.1:9223 Chrome DevTools Protocol（先执行 make desktop-vendor）
 npm run typecheck       # tsc --noEmit（main + preload + renderer + scripts）
 npm test                # node --test + tsx --test（协议分帧/本地 store）
 npm run start           # version:set + ensure:electron + build:runtime + build + electron .
@@ -69,6 +70,16 @@ npm run start           # version:set + ensure:electron + build:runtime + build 
 
 开发时可用 `MOTHX_BINARY=/path/to/mothx` 覆盖运行时二进制（未打包时生效，
 优先级最高；随后依次查找 vendor 目录与仓库 `bin/`）。
+
+`make desktop-dev` 会先准备 Desktop 运行时，再启动 `npm run dev`。直接在
+`desktop/` 中执行 `npm run dev` 时，请先执行一次 `make desktop-vendor`。它监听
+`renderer/src/`、`renderer/index.html` 与 `renderer/styles.css`：修改后会重建
+`dist/renderer` 并让 Electron 无缓存刷新，ACP 子进程无需重启。`main/` 与
+`preload/` 只在启动时构建一次；修改后需要手动重启 Electron。开发模式自动打开
+DevTools，并将 Chrome DevTools Protocol 限制为 `127.0.0.1:9223`，可供本机自动化
+工具连接、截图和界面审阅；可用 `MOTHX_DESKTOP_DEBUG_PORT=9333 make desktop-dev`
+换用其他本地端口。它不启动 `mothx serve`，也不会向 renderer 增加 HTTP/API
+通道。
 
 ## 发布打包
 

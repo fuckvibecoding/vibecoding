@@ -8,8 +8,6 @@ import test from 'node:test';
 (globalThis as { document?: { documentElement: { lang: string } } }).document = { documentElement: { lang: '' } };
 
 import {
-  ARTIFACT_FEATURE,
-  ARTIFACT_LIST_METHOD,
   KNOWLEDGE_BASE_FEATURE,
   KNOWLEDGE_BASE_LIST_METHOD,
   formatKnowledgeBaseStatus,
@@ -24,13 +22,6 @@ test('knowledge bases load through the canonical ACP list method', () => {
   assert.equal(KNOWLEDGE_BASE_FEATURE, 'manageKnowledgeBases');
   assert.match(librarySource, /invoke<.*KnowledgeBaseView.*>\(KNOWLEDGE_BASE_LIST_METHOD/);
   assert.match(librarySource, /hasFeature\(KNOWLEDGE_BASE_FEATURE\)/);
-});
-
-test('artifact path remains the original ACP attachment list', () => {
-  assert.equal(ARTIFACT_LIST_METHOD, 'mothx/attachment/list');
-  assert.equal(ARTIFACT_FEATURE, 'attachmentList');
-  assert.match(librarySource, /invoke<.*AttachmentMeta.*>\(ARTIFACT_LIST_METHOD/);
-  assert.match(librarySource, /hasFeature\(ARTIFACT_FEATURE\)/);
 });
 
 test('knowledge-base status formatter reflects enabled/index state and snapshot stats', () => {

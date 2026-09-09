@@ -204,6 +204,7 @@ type sessionRuntime struct {
 	activeModel      *provider.Model
 	activeMode       string
 	activeThinking   provider.ThinkingLevel
+	activeSkills     map[string]bool
 	mcp              []*mcp.Client
 	agentMgr         *agent.AgentManager
 
@@ -1563,6 +1564,7 @@ func (s *server) handleInitialize(req rpcRequest) {
 				"manageStats",
 				"manageMemory",
 				"manageSkillHub",
+				"manageSkillHubCatalog",
 				"manageExperts",
 				"manageKnowledgeBases",
 				"manageEnv",
@@ -2479,11 +2481,18 @@ func (s *server) installSessionRuntime(rt *sessionRuntime) {
 }
 
 func (s *server) availableCommands() []availableCommand {
-	if s == nil || s.skillsMgr == nil {
+	if s == nil {
+		return nil
+	}
+	return s.availableCommandsFor(s.skillsMgr)
+}
+
+func (s *server) availableCommandsFor(manager *skills.Manager) []availableCommand {
+	if manager == nil {
 		return nil
 	}
 	commands := []availableCommand{{Name: systeminit.Command, Description: "Initialize project guidance", Meta: map[string]any{mothxExtensionNamespace: map[string]any{"kind": "command"}}}}
-	for _, skill := range s.skillsMgr.List() {
+	for _, skill := range manager.List() {
 		if skill == nil || strings.TrimSpace(skill.Name) == "" {
 			continue
 		}
@@ -2497,7 +2506,11 @@ func (s *server) availableCommands() []availableCommand {
 }
 
 func (s *server) notifyAvailableCommands(sessionID string) error {
-	commands := s.availableCommands()
+	return s.notifyAvailableCommandsFor(sessionID, s.skillsMgr)
+}
+
+func (s *server) notifyAvailableCommandsFor(sessionID string, manager *skills.Manager) error {
+	commands := s.availableCommandsFor(manager)
 	if len(commands) == 0 {
 		return nil
 	}
@@ -2531,14 +2544,22 @@ func (s *server) activateSkillPrompt(rt *sessionRuntime, text string) (bool, err
 	if name == "" || rt.runtime.SkillsMgr == nil || rt.runtime.SkillsMgr.Get(name) == nil {
 		return false, nil
 	}
+	if rt.activeSkills == nil {
+		rt.activeSkills = make(map[string]bool)
+	}
+	previous, existed := rt.activeSkills[name]
+	rt.activeSkills[name] = true
 	_, browserEnabled, _ := rt.runtime.CapabilitySnapshot()
 	if err := rt.runtime.RefreshResources(s.settings, agentruntime.RefreshOptions{
-		Workflows: s.workflows,
-		Browser:   browserEnabled,
-		ActiveSkills: map[string]bool{
-			name: true,
-		},
+		Workflows:    s.workflows,
+		Browser:      browserEnabled,
+		ActiveSkills: rt.activeSkills,
 	}); err != nil {
+		if existed {
+			rt.activeSkills[name] = previous
+		} else {
+			delete(rt.activeSkills, name)
+		}
 		return true, err
 	}
 	return true, nil
