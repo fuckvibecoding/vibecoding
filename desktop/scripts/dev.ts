@@ -25,6 +25,7 @@ const out = join(root, 'dist');
 const rendererOut = join(out, 'renderer');
 const rendererIn = join(root, 'renderer');
 const staticAssets = ['index.html', 'styles.css', 'mothx.png'];
+const devUserData = process.env.MOTHX_DESKTOP_USER_DATA || join(root, '.dev-user-data');
 
 function copyRendererStatic(): void {
   for (const name of staticAssets) {
@@ -98,7 +99,10 @@ function electronCommand(): { command: string; args: string[] } {
   // it stays attached for the entire Desktop session so the CDP endpoint stays
   // available for screenshots and review.
   const executable = process.platform === 'win32' ? 'electron.cmd' : 'electron';
-  return { command: join(root, 'node_modules', '.bin', executable), args: ['.', '--no-sandbox'] };
+  return {
+    command: join(root, 'node_modules', '.bin', executable),
+    args: ['.', '--no-sandbox', `--user-data-dir=${devUserData}`],
+  };
 }
 
 async function run(): Promise<void> {
@@ -110,9 +114,9 @@ async function run(): Promise<void> {
   const child = spawn(electronBin, electronArgs, {
     cwd: root,
     env: { ...process.env, MOTHX_DESKTOP_DEV: '1' },
-  stdio: 'inherit',
-  shell: process.platform === 'win32',
-});
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+  });
 
   let exited = false;
   function cleanup(signal: NodeJS.Signals): void {
@@ -125,6 +129,7 @@ async function run(): Promise<void> {
   process.on('SIGTERM', () => cleanup('SIGTERM'));
 
   child.on('exit', async (code) => {
+    console.log(`[desktop-dev] Electron exited with code ${code ?? 0}`);
     if (!exited) {
       exited = true;
       await rendererCtx.dispose();

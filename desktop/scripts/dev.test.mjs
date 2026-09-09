@@ -21,6 +21,7 @@ test('dev runner enables explicit dev mode when spawning Electron', () => {
     'dev runner must spawn Electron with MOTHX_DESKTOP_DEV=1',
   );
   assert.match(devScript, /node_modules', '\.bin'/, 'dev runner must keep the project-local Electron process attached');
+  assert.match(devScript, /--user-data-dir=\$\{devUserData\}/, 'dev runner must isolate itself from an installed Desktop instance');
 });
 
 test('npm run dev keeps the pure ACP architecture: no serve/HTTP proxy', () => {

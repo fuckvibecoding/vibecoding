@@ -27,7 +27,8 @@ This file contains the changes for the **current version only**. The full histor
 
 - **Desktop: Development Mode (`make desktop-dev` / `npm run dev`)**
   - New dev runner: watches `renderer/src/`, `renderer/index.html`, and `renderer/styles.css`, rebuilds `dist/renderer` on change, and reloads Electron without cache so the ACP child process does not restart; `main/` and `preload/` are built once at startup and require a manual restart after edits.
-  - Dev mode (`MOTHX_DESKTOP_DEV=1`) opens DevTools automatically, binds the Chrome DevTools Protocol to `127.0.0.1:9223` only (change the local port with `MOTHX_DESKTOP_DEBUG_PORT`), and reloads the window when renderer assets change; it does not start `mothx serve` and adds no HTTP/API channel to the renderer.
+  - Dev mode (`MOTHX_DESKTOP_DEV=1`) opens DevTools automatically in a detached external window (never docked inside the app), binds the Chrome DevTools Protocol to `127.0.0.1:9223` only (change the local port with `MOTHX_DESKTOP_DEBUG_PORT`), and reloads the window when renderer assets change; it does not start `mothx serve` and adds no HTTP/API channel to the renderer.
+  - The dev instance runs on an isolated user data directory (`desktop/.dev-user-data/`, overridable with `MOTHX_DESKTOP_USER_DATA`) so it never competes with an installed Desktop for the single-instance lock or reuses its local display state.
 
 - **Desktop: Online Skill Marketplace (SkillHub Catalog)**
   - New ACP feature key `manageSkillHubCatalog` and an additive `mothx/manage/skillhub/*` method family (markets/categories/official/search/detail/targets/installed/install/activate/uninstall) as a pure ACP projection of the shared SkillHub service; every request must bind to an active session, so Desktop cannot pick arbitrary install directories.

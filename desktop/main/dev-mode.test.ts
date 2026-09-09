@@ -95,11 +95,13 @@ test('enableDevModeWindow opens DevTools and watches the renderer dist directory
   try {
     let opened = false;
     let reloaded = false;
+    let devtoolsOptions: unknown;
     const fakeWin = {
       isDestroyed: () => false,
       webContents: {
-        openDevTools: () => {
+        openDevTools: (options?: unknown) => {
           opened = true;
+          devtoolsOptions = options;
         },
         reload: () => {
           reloaded = true;
@@ -109,6 +111,7 @@ test('enableDevModeWindow opens DevTools and watches the renderer dist directory
 
     const cleanup = enableDevModeWindow(fakeWin, dist);
     assert.equal(opened, true, 'DevTools should be opened in dev mode');
+    assert.deepEqual(devtoolsOptions, { mode: 'detach' }, 'DevTools should open in detached mode');
     assert.equal(typeof cleanup, 'function');
 
     // Touching a file inside the watched renderer dist should eventually reload

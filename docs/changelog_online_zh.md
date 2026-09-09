@@ -27,7 +27,8 @@
 
 - **Desktop：开发模式（`make desktop-dev` / `npm run dev`）**
   - 新增开发运行器：监听 `renderer/src/`、`renderer/index.html` 与 `renderer/styles.css`，变更后自动重建 `dist/renderer` 并无缓存刷新 Electron，ACP 子进程无需重启；`main/` 与 `preload/` 仅在启动时构建一次，修改后需手动重启。
-  - 开发模式（`MOTHX_DESKTOP_DEV=1`）自动打开 DevTools，Chrome DevTools Protocol 仅监听 `127.0.0.1:9223`（可用 `MOTHX_DESKTOP_DEBUG_PORT` 更换本地端口），renderer 产物变化时自动重载窗口；不启动 `mothx serve`，也不向 renderer 增加任何 HTTP/API 通道。
+  - 开发模式（`MOTHX_DESKTOP_DEV=1`）自动打开 DevTools（以独立外部窗口打开，不嵌入主窗口），Chrome DevTools Protocol 仅监听 `127.0.0.1:9223`（可用 `MOTHX_DESKTOP_DEBUG_PORT` 更换本地端口），renderer 产物变化时自动重载窗口；不启动 `mothx serve`，也不向 renderer 增加任何 HTTP/API 通道。
+  - 开发实例使用独立的 `desktop/.dev-user-data/` 用户数据目录（可用 `MOTHX_DESKTOP_USER_DATA` 覆盖），不会与已安装的 Desktop 争夺单实例锁，也不会复用其本地展示状态。
 
 - **Desktop：在线技能市场（SkillHub Catalog）**
   - 新增 ACP 特性键 `manageSkillHubCatalog` 与增量式 `mothx/manage/skillhub/*` 方法族（markets/categories/official/search/detail/targets/installed/install/activate/uninstall），为共享 SkillHub 服务的纯 ACP 投影；请求必须绑定活跃会话，Desktop 无法任意选择安装目录。

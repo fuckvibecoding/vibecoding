@@ -52,12 +52,14 @@ export function configureDevModeSwitches(commandLine: {
 }
 
 /**
- * Open DevTools and watch the generated renderer dist directory for changes.
+ * Open DevTools in a detached external window and watch the generated renderer dist directory for changes.
  * When any renderer asset is rebuilt, reload the BrowserWindow so the static
  * file:// page reflects the latest code. Returns a cleanup function.
  */
 export function enableDevModeWindow(win: BrowserWindow, rendererDist: string): () => void {
-  win.webContents.openDevTools();
+  // Always detach DevTools so it never docks inside the BrowserWindow and cannot
+  // influence layout/style review. The local CDP endpoint is unaffected.
+  win.webContents.openDevTools({ mode: 'detach' });
 
   let debounce: ReturnType<typeof setTimeout> | undefined;
   // The generated renderer assets are all direct children of this directory.

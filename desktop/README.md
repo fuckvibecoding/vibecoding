@@ -62,7 +62,7 @@ desktop 目录内：
 
 ```bash
 npm run build           # esbuild（main.cjs / preload.cjs / renderer/*）
-npm run dev             # renderer 热更新；DevTools + 127.0.0.1:9223 Chrome DevTools Protocol（先执行 make desktop-vendor）
+npm run dev             # renderer 热更新；DevTools 以独立外部窗口打开 + 127.0.0.1:9223 Chrome DevTools Protocol（先执行 make desktop-vendor）
 npm run typecheck       # tsc --noEmit（main + preload + renderer + scripts）
 npm test                # node --test + tsx --test（协议分帧/本地 store）
 npm run start           # version:set + ensure:electron + build:runtime + build + electron .
@@ -76,9 +76,11 @@ npm run start           # version:set + ensure:electron + build:runtime + build 
 `renderer/src/`、`renderer/index.html` 与 `renderer/styles.css`：修改后会重建
 `dist/renderer` 并让 Electron 无缓存刷新，ACP 子进程无需重启。`main/` 与
 `preload/` 只在启动时构建一次；修改后需要手动重启 Electron。开发模式自动打开
-DevTools，并将 Chrome DevTools Protocol 限制为 `127.0.0.1:9223`，可供本机自动化
+DevTools（以独立外部窗口打开，不嵌入主窗口），并将 Chrome DevTools Protocol 限制为 `127.0.0.1:9223`，可供本机自动化
 工具连接、截图和界面审阅；可用 `MOTHX_DESKTOP_DEBUG_PORT=9333 make desktop-dev`
-换用其他本地端口。它不启动 `mothx serve`，也不会向 renderer 增加 HTTP/API
+换用其他本地端口。开发实例使用 `desktop/.dev-user-data/`，不会与已安装 Desktop
+争夺单实例锁或复用其本地展示状态；可用 `MOTHX_DESKTOP_USER_DATA=/tmp/mothx-dev`
+覆盖该目录。它不启动 `mothx serve`，也不会向 renderer 增加 HTTP/API
 通道。
 
 ## 发布打包
