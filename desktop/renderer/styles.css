@@ -461,6 +461,7 @@ body.platform-darwin .win-controls { display: none; }
   box-sizing: border-box; flex: 0 0 auto;
 }
 .composer-tool span:not(.wi) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.composer-tool-icon { flex-shrink: 0; }
 .composer-tool:hover { background: var(--hover); color: var(--fg-strong); }
 .composer-tool.model { border-color: var(--border-strong); background: var(--card-bg); max-width: 190px; }
 .composer-tool.provider { border-color: var(--border-strong); background: var(--card-bg); max-width: 138px; }
