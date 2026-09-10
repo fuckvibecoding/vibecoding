@@ -7,11 +7,20 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"testing"
 )
+
+// foreignKeyEnforcementPattern matches every SQLite spelling that turns foreign
+// key enforcement ON: the mattn DSN _pragma forms foreign_keys(1)/(ON)/(TRUE)
+// and PRAGMA foreign_keys = 1/ON/TRUE, case-insensitively. Values that disable
+// enforcement (0, OFF, FALSE) intentionally do not match. internal/db/db.go is
+// the only file allowed to contain it; the canonical session database policy
+// keeps enforcement OFF.
+var foreignKeyEnforcementPattern = regexp.MustCompile(`(?i)foreign_keys\s*(?:\(\s*(?:1|on|true)\s*\)|=\s*(?:1|on|true))`)
 
 // TestProductionArchitectureGuard prevents adapters from silently reintroducing
 // complete Agent construction or canonical Run persistence. The allowlist is
@@ -55,15 +64,16 @@ func productionArchitectureViolations(root string) ([]string, error) {
 		// SQLite foreign key enforcement is owned solely by internal/db, which
 		// keeps it OFF for the canonical session database and exposes an opt-in
 		// for private, rebuildable derived stores. No other production file may
-		// construct a foreign_keys(1) DSN or PRAGMA, or it would silently
-		// re-activate the dormant REFERENCES clauses on canonical session data
-		// that project policy keeps in the repository layer instead.
+		// turn it ON in any spelling (foreign_keys(1)/(ON)/(TRUE) DSN pragmas or
+		// PRAGMA foreign_keys = ON/1/TRUE), or it would silently re-activate the
+		// dormant REFERENCES clauses on canonical session data that project
+		// policy keeps in the repository layer instead.
 		if filepath.ToSlash(rel) != "internal/db/db.go" {
 			content, readErr := os.ReadFile(path)
 			if readErr != nil {
 				return readErr
 			}
-			if strings.Contains(string(content), "foreign_keys(1)") || strings.Contains(string(content), "foreign_keys = ON") || strings.Contains(string(content), "foreign_keys=ON") {
+			if foreignKeyEnforcementPattern.Match(content) {
 				violations = append(violations, fmt.Sprintf("%s: SQLite foreign key enforcement is owned by internal/db; do not enable foreign_keys here", rel))
 			}
 		}
@@ -431,6 +441,44 @@ func project(service interface{ BeginDelivery() }) { service.BeginDelivery() }
 func persist(db interface{ ExecContext(...any) }) { db.ExecContext("UPDATE sessions SET cwd = ''") }
 `,
 			want: "direct database ExecContext",
+		},
+		{
+			name: "foreign key enforcement DSN pragma",
+			path: "internal/serve/adapter.go",
+			src: `package serve
+func open() { _ = "file:db?_pragma=foreign_keys(ON)" }
+`,
+			want: "SQLite foreign key enforcement is owned by internal/db",
+		},
+		{
+			name: "foreign key enforcement equality pragma",
+			path: "internal/serve/adapter.go",
+			src: `package serve
+func open() { _ = "PRAGMA foreign_keys = 1" }
+`,
+			want: "SQLite foreign key enforcement is owned by internal/db",
+		},
+		{
+			name: "foreign key enforcement lowercase pragma",
+			path: "internal/serve/adapter.go",
+			src: `package serve
+func open() { _ = "pragma foreign_keys = true" }
+`,
+			want: "SQLite foreign key enforcement is owned by internal/db",
+		},
+		{
+			name: "foreign key disable pragma is allowed",
+			path: "internal/serve/adapter.go",
+			src: `package serve
+func open() { _ = "PRAGMA foreign_keys = OFF" }
+`,
+		},
+		{
+			name: "bare foreign_keys pragma without enable value is allowed",
+			path: "internal/serve/adapter.go",
+			src: `package serve
+func open() { _ = "PRAGMA foreign_keys" }
+`,
 		},
 		{
 			name: "runtime store wiring is allowed",

@@ -36,14 +36,13 @@ type Migrator func(*sql.DB) error
 // writes, centralized deletion cleanup lists, and integrity tests such as
 // TestDeleteSessionRemovesEveryChildRow), not in the database engine, so that
 // cross-version recovery and partially corrupted canonical stores are never
-// amplified by hard constraints. See
-// docs/proposal/channel-config-runtime-binding-remediation.md and
-// docs/proposal/openai-responses-api-complete-proposal.md.
+// amplified by hard constraints.
 //
 // A private, rebuildable derived store may opt in. The per-knowledge-base
-// graph/FTS database designs its snapshot lifecycle around ON DELETE CASCADE
-// pruning and can always be rebuilt from its source directory, so it enables
-// enforcement without exposing canonical session data to it. Options must be
+// graph/FTS database (see docs/proposal/desktop-knowledge-base-agent-proposal.md)
+// designs its snapshot lifecycle around ON DELETE CASCADE pruning and can
+// always be rebuilt from its source directory, so it enables enforcement
+// without exposing canonical session data to it. Options must be
 // consistent for a given file path because connections are cached per path.
 type Options struct {
 	ForeignKeys bool

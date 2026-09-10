@@ -1,0 +1,485 @@
+/* MothX Desktop renderer — React + shadcn/ui + Tailwind CSS.
+   布局与视觉延续 workbuddy 原型:38px 标题栏 / 220px 侧边栏 / 22px 状态栏,
+   IDE Light / IDE Night 双主题。设计 token 采用 shadcn 规范命名并映射原
+   MothX 调色板:中性主色用于交互(primary=近黑/近白),绿色表示成功状态。
+   复杂的 CSS 系统(应用背景图、home 极光渐变、拖拽区、自动隐藏滚动条)保留
+   为组件层样式;其余界面样式一律使用 Tailwind 工具类。 */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+:root {
+  /* ---- shadcn 语义 token(IDE Light) ---- */
+  --background: #ffffff;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+  --primary: #111111;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #1a1a1a;
+  --muted: #f4f4f5;
+  --muted-foreground: #6b6b6b;
+  --accent: #ececec;
+  --accent-foreground: #1a1a1a;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: #e4e4e3;
+  --input: #d4d4d4;
+  --ring: #111111;
+
+  /* ---- MothX 扩展 token ---- */
+  --fg-strong: #1a1a1a;
+  --fg-muted: #6b6b6b;
+  --fg-faint: #9a9a9a;
+  --border-strong: #d4d4d4;
+  --hover: #ececec;
+  --active: #e8e8e6;
+  --placeholder-bg: #f4f4f5;
+  --titlebar-bg: #f8f8f7;
+  --sidebar-bg: #f5f5f4;
+  --statusbar-bg: #f8f8f7;
+  --code-bg: #f8f8f7;
+  --input-bg: #ffffff;
+  --blue: #3b82f6;
+  --blue-soft: rgba(59, 130, 246, 0.12);
+  --green: #22c55e;
+  --green-soft: #f0fdf4;
+  --amber: #d97706;
+  --amber-soft: rgba(217, 119, 6, 0.12);
+  --red: #dc2626;
+  --red-soft: rgba(220, 38, 38, 0.1);
+  --red-hover: #b91c1c;
+  --purple: #7c5cd6;
+  --purple-soft: rgba(124, 92, 214, 0.12);
+  --overlay: rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.14);
+
+  /* ---- 首页 macOS 材质与系统蓝 ---- */
+  --home-bg: #f5f5f7;
+  --home-surface: rgba(255, 255, 255, 0.72);
+  --home-surface-solid: #ffffff;
+  --home-border: rgba(60, 60, 67, 0.16);
+  --home-text: #1d1d1f;
+  --home-muted: #6e6e73;
+  --home-faint: #86868b;
+  --home-accent: #007aff;
+  --home-accent-hover: #0066cc;
+  --home-accent-soft: rgba(0, 122, 255, 0.12);
+  --home-accent-softer: rgba(0, 122, 255, 0.06);
+  --home-accent-shadow: rgba(0, 122, 255, 0.24);
+  --home-aurora-start: rgba(90, 200, 250, 0.28);
+  --home-aurora-end: rgba(52, 211, 153, 0.2);
+  --home-shadow: 0 18px 50px rgba(35, 35, 40, 0.12);
+  --home-image-overlay-rgb: 245 245 247;
+  --app-outline-rgb: 24 24 27;
+
+  /* ---- 骨架尺寸 ---- */
+  --titlebar-h: 38px;
+  --sidebar-w: 220px;
+  --statusbar-h: 22px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: Menlo, Monaco, "Courier New", monospace;
+  --radius-card: 12px;
+}
+
+[data-theme="dark"] {
+  --background: #111312;
+  --foreground: #f2f4f2;
+  --card: #111312;
+  --card-foreground: #f2f4f2;
+  --popover: #181a19;
+  --popover-foreground: #f2f4f2;
+  --primary: #f2f4f2;
+  --primary-foreground: #111312;
+  --secondary: #222522;
+  --secondary-foreground: #f2f4f2;
+  --muted: #222522;
+  --muted-foreground: #b5bbb5;
+  --accent: #222522;
+  --accent-foreground: #f2f4f2;
+  --destructive: #f87171;
+  --destructive-foreground: #111312;
+  --border: #2d302d;
+  --input: #3a3f3a;
+  --ring: #f2f4f2;
+
+  --fg-strong: #f2f4f2;
+  --fg-muted: #b5bbb5;
+  --fg-faint: #7f867f;
+  --border-strong: #3a3f3a;
+  --hover: #222522;
+  --active: #262a27;
+  --placeholder-bg: #222522;
+  --titlebar-bg: #181a19;
+  --sidebar-bg: #151716;
+  --statusbar-bg: #181a19;
+  --code-bg: #181a19;
+  --input-bg: #181a19;
+  --blue: #60a5fa;
+  --blue-soft: #111d2e;
+  --green: #22c55e;
+  --green-soft: #0f2418;
+  --red: #f87171;
+  --red-soft: #2a1515;
+  --red-hover: #fca5a5;
+  --shadow-sm: 0 1px 4px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --overlay: rgba(0, 0, 0, 0.5);
+
+  --home-bg: #000000;
+  --home-surface: rgba(28, 28, 30, 0.72);
+  --home-surface-solid: #1c1c1e;
+  --home-border: rgba(235, 235, 245, 0.16);
+  --home-text: #f5f5f7;
+  --home-muted: #a1a1a6;
+  --home-faint: #86868b;
+  --home-accent: #0a84ff;
+  --home-accent-hover: #409cff;
+  --home-accent-soft: rgba(10, 132, 255, 0.2);
+  --home-accent-softer: rgba(10, 132, 255, 0.1);
+  --home-accent-shadow: rgba(10, 132, 255, 0.32);
+  --home-aurora-start: rgba(10, 132, 255, 0.25);
+  --home-aurora-end: rgba(52, 211, 153, 0.22);
+  --home-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --home-image-overlay-rgb: 0 0 0;
+  --app-outline-rgb: 245 245 247;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-titlebar: var(--titlebar-bg);
+  --color-sidebar: var(--sidebar-bg);
+  --color-statusbar: var(--statusbar-bg);
+  --color-code: var(--code-bg);
+  --color-inputbg: var(--input-bg);
+  --color-placeholder: var(--placeholder-bg);
+  --color-hoverbg: var(--hover);
+  --color-activebg: var(--active);
+  --color-strong: var(--fg-strong);
+  --color-faint: var(--fg-faint);
+  --color-borderstrong: var(--border-strong);
+  --color-info: var(--blue);
+  --color-info-soft: var(--blue-soft);
+  --color-success: var(--green);
+  --color-success-soft: var(--green-soft);
+  --color-warning: var(--amber);
+  --color-warning-soft: var(--amber-soft);
+  --color-danger: var(--red);
+  --color-danger-soft: var(--red-soft);
+  --color-danger-hover: var(--red-hover);
+  --color-expert: var(--purple);
+  --color-expert-soft: var(--purple-soft);
+  --color-home-bg: var(--home-bg);
+  --color-home-surface: var(--home-surface);
+  --color-home-solid: var(--home-surface-solid);
+  --color-home-border: var(--home-border);
+  --color-home-text: var(--home-text);
+  --color-home-muted: var(--home-muted);
+  --color-home-faint: var(--home-faint);
+  --color-home-accent: var(--home-accent);
+  --color-home-accent-hover: var(--home-accent-hover);
+  --color-home-accent-soft: var(--home-accent-soft);
+  --color-home-accent-softer: var(--home-accent-softer);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --radius-card: var(--radius-card);
+
+  --shadow-panel: var(--shadow-sm);
+  --shadow-float: var(--shadow-md);
+  --shadow-overlay: var(--shadow-lg);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    color: var(--foreground);
+    background: var(--background);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(100, 100, 100, 0.4);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(100, 100, 100, 0.7);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* ---- Agent 文本 Markdown 排版(react-markdown 输出) ---- */
+  .md-body {
+    font-size: 13.5px;
+    line-height: 1.75;
+    color: var(--foreground);
+    word-break: break-word;
+  }
+  .md-body > *:first-child { margin-top: 0; }
+  .md-body > *:last-child { margin-bottom: 0; }
+  .md-body p { margin: 0 0 0.7em; }
+  .md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 {
+    font-weight: 700;
+    color: var(--fg-strong);
+    line-height: 1.35;
+    margin: 1.1em 0 0.5em;
+  }
+  .md-body h1 { font-size: 18px; }
+  .md-body h2 { font-size: 16.5px; }
+  .md-body h3 { font-size: 15px; }
+  .md-body h4, .md-body h5, .md-body h6 { font-size: 13.5px; }
+  .md-body ul { list-style: disc; padding-left: 1.3em; margin: 0 0 0.7em; }
+  .md-body ol { list-style: decimal; padding-left: 1.3em; margin: 0 0 0.7em; }
+  .md-body li { margin: 0.2em 0; }
+  .md-body li > ul, .md-body li > ol { margin-bottom: 0; }
+  .md-body ul:has(> li > input[type='checkbox']) { list-style: none; padding-left: 0.25em; }
+  .md-body input[type='checkbox'] { accent-color: var(--primary); margin-right: 6px; }
+  .md-body blockquote {
+    border-left: 2px solid var(--border-strong);
+    padding-left: 10px;
+    color: var(--muted-foreground);
+    margin: 0 0 0.7em;
+  }
+  .md-body code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 4px;
+  }
+  .md-body .md-pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0 0 0.7em;
+    max-height: 320px;
+    overflow: auto;
+  }
+  .md-body .md-pre code {
+    display: block;
+    background: transparent;
+    border: none;
+    padding: 0;
+    font-size: 11.5px;
+    line-height: 1.7;
+    white-space: pre;
+  }
+  .md-body table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    margin: 0 0 0.7em;
+    font-size: 12.5px;
+  }
+  .md-body th, .md-body td {
+    border: 1px solid var(--border);
+    padding: 4px 10px;
+    text-align: left;
+  }
+  .md-body th { background: var(--placeholder-bg); font-weight: 600; color: var(--fg-strong); }
+  .md-body tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--placeholder-bg) 55%, transparent); }
+  .md-body hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+  .md-body a.md-link { color: var(--info); text-decoration: underline; text-underline-offset: 2px; }
+  .md-body strong { font-weight: 600; color: var(--fg-strong); }
+  .md-body del { color: var(--muted-foreground); }
+  .md-body img.md-img { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); }
+  .md-img-chip {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    padding: 1px 6px;
+    border-radius: 6px;
+    border: 1px dashed var(--border-strong);
+    background: var(--placeholder-bg);
+    color: var(--muted-foreground);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---- 标题栏拖拽区域(macOS 使用原生红绿灯,左移让位) ---- */
+  .titlebar-drag {
+    user-select: none;
+    -webkit-app-region: drag;
+  }
+  .titlebar-drag button,
+  .titlebar-no-drag {
+    -webkit-app-region: no-drag;
+  }
+  body.platform-darwin .titlebar-drag {
+    padding-left: 78px;
+  }
+
+  /* ---- 应用背景图系统:runtime 通过 CSS 变量注入用户图片 ---- */
+  .app-shell {
+    position: relative;
+    isolation: isolate;
+  }
+  .app-shell.has-app-background::before {
+    content: "";
+    position: absolute;
+    inset: -28px;
+    z-index: 0;
+    pointer-events: none;
+    background-image: var(--app-user-image);
+    background-position: var(--app-user-image-position, center);
+    background-size: var(--app-user-image-size, cover);
+    background-repeat: var(--app-user-image-repeat, no-repeat);
+    opacity: var(--app-user-image-opacity, 0.32);
+    filter: blur(var(--app-user-image-blur, 0px));
+    transform: scale(1.04);
+  }
+  .app-shell.has-app-background::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background: rgb(var(--home-image-overlay-rgb) / var(--app-background-veil, 0));
+  }
+  /* 全局背景下的表面系统:结构面板安静半透明,交互控件携带稳定对比层,
+     保证在任意用户图片上可读。 */
+  .app-shell.has-app-background {
+    --app-control-bg: rgb(var(--home-image-overlay-rgb) / 0.78);
+    --app-control-bg-hover: rgb(var(--home-image-overlay-rgb) / 0.9);
+    --app-control-border: rgb(var(--app-outline-rgb) / 0.22);
+    --app-control-border-strong: rgb(var(--app-outline-rgb) / 0.34);
+    --app-control-shadow: 0 2px 10px rgb(var(--app-outline-rgb) / 0.12);
+    --app-titlebar-control-bg: rgb(var(--home-image-overlay-rgb) / 0.46);
+    --app-titlebar-control-hover: rgb(var(--home-image-overlay-rgb) / 0.6);
+    --app-titlebar-control-border: rgb(var(--app-outline-rgb) / 0.12);
+    --app-titlebar-control-shadow: 0 1px 4px rgb(var(--app-outline-rgb) / 0.06);
+    --hover: rgb(var(--home-image-overlay-rgb) / 0.18);
+    --active: rgb(var(--home-image-overlay-rgb) / 0.28);
+  }
+  .app-shell.has-app-background > .app-layer {
+    position: relative;
+    z-index: 1;
+  }
+  .app-surface-veil {
+    background: rgb(var(--home-image-overlay-rgb) / var(--app-surface-veil, 0.52));
+    backdrop-filter: blur(var(--app-surface-blur, 8px));
+  }
+  .app-control-surface {
+    background: var(--app-control-bg);
+    border-color: var(--app-control-border);
+    box-shadow: var(--app-control-shadow);
+    backdrop-filter: blur(10px);
+  }
+  .app-titlebar-surface {
+    background: var(--app-titlebar-control-bg);
+    border: 1px solid var(--app-titlebar-control-border);
+    box-shadow: var(--app-titlebar-control-shadow);
+    backdrop-filter: blur(10px) saturate(140%);
+  }
+
+  /* ---- 首页极光渐变 ---- */
+  .home-aurora {
+    background:
+      radial-gradient(760px circle at 16% -18%, var(--home-aurora-start), transparent 64%),
+      radial-gradient(640px circle at 88% 2%, var(--home-aurora-end), transparent 62%),
+      var(--home-bg);
+  }
+  .has-home-background .home-aurora {
+    background:
+      radial-gradient(760px circle at 16% -18%, var(--home-aurora-start), transparent 64%),
+      radial-gradient(640px circle at 88% 2%, var(--home-aurora-end), transparent 62%),
+      rgb(var(--home-image-overlay-rgb) / var(--app-background-veil, 0.72));
+  }
+  /* 仅首页背景:视图容器内独立图层 */
+  .home-background-layer {
+    position: absolute;
+    inset: -28px;
+    z-index: 0;
+    pointer-events: none;
+    background-image: var(--app-user-image);
+    background-position: var(--app-user-image-position, center);
+    background-size: var(--app-user-image-size, cover);
+    background-repeat: var(--app-user-image-repeat, no-repeat);
+    opacity: var(--app-user-image-opacity, 0.32);
+    filter: blur(var(--app-user-image-blur, 0px));
+    transform: scale(1.04);
+  }
+
+  /* ---- 侧边栏自动隐藏滚动条:交互时显示,静置 2s 后隐藏 ---- */
+  .autohide-scrollbar {
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    scrollbar-width: none;
+  }
+  .autohide-scrollbar.scrolling {
+    scrollbar-width: thin;
+    scrollbar-color: var(--fg-faint) transparent;
+  }
+  .autohide-scrollbar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  .autohide-scrollbar.scrolling::-webkit-scrollbar {
+    width: 8px;
+  }
+  .autohide-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .autohide-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--fg-faint);
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+  .autohide-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--fg-muted);
+  }
+}

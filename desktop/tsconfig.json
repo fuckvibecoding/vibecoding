@@ -9,7 +9,12 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node", "electron"]
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["renderer/src/*"]
+    },
+    "types": ["node", "electron", "vite/client"]
   },
-  "include": ["main/**/*.ts", "preload/**/*.ts", "renderer/**/*.ts", "scripts/**/*.ts"]
+  "include": ["main/**/*.ts", "preload/**/*.ts", "renderer/**/*.ts", "renderer/**/*.tsx", "scripts/**/*.ts"]
 }

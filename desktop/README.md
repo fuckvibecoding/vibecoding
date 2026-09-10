@@ -6,9 +6,9 @@ MothX Desktop 是一个**纯 ACP（Agent Client Protocol）客户端**：
   newline-delimited JSON-RPC（ACP v1 + `mothx.dev` 扩展）通信。
 - 主进程是唯一的 ACP client（`main/acp-client.ts`）；渲染进程只通过
   preload 暴露的 `window.mothx` IPC 桥访问协议，不直接接触子进程。
-- 前端是**独立的单页应用**（`desktop/renderer/`，TypeScript + 原生 DOM，
-  esbuild 打包），与 serve 模式的 Web UI（`ui/`）完全分离；桌面版不再启动
-  `mothx serve`，没有 HTTP/token 通道。
+- 前端是**独立的单页应用**（`desktop/renderer/`，React 19 + shadcn/ui +
+  Tailwind CSS，Vite 打包为 file:// 兼容的经典脚本），与 serve 模式的 Web UI
+  （`ui/`）完全分离；桌面版不再启动 `mothx serve`，没有 HTTP/token 通道。
 - 界面布局参考 workbuddy 桌面原型：38px 标题栏 / 220px 侧边栏 / 22px 状态栏，
   IDE Light / IDE Night 双主题，任务状态机（规划中/执行中/等待输入/已完成/失败），
   计划卡片、工具卡片（含 diff）、审批/提问卡片、制品卡片。
@@ -18,13 +18,17 @@ MothX Desktop 是一个**纯 ACP（Agent Client Protocol）客户端**：
 ```
 renderer (desktop/renderer)          main (desktop/main)                runtime
 ┌──────────────────────────┐   IPC   ┌──────────────────────┐  stdio  ┌──────────────┐
-│ index.html / styles.css  │◄───────►│ index.ts  窗口/生命周期 │◄───────►│ mothx acp    │
-│ src/main.ts   事件循环     │ context │ acp-client.ts JSON-RPC│ NDJSON  │ (vendored)   │
-│ src/chat.ts   转录投影     │ Bridge  │ ipc.ts    通道注册     │         │ ACP v1 +     │
-│ src/composer.ts 输入/附件  │         │ store.ts  UI 本地状态  │         │ mothx.dev ext│
-│ src/sessions.ts 会话操作   │         └──────────────────────┘         └──────────────┘
-└──────────────────────────┘
+│ React + shadcn/ui +      │◄───────►│ index.ts  窗口/生命周期 │◄───────►│ mothx acp    │
+│ Tailwind (Vite 构建)      │ context │ acp-client.ts JSON-RPC│ NDJSON  │ (vendored)   │
+│ core/  状态与 ACP 动作    │ Bridge  │ ipc.ts    通道注册     │         │ ACP v1 +     │
+│ views/ 视图与设置面板     │         │ store.ts  UI 本地状态  │         │ mothx.dev ext│
+└──────────────────────────┘         └──────────────────────┘         └──────────────┘
 ```
+
+渲染进程分层：`core/` 保存与 DOM 无关的中央状态、ACP 动作与 i18n 字典
+（`useSyncExternalStore` 桥接 React）；`components/ui/` 是 shadcn/ui 基础组件；
+`components/` 与 `views/` 是界面投影；`index.css` 定义设计 token（shadcn 语义
+变量映射 MothX 调色板）与少量 CSS 系统（应用背景图、自动隐藏滚动条、拖拽区）。
 
 协议使用（全部经 `acp-client.ts`）：
 
@@ -54,14 +58,14 @@ renderer (desktop/renderer)          main (desktop/main)                runtime
 
 ```bash
 make desktop-vendor     # npm ci + version:set + 源码构建 vendor 运行时
-make desktop-build      # esbuild 打包 main/preload/renderer 到 desktop/dist
+make desktop-build      # esbuild 打包 main/preload + Vite 打包 renderer 到 desktop/dist
 make desktop-dev        # 监听 renderer、自动刷新 Electron，并打开 DevTools / 本地 CDP
 ```
 
 desktop 目录内：
 
 ```bash
-npm run build           # esbuild（main.cjs / preload.cjs / renderer/*）
+npm run build           # esbuild（main.cjs / preload.cjs）+ Vite（renderer/*）
 npm run dev             # renderer 热更新；DevTools 以独立外部窗口打开 + 127.0.0.1:9223 Chrome DevTools Protocol（先执行 make desktop-vendor）
 npm run typecheck       # tsc --noEmit（main + preload + renderer + scripts）
 npm test                # node --test + tsx --test（协议分帧/本地 store）
@@ -72,9 +76,9 @@ npm run start           # version:set + ensure:electron + build:runtime + build 
 优先级最高；随后依次查找 vendor 目录与仓库 `bin/`）。
 
 `make desktop-dev` 会先准备 Desktop 运行时，再启动 `npm run dev`。直接在
-`desktop/` 中执行 `npm run dev` 时，请先执行一次 `make desktop-vendor`。它监听
-`renderer/src/`、`renderer/index.html` 与 `renderer/styles.css`：修改后会重建
-`dist/renderer` 并让 Electron 无缓存刷新，ACP 子进程无需重启。`main/` 与
+`desktop/` 中执行 `npm run dev` 时，请先执行一次 `make desktop-vendor`。它以 Vite
+watch 模式监听 `renderer/`：修改后会重建 `dist/renderer` 并让 Electron 无缓存刷新，
+ACP 子进程无需重启。`main/` 与
 `preload/` 只在启动时构建一次；修改后需要手动重启 Electron。开发模式自动打开
 DevTools（以独立外部窗口打开，不嵌入主窗口），并将 Chrome DevTools Protocol 限制为 `127.0.0.1:9223`，可供本机自动化
 工具连接、截图和界面审阅；可用 `MOTHX_DESKTOP_DEBUG_PORT=9333 make desktop-dev`
