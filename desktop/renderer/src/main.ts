@@ -148,11 +148,14 @@ function renderAll(): void {
   modeLabels.forEach((node) => {
     node.textContent = state.currentMode || '…';
   });
-  const modelLabels = document.querySelectorAll<HTMLElement>('#model-label, .model-label2');
   const provider = currentProviderLabel();
   const model = currentModelLabel();
+  document.querySelectorAll<HTMLElement>('#provider-label, .provider-label2').forEach((node) => {
+    node.textContent = provider || '…';
+  });
+  const modelLabels = document.querySelectorAll<HTMLElement>('#model-label, .model-label2');
   modelLabels.forEach((node) => {
-    node.textContent = provider && model !== '…' ? `${provider} · ${model}` : model;
+    node.textContent = model;
   });
   const expertOption = state.activeSessionId ? state.configOptions.find((option) => option.id === 'expert') : state.draftConfigOptions.find((option) => option.id === 'expert');
   const expertAvailable = Boolean(expertOption?.options?.length);
@@ -222,11 +225,6 @@ async function bootstrap(): Promise<void> {
   require$('#chat-rename').title = t('chat.rename');
   require$('#chat-delete').title = t('chat.delete');
   require$('#settings-ws-icon').appendChild(iconSpan('folder'));
-  require$('#settings-theme-icon').appendChild(iconSpan('sun'));
-  require$('#settings-lang-icon').appendChild(iconSpan('globe'));
-  require$('#settings-home-bg-icon').appendChild(iconSpan('image'));
-  require$('#settings-home-opacity-icon').appendChild(iconSpan('sliders'));
-  require$('#settings-home-blur-icon').appendChild(iconSpan('sliders'));
   require$('#settings-conn-icon').appendChild(iconSpan('zap'));
   require$('#settings-doctor-icon').appendChild(iconSpan('shield'));
   require$('#settings-about-icon').appendChild(iconSpan('cpu'));

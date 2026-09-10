@@ -55,8 +55,17 @@ This file contains the changes for the **current version only**. The full histor
   - A session allows exactly one foreground execution at a time. Previously, submitting input while a run was active replaced the in-memory run handle, orphaning the active run's terminal cleanup and its runtime lease. Such submissions are now queued in the TUI, and the next queued prompt starts only after the preceding run reaches its canonical terminal state and releases its lease — across every terminal branch (success, failure, incomplete, and cancellation).
   - Queued prompts retain their Runtime-prepared attachments (`agentruntime.PreparedInput`) and re-enter through the same input contract, so attachments survive the delay unchanged.
 
+- **TUI: `/defaultModel` Shares the `/model` Catalog Logic**
+  - The `/defaultModel` picker now resolves each provider's model list through `providerfactory.ResolvedModels` — the same factory-resolved catalog (built-in presets merged with settings overrides) that backs `/model` and the WebUI picker — instead of re-parsing raw `settings.json` models. A provider whose settings entry declares only credentials or a partial model list no longer hides the remaining built-in models.
+
+- **WebUI: Windows Native Directory Picker No Longer Corrupts Chinese/Full-Width Directory Names**
+  - `/api/select-directory` outputs the selected path from a PowerShell `FolderBrowserDialog` on Windows. Redirected stdout of Windows PowerShell 5.1 defaults to the ANSI/OEM code page (GBK on Chinese systems), so the Go side read non-UTF-8 bytes and Chinese or full-width directory names came back corrupted and failed path resolution. The picker script now forces `[Console]::OutputEncoding` to UTF-8 before writing the selection (pwsh 7 already defaults to UTF-8 when redirected, so both hosts now behave identically).
+  - Picker output only strips the trailing newline instead of applying Unicode-aware `TrimSpace`: directory names that legitimately start or end with a space or a full-width space (U+3000) are no longer silently truncated.
+
 ### ✅ Tests
 
 - TUI: new coverage asserting that input during an active run queues without replacing the lease owner, and that the queued prompt starts only after the cancellation path finalizes the durable run and releases its lease.
+- TUI: `/defaultModel` coverage asserting the dialog's model list matches the factory-created provider list (the `/model` path) for both partial-override and credential-only settings entries.
+- WebUI: new Windows directory-picker regression tests asserting the script forces UTF-8 output encoding before writing the selection and passes the default path through the UTF-16 environment block, plus output-trimming coverage for a path ending in a full-width space.
 - Expert Teams: Runtime binding/fork, named-member events, TUI and Serve no-direct-run guards, ACP bind/fork process coverage, Desktop projection, and cross-entry ESM idle-gate coverage.
 - Channels: an all-selectable-tools contract test verifies that every available persisted tool selection is present in the resolved session registry.

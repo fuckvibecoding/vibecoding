@@ -18,19 +18,26 @@ export function renderHome(): void {
   quick.textContent = '';
   const isZh = getLocale() === 'zh';
   const items = isZh ? preset.quickZh : preset.quickEn;
+  const tags = isZh ? preset.tagZh : preset.tagEn;
   const prompts = isZh ? preset.promptsZh : preset.promptsEn;
   for (let i = 0; i < items.length; i++) {
     const label = items[i];
     const prompt = prompts[i] ?? label;
-    const chip = el('button', 'quick-chip');
-    chip.appendChild(iconSpan('sparkle'));
-    chip.appendChild(el('span', '', label));
-    chip.addEventListener('click', () => {
+    const tag = tags[i] ?? '';
+    const card = el('button', 'quick-card');
+    const body = el('span', 'quick-card-body');
+    const top = el('span', 'quick-card-top');
+    top.appendChild(el('span', 'quick-card-tag', tag));
+    top.appendChild(iconSpan('sparkle', 'sm'));
+    body.appendChild(top);
+    body.appendChild(el('span', 'quick-card-label', label));
+    card.appendChild(body);
+    card.addEventListener('click', () => {
       const input = require$('#home-input') as HTMLTextAreaElement;
       input.value = prompt;
       input.focus();
     });
-    quick.appendChild(chip);
+    quick.appendChild(card);
   }
 }
 

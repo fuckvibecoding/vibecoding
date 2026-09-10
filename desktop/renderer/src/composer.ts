@@ -117,7 +117,7 @@ const pendingConfig: { provider?: string; model?: string; mode?: string; expert?
 
 interface ProviderCatalogResult {
   providers?: { name?: string }[];
-  models?: { id?: string; name?: string; provider?: string; reasoning?: boolean }[];
+  models?: { id?: string; name?: string; provider?: string; reasoning?: boolean; input?: string[] }[];
   defaultProvider?: string;
   defaultModel?: string;
 }
@@ -126,10 +126,19 @@ interface DraftConfigOptionsResult {
   configOptions?: SessionConfigOptionShape[];
 }
 
+interface ModelChoice {
+  value: string;
+  name: string;
+  description: string;
+  input: string[];
+  reasoning: boolean;
+}
+
 // Ephemeral menu cache of the ACP response. It is not a provider catalog: it
 // only lets the selected provider immediately swap to its already-projected
 // model choices without inventing local resolution rules.
-let draftModelsByProvider: Record<string, NonNullable<SessionConfigOptionShape['options']>> = {};
+let draftModelsByProvider: Record<string, ModelChoice[]> = {};
+let catalogCapabilities: Map<string, ModelChoice> = new Map();
 
 // Populate the next-task model picker from ACP's provider factory projection.
 // The desktop only reshapes the protocol response for a menu; provider/model
@@ -146,15 +155,20 @@ export async function refreshDraftConfigOptions(): Promise<void> {
     const preferredProvider = pendingConfig.provider || existingProvider || result.defaultProvider || '';
     const provider = providerChoices.some((choice) => choice.value === preferredProvider) ? preferredProvider : providerChoices[0]?.value || '';
     draftModelsByProvider = {};
+    catalogCapabilities = new Map();
     for (const model of result.models || []) {
       if (!model.provider || !model.id) continue;
-      const choices = draftModelsByProvider[model.provider] || [];
-      choices.push({
+      const choice: ModelChoice = {
         value: String(model.id),
         name: String(model.name || model.id),
-        description: model.reasoning ? 'reasoning' : '',
-      });
+        description: model.reasoning ? t('composer.reasoning') : '',
+        input: Array.isArray(model.input) ? model.input.slice() : [],
+        reasoning: Boolean(model.reasoning),
+      };
+      const choices = draftModelsByProvider[model.provider] || [];
+      choices.push(choice);
       draftModelsByProvider[model.provider] = choices;
+      catalogCapabilities.set(`${model.provider}:${model.id}`, choice);
     }
     const modelChoices = draftModelsByProvider[provider] || [];
     const existingModel = state.draftConfigOptions.find((option) => option.id === 'model')?.currentValue;
@@ -183,8 +197,12 @@ function setDraftConfigOption(configId: string, value: string): void {
     if (provider) provider.currentValue = value;
     const model = state.draftConfigOptions.find((option) => option.id === 'model');
     const choices = draftModelsByProvider[value] || [];
-    if (model) model.options = choices;
-    const nextModel = choices[0]?.value || '';
+    if (model) {
+      model.options = choices.map((choice) => ({ value: choice.value, name: choice.name, description: choice.description }));
+    }
+    const currentModel = model?.currentValue;
+    const preferredModel = pendingConfig.model || currentModel;
+    const nextModel = choices.some((choice) => choice.value === preferredModel) ? preferredModel || '' : choices[0]?.value || '';
     if (model) model.currentValue = nextModel;
     pendingConfig.model = nextModel || undefined;
     return;
@@ -217,6 +235,26 @@ export async function applyConfigOption(configId: string, value: string): Promis
       state.configOptions = result.configOptions;
     }
     if (configId === 'mode') state.currentMode = value;
+    // When the provider changes on an active session, the Runtime may already
+    // have selected a default model. If the current model is not in the new
+    // provider's projected options, fall back to the first available model so
+    // the Model selector stays in sync without inventing local defaults.
+    if (configId === 'provider') {
+      const modelOption = state.configOptions.find((option) => option.id === 'model');
+      const currentModel = modelOption?.currentValue;
+      const hasValidModel = modelOption?.options?.some((choice) => choice.value === currentModel);
+      if (!hasValidModel && modelOption?.options && modelOption.options.length > 0) {
+        const nextModel = modelOption.options[0].value;
+        const modelResult = await invoke<{ configOptions?: typeof state.configOptions }>('session/set_config_option', {
+          sessionId: state.activeSessionId,
+          configId: 'model',
+          value: nextModel,
+        });
+        if (Array.isArray(modelResult?.configOptions) && modelResult.configOptions.length > 0) {
+          state.configOptions = modelResult.configOptions;
+        }
+      }
+    }
   } catch (error) {
     toast(`${configId}: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -405,31 +443,32 @@ export function bindComposer(textareaId: string, sendId: string, source: 'home' 
 
 export function renderModelMenu(): void {
   const menu = require$('#model-menu');
-  menu.textContent = '';
   const configOptions = currentConfigOptions();
   const providerOption = configOptions.find((option) => option.id === 'provider');
   const modelOption = configOptions.find((option) => option.id === 'model');
-  if (providerOption && providerOption.options?.length) {
-    menu.appendChild(menuHead('Provider'));
-    for (const choice of providerOption.options) {
-      menu.appendChild(menuItem('cpu', choice.name, '', choice.value === providerOption.currentValue, () => {
-        void applyConfigOption('provider', choice.value);
-        hideMenus();
-      }));
-    }
-  }
-  if (modelOption && modelOption.options?.length) {
-    menu.appendChild(menuHead('Model'));
-    for (const choice of modelOption.options) {
-      menu.appendChild(menuItem('cpu', choice.name, choice.description || '', choice.value === modelOption.currentValue, () => {
-        void applyConfigOption('model', choice.value);
-        hideMenus();
-      }));
-    }
-  }
-  if (menu.childElementCount === 0) {
-    menu.appendChild(menuHead(t('menu.noCommands')));
-  }
+  const provider = providerOption?.currentValue || '';
+  const choices = modelOption?.options || [];
+  renderSearchableMenu(menu, t('composer.model'), t('composer.searchModel'), choices,
+    (choice) => {
+      const capability = catalogCapabilities.get(`${provider}:${choice.value}`);
+      return [choice.value, choice.name, choice.description, ...(capability?.input || []), capability?.reasoning ? t('composer.reasoning') : ''].join(' ');
+    },
+    (choice) => modelMenuItem(provider, choice, choice.value === modelOption?.currentValue, () => {
+      void applyConfigOption('model', choice.value);
+      hideMenus();
+    }));
+}
+
+export function renderProviderMenu(): void {
+  const menu = require$('#provider-menu');
+  const providerOption = currentConfigOptions().find((option) => option.id === 'provider');
+  const choices = providerOption?.options || [];
+  renderSearchableMenu(menu, t('composer.provider'), t('composer.searchProvider'), choices,
+    (choice) => `${choice.value} ${choice.name} ${choice.description || ''}`,
+    (choice) => menuItem('cloud', choice.name, choice.description || '', choice.value === providerOption?.currentValue, () => {
+      void applyConfigOption('provider', choice.value);
+      hideMenus();
+    }));
 }
 
 export function renderModeMenu(): void {
@@ -521,6 +560,68 @@ function menuItem(icon: string, label: string, description: string, selected: bo
   return item;
 }
 
+function modelMenuItem(provider: string, choice: NonNullable<SessionConfigOptionShape['options']>[number], selected: boolean, onClick: () => void): HTMLElement {
+  const capability = catalogCapabilities.get(`${provider}:${choice.value}`);
+  const item = menuItem('cpu', choice.name, choice.description || '', selected, onClick);
+  const badges = el('span', 'p-badges');
+  for (const input of capability?.input || []) badges.appendChild(el('span', 'model-cap', modalityLabel(input)));
+  if (capability?.reasoning) badges.appendChild(el('span', 'model-cap reasoning', t('composer.reasoning')));
+  if (badges.childElementCount > 0) item.appendChild(badges);
+  return item;
+}
+
+function modalityLabel(kind: string): string {
+  const key = `composer.capability.${kind}`;
+  const translated = t(key);
+  return translated === key ? kind : translated;
+}
+
+function renderSearchableMenu(
+  menu: HTMLElement,
+  heading: string,
+  placeholder: string,
+  choices: NonNullable<SessionConfigOptionShape['options']>,
+  searchableText: (choice: NonNullable<SessionConfigOptionShape['options']>[number]) => string,
+  buildItem: (choice: NonNullable<SessionConfigOptionShape['options']>[number]) => HTMLElement,
+): void {
+  menu.textContent = '';
+  menu.appendChild(menuHead(heading));
+  const search = document.createElement('input');
+  search.type = 'search';
+  search.className = 'pop-search';
+  search.placeholder = placeholder;
+  search.setAttribute('aria-label', placeholder);
+  const list = el('div', 'pop-list');
+  const render = () => {
+    const query = search.value.trim().toLocaleLowerCase();
+    list.textContent = '';
+    const visible = choices.filter((choice) => !query || searchableText(choice).toLocaleLowerCase().includes(query));
+    if (visible.length === 0) {
+      list.appendChild(el('div', 'pop-empty', t('composer.noMatches')));
+      return;
+    }
+    for (const choice of visible) list.appendChild(buildItem(choice));
+  };
+  search.addEventListener('input', render);
+  search.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      hideMenus();
+      return;
+    }
+    if (event.key === 'Enter') {
+      const first = list.querySelector<HTMLButtonElement>('button');
+      if (first) {
+        event.preventDefault();
+        first.click();
+      }
+    }
+  });
+  menu.append(search, list);
+  render();
+  window.setTimeout(() => search.focus(), 0);
+}
+
 export function renderCapsMenu(): void {
   const menu = require$('#caps-menu');
   menu.textContent = '';
@@ -570,6 +671,15 @@ export function bindMenus(): void {
   require$('#model-btn').addEventListener('click', openModel);
   require$('#model-btn2').addEventListener('click', openModel);
 
+  const providerMenu = require$('#provider-menu');
+  const openProvider = (event: MouseEvent) => {
+    event.stopPropagation();
+    renderProviderMenu();
+    showMenu(providerMenu, event.currentTarget as HTMLElement);
+  };
+  require$('#provider-btn').addEventListener('click', openProvider);
+  require$('#provider-btn2').addEventListener('click', openProvider);
+
   const modeMenu = require$('#mode-menu');
   const openMode = (event: MouseEvent) => {
     event.stopPropagation();
@@ -599,7 +709,7 @@ export function bindMenus(): void {
 
   document.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
-    if (!target.closest('.pop-menu') && !target.closest('#plus-btn') && !target.closest('#plus-btn2') && !target.closest('#model-btn') && !target.closest('#model-btn2') && !target.closest('#mode-btn') && !target.closest('#mode-btn2') && !target.closest('#expert-btn') && !target.closest('#expert-btn2') && !target.closest('#caps-btn') && !target.closest('#caps-btn2')) {
+    if (!target.closest('.pop-menu') && !target.closest('#plus-btn') && !target.closest('#plus-btn2') && !target.closest('#provider-btn') && !target.closest('#provider-btn2') && !target.closest('#model-btn') && !target.closest('#model-btn2') && !target.closest('#mode-btn') && !target.closest('#mode-btn2') && !target.closest('#expert-btn') && !target.closest('#expert-btn2') && !target.closest('#caps-btn') && !target.closest('#caps-btn2')) {
       hideMenus();
     }
   });

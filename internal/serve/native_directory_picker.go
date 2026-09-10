@@ -73,16 +73,26 @@ end try`, appleScriptString(defaultPath))
 	return runDirectoryPicker(ctx, "osascript", "-e", script)
 }
 
-func openWindowsDirectoryPicker(ctx context.Context, defaultPath string) (string, error) {
-	const script = `$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+// windowsDirectoryPickerScript renders the folder picker and writes the
+// selection to stdout. Windows PowerShell 5.1 encodes redirected stdout with
+// the ANSI/OEM code page (for example GBK on Chinese systems), which corrupts
+// non-ASCII paths such as Chinese or full-width directory names; the Go side
+// always reads the output as UTF-8, so force UTF-8 first. pwsh 7 already
+// defaults to UTF-8 for redirected output, and the explicit assignment keeps
+// both hosts identical. The default path is passed through an environment
+// variable because the process environment block is UTF-16 on Windows.
+const windowsDirectoryPickerScript = `[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
 $dialog.Description = 'Select working directory'
 $dialog.SelectedPath = $env:MOTHX_DIRECTORY_PICKER_PATH
 if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.SelectedPath) }`
+
+func openWindowsDirectoryPicker(ctx context.Context, defaultPath string) (string, error) {
 	for _, name := range []string{"powershell.exe", "pwsh.exe"} {
 		if _, err := exec.LookPath(name); err != nil {
 			continue
 		}
-		cmd := exec.CommandContext(ctx, name, "-NoProfile", "-NonInteractive", "-STA", "-Command", "Add-Type -AssemblyName System.Windows.Forms; "+script)
+		cmd := exec.CommandContext(ctx, name, "-NoProfile", "-NonInteractive", "-STA", "-Command", "Add-Type -AssemblyName System.Windows.Forms; "+windowsDirectoryPickerScript)
 		cmd.Env = append(os.Environ(), "MOTHX_DIRECTORY_PICKER_PATH="+defaultPath)
 		return runDirectoryPickerCommand(ctx, cmd)
 	}
@@ -111,7 +121,11 @@ func runDirectoryPickerCommand(ctx context.Context, cmd *exec.Cmd) (string, erro
 		}
 		return "", fmt.Errorf("native directory picker: %w", err)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	// Strip only the trailing newline that picker tools append. Trimming all
+	// Unicode whitespace would corrupt legitimate directory names that start
+	// or end with a space or a full-width space (U+3000), which NTFS and Unix
+	// filesystems both allow.
+	return strings.TrimRight(stdout.String(), "\r\n"), nil
 }
 
 func appleScriptString(value string) string {

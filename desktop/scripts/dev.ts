@@ -1,6 +1,6 @@
-import { build, context } from 'esbuild';
+import { build, context, type Plugin } from 'esbuild';
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, watch as fsWatch } from 'node:fs';
+import { cpSync, mkdirSync, watch as fsWatch, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -26,12 +26,18 @@ const rendererOut = join(out, 'renderer');
 const rendererIn = join(root, 'renderer');
 const staticAssets = ['index.html', 'styles.css', 'mothx.png'];
 const devUserData = process.env.MOTHX_DESKTOP_USER_DATA || join(root, '.dev-user-data');
+const rendererReadySignal = join(rendererOut, '.mothx-renderer-ready');
+
+function notifyRendererReady(): void {
+  writeFileSync(rendererReadySignal, String(Date.now()));
+}
 
 function copyRendererStatic(): void {
   for (const name of staticAssets) {
     const source = join(rendererIn, name === 'mothx.png' ? join('..', 'resources', name) : name);
     cpSync(source, join(rendererOut, name));
   }
+  notifyRendererReady();
 }
 
 async function buildMainAndPreload(): Promise<void> {
@@ -62,6 +68,14 @@ async function buildRenderer(): Promise<ReturnType<typeof context>> {
   mkdirSync(rendererOut, { recursive: true });
   copyRendererStatic();
 
+  const signalRendererReady: Plugin = {
+    name: 'desktop-dev-renderer-ready',
+    setup(buildContext) {
+      buildContext.onEnd((result) => {
+        if (result.errors.length === 0) notifyRendererReady();
+      });
+    },
+  };
   const ctx = await context({
     entryPoints: [join(rendererIn, 'src', 'main.ts')],
     outfile: join(rendererOut, 'main.js'),
@@ -70,6 +84,7 @@ async function buildRenderer(): Promise<ReturnType<typeof context>> {
     format: 'iife',
     target: 'chrome120',
     sourcemap: true,
+    plugins: [signalRendererReady],
   });
 
   // Complete the first bundle before launching Electron. Subsequent source

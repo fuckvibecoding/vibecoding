@@ -14,6 +14,7 @@ export const DESKTOP_DEV_ENV = 'MOTHX_DESKTOP_DEV';
  * Default localhost-only Chrome remote debugging port used in explicit dev mode.
  */
 export const DEFAULT_DESKTOP_DEV_REMOTE_DEBUGGING_PORT = 9223;
+export const DESKTOP_RENDERER_READY_SIGNAL = '.mothx-renderer-ready';
 
 /**
  * Returns true when the desktop dev runner has enabled development mode.
@@ -52,9 +53,11 @@ export function configureDevModeSwitches(commandLine: {
 }
 
 /**
- * Open DevTools in a detached external window and watch the generated renderer dist directory for changes.
- * When any renderer asset is rebuilt, reload the BrowserWindow so the static
- * file:// page reflects the latest code. Returns a cleanup function.
+ * Open DevTools in a detached external window and watch only the renderer
+ * ready signal. The development builder writes that marker after a complete
+ * bundle/static-asset update; watching individual output files can reload
+ * file:// while index.html is temporarily being replaced and cause a blank
+ * renderer. Returns a cleanup function.
  */
 export function enableDevModeWindow(win: BrowserWindow, rendererDist: string): () => void {
   // Always detach DevTools so it never docks inside the BrowserWindow and cannot
@@ -62,11 +65,10 @@ export function enableDevModeWindow(win: BrowserWindow, rendererDist: string): (
   win.webContents.openDevTools({ mode: 'detach' });
 
   let debounce: ReturnType<typeof setTimeout> | undefined;
-  // The generated renderer assets are all direct children of this directory.
-  // Avoid recursive watching: Node does not support it on Linux.
+  // Avoid recursive watching: Node does not support it on Linux. More
+  // importantly, do not reload on main.js/index.html/styles.css writes.
   const watcher = watch(rendererDist, (_event, filename) => {
-    // Ignore macOS .DS_Store and similar metadata churn.
-    if (filename && filename.startsWith('.')) return;
+    if (String(filename) !== DESKTOP_RENDERER_READY_SIGNAL) return;
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(() => {
       if (win.isDestroyed()) return;

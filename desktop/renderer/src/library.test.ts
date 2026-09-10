@@ -77,3 +77,21 @@ test('manage-knowledge action routes to Settings knowledge tab', () => {
   assert.match(librarySource, /switchView\(['"]settings['"]\)/);
   assert.match(librarySource, /openSettingsTab\(['"]knowledge['"]\)/);
 });
+
+test('library nav subtitle uses knowledge index copy, not ACP gap', () => {
+  const indexHtml = readFileSync(join(here, '..', 'index.html'), 'utf8');
+  const i18nSource = readFileSync(join(here, 'i18n.ts'), 'utf8');
+
+  // The Library sidebar item must reference the new nav.librarySub key.
+  assert.match(indexHtml, /data-nav="library".*data-i18n="nav\.librarySub"/s);
+
+  // The legacy ACP gap subtitle must no longer exist anywhere in the source.
+  assert.ok(!indexHtml.includes('nav.gapSub'), 'index.html must not reference nav.gapSub');
+  assert.ok(!i18nSource.includes("'nav.gapSub'"), 'i18n.ts must not define nav.gapSub');
+  assert.ok(!indexHtml.includes('ACP 缺口'), 'index.html must not contain the old ACP gap Chinese copy');
+  assert.ok(!indexHtml.includes('ACP gap'), 'index.html must not contain the old ACP gap English copy');
+
+  // The new subtitle keys and values are present in both locales.
+  assert.ok(i18nSource.includes("'nav.librarySub': '目录索引'"));
+  assert.ok(i18nSource.includes("'nav.librarySub': 'Directory index'"));
+});

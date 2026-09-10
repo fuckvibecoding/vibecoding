@@ -52,9 +52,13 @@
   - 同一会话同一时刻只允许一个前台执行。此前在运行进行中提交输入会直接替换内存中的运行句柄，导致活跃运行的终态清理与运行时租约被孤立。现在此类提交会在 TUI 中排队，仅当前一个运行到达规范终态并释放租约后，才启动下一个排队提示词 —— 覆盖所有终态分支（成功、失败、未完成与取消）。
   - 排队的提示词保留 Runtime 预制的附件（`agentruntime.PreparedInput`），并通过同一输入契约重新提交，附件在延迟期间保持不变。
 
+- **TUI：`/defaultModel` 与 `/model` 共用同一模型目录逻辑**
+  - `/defaultModel` 选择器现在通过 `providerfactory.ResolvedModels` 解析每个 Provider 的模型列表 —— 与 `/model` 和 WebUI 选择器背后同一套工厂解析目录（内置预设与 settings 覆盖合并）—— 不再直接解析原始 `settings.json` 的 models。settings 条目仅配置凭据或部分模型的 Provider 不再丢失其余内置模型。
+
 ### ✅ 测试
 
 - TUI：新增测试断言运行期间提交的输入仅排队而不替换租约持有者，且排队提示词只有在取消流程完成持久化运行终态并释放租约之后才会启动。
+- TUI：`/defaultModel` 新增覆盖，断言对话框模型列表与工厂创建的 Provider 列表（`/model` 路径）一致，覆盖部分模型覆盖与仅凭据两类 settings 条目。
 - 主角团：覆盖 Runtime 绑定/分叉、命名成员事件、TUI 与 Serve 的“成员终态不直接开 run”守卫、ACP bind/fork 进程路径、Desktop 投影与跨入口 ESM 空闲 gate。
 - 频道：全“可选工具”契约测试验证每个可用的持久化工具选择都会出现在解析后的会话 Registry 中。
 

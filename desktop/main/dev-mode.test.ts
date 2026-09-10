@@ -7,6 +7,7 @@ import test from 'node:test';
 import {
   configureDevModeSwitches,
   DEFAULT_DESKTOP_DEV_REMOTE_DEBUGGING_PORT,
+  DESKTOP_RENDERER_READY_SIGNAL,
   DESKTOP_DEV_ENV,
   devRemoteDebuggingPort,
   enableDevModeWindow,
@@ -90,7 +91,7 @@ test('rendererDistPath points at the renderer beside the generated main bundle',
   assert.equal(rendererDistPath(mainDistDir), join(mainDistDir, 'renderer'));
 });
 
-test('enableDevModeWindow opens DevTools and watches the renderer dist directory', () => {
+test('enableDevModeWindow opens detached DevTools and reloads only after the renderer ready signal', async () => {
   const dist = mkdtempSync(join(tmpdir(), 'mothx-desktop-dev-reload-'));
   try {
     let opened = false;
@@ -114,11 +115,15 @@ test('enableDevModeWindow opens DevTools and watches the renderer dist directory
     assert.deepEqual(devtoolsOptions, { mode: 'detach' }, 'DevTools should open in detached mode');
     assert.equal(typeof cleanup, 'function');
 
-    // Touching a file inside the watched renderer dist should eventually reload
-    // the renderer. We do not wait for the debounced callback because fs.watch
-    // timing is platform-specific; the cleanup function itself is the primary
-    // observable contract we guarantee.
+    // Ordinary bundle writes must not reload file:// while index.html can be
+    // transiently replaced. The ready signal is emitted only after a complete
+    // renderer build/copy cycle.
     writeFileSync(join(dist, 'main.js'), 'console.log("changed")');
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    assert.equal(reloaded, false, 'individual renderer files must not trigger an intermediate reload');
+    writeFileSync(join(dist, DESKTOP_RENDERER_READY_SIGNAL), String(Date.now()));
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    assert.equal(reloaded, true, 'the ready signal must reload the completed renderer');
     cleanup();
   } finally {
     rmSync(dist, { recursive: true, force: true });
