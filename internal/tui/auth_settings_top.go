@@ -103,6 +103,7 @@ func (a *App) authSettingsTopLevelOptions(v authView) []authOption {
 		opts = []authOption{
 			{Title: tr(i18n.MsgSettingsFieldTheme), Description: valueOrDefault(s.Theme, "dark"), Value: "theme"},
 			{Title: tr(i18n.MsgSettingsFieldEnablePlanTool), Description: a.boolPtrSummary(s.EnablePlanTool, true), Value: "enablePlanTool"},
+			{Title: tr(i18n.MsgSettingsFieldEnableArtifact), Description: a.boolPtrSummary(s.EnableArtifact, false), Value: "enableArtifact"},
 			{Title: tr(i18n.MsgSettingsFieldAuthored), Description: a.boolYesNo(s.Authored), Value: "authored"},
 			{Title: tr(i18n.MsgSettingsFieldMaxContextTokens), Description: a.zeroAsUnset(s.MaxContextTokens), Value: "maxContextTokens"},
 			{Title: tr(i18n.MsgSettingsFieldUpdateCheck), Description: a.boolPtrSummary(s.UpdateCheck, true), Value: "updateCheck"},
@@ -220,6 +221,9 @@ func (a *App) selectSettingsFieldValue(value string) {
 	case "enablePlanTool":
 		next.EnablePlanTool = cycleSettingsBoolPtr(next.EnablePlanTool, true)
 		a.saveAuthSettingsPatch("enablePlanTool", map[string]any{"enablePlanTool": next.EnablePlanTool})
+	case "enableArtifact":
+		next.EnableArtifact = cycleSettingsBoolPtr(next.EnableArtifact, false)
+		a.saveAuthSettingsPatch("enableArtifact", map[string]any{"enableArtifact": next.EnableArtifact})
 	case "authored":
 		next.Authored = !next.Authored
 		a.saveAuthSettingsPatch("authored", map[string]any{"authored": next.Authored})
@@ -678,6 +682,9 @@ func (a *App) applyRuntimeSettingsAfterSave(label string, effective *config.Sett
 	a.syncAgentManagerRuntime()
 	if label == "defaultMode" && effective != nil && strings.TrimSpace(effective.DefaultMode) != "" {
 		a.mode = effective.DefaultMode
+	}
+	if label == "enableArtifact" && effective != nil && a.runtime != nil {
+		_ = a.runtime.SetArtifactEnabled(effective.IsArtifactEnabled())
 	}
 	if strings.HasPrefix(label, "statusLine.") {
 		a.invalidateStatusLineRequests()

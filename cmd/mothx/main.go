@@ -89,6 +89,7 @@ type cliFlags struct {
 	cron            bool
 	webSearch       bool
 	browser         bool
+	artifact        bool
 	initServe       bool
 	force           bool
 	enableA2AMaster bool
@@ -225,6 +226,7 @@ func registerSharedExecutionFlags(fs *pflag.FlagSet, flags *cliFlags, webSearchU
 	fs.BoolVar(&flags.workflows, "workflows", false, "Enable workflow mode (JavaScript workflow tools)")
 	fs.BoolVar(&flags.webSearch, "web-search", false, webSearchUsage)
 	fs.BoolVar(&flags.browser, "browser", false, "Enable browser automation tool")
+	fs.BoolVar(&flags.artifact, "artifact", false, "Enable generated artifact publishing")
 }
 
 func (f *cliFlags) runOptions() runOptions {
@@ -248,6 +250,7 @@ func (f *cliFlags) runOptions() runOptions {
 		cron:            f.cron,
 		webSearch:       f.webSearch,
 		browser:         f.browser,
+		artifact:        f.artifact,
 		enableA2AMaster: f.enableA2AMaster,
 	}
 }
@@ -267,6 +270,7 @@ func (f *cliFlags) acpOptions() acp.RunOptions {
 		Workflows:  f.workflows,
 		WebSearch:  f.webSearch,
 		Browser:    f.browser,
+		Artifact:   f.artifact,
 
 		PermissionTimeout: resolveACPTimeout(f.acpPermissionTimeout, "MOTHX_ACP_PERMISSION_TIMEOUT"),
 		QuestionTimeout:   resolveACPTimeout(f.acpQuestionTimeout, "MOTHX_ACP_QUESTION_TIMEOUT"),
@@ -316,6 +320,7 @@ type runOptions struct {
 	cron            bool
 	webSearch       bool
 	browser         bool
+	artifact        bool
 	enableA2AMaster bool
 	systemInit      bool
 	systemInitExtra string
@@ -629,7 +634,8 @@ func setupAgentRuntime(ctx context.Context, p provider.Provider, providerName st
 	}}
 	sharedRuntime, err := (agentruntime.Builder{Settings: settings, SandboxLevel: level}).Build(ctx, agentruntime.BuildOptions{
 		ID: sessionID, Source: agentruntime.SourceTUI, WorkDir: workDir, Manager: sessionMgr,
-		Workflows: opts.workflows, Browser: opts.browser, RegistryHooks: hooks,
+		Workflows: opts.workflows, Browser: opts.browser,
+		ArtifactEnabled: opts.artifact || settings.IsArtifactEnabled(), RegistryHooks: hooks,
 	})
 	if err != nil {
 		return runtimeSetup{}, err

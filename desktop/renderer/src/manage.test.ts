@@ -94,6 +94,7 @@ test('provider/model management translations remain bilingual', () => {
     'settings.saveProviderFirst', 'settings.resetDefaultBlocked',
     'settings.tab.application', 'settings.applicationTitle', 'settings.applicationSave',
     'settings.applicationSafety', 'settings.applicationImageToken',
+    'settings.applicationEnableArtifact', 'settings.applicationEnableACPArtifact',
   ]) {
     const occurrences = translations.split(`'${key}'`).length - 1;
     assert.equal(occurrences, 2, `${key} must be present in both translation maps`);
@@ -112,8 +113,19 @@ test('application settings remain an ACP projection and redact secret configurat
   assert.match(manage, /manageApplicationSettings/, 'application panel must gate on the ACP capability');
   assert.match(manage, /mothx\/manage\/application\/get/, 'application state must load through ACP');
   assert.match(manage, /mothx\/manage\/application\/patch/, 'application state must save through ACP');
+  assert.match(manage, /enableArtifact/, 'application settings must expose the TUI\/CLI artifact switch');
+  assert.match(manage, /enableACPArtifact/, 'application settings must expose the Desktop\/ACP artifact switch');
   assert.match(manage, /tokenConfigured/, 'the UI should use a configured state rather than a returned token');
   assert.doesNotMatch(manage, /desktop\.storeSet\([^)]*(application|sandbox|token|webSearch)/i, 'application settings must not enter the Desktop store');
+});
+
+test('artifact toggles default to off and are kept separate from protocol capability', () => {
+  assert.match(manage, /defaults\.enableArtifact\s*===\s*true/, 'TUI/CLI artifact toggle must default to off');
+  assert.match(manage, /defaults\.enableACPArtifact\s*===\s*true/, 'Desktop/ACP artifact toggle must default to off');
+  assert.doesNotMatch(manage, /defaults\.enableArtifact\s*!==\s*false/, 'TUI/CLI artifact toggle must not default to on');
+  assert.doesNotMatch(manage, /defaults\.enableACPArtifact\s*!==\s*false/, 'Desktop/ACP artifact toggle must not default to on');
+  assert.match(manage, /api\.enableArtifact\s*===\s*true/, 'WebUI/API artifact toggle must default to off');
+  assert.match(manage, /view\.artifact\s*===\s*true/, 'Channel artifact toggle must default to off');
 });
 
 test('skillhub settings use the ACP management projection and never persist locally', () => {
@@ -260,7 +272,7 @@ test('serve settings translations remain bilingual', () => {
     'settings.serveListen', 'settings.serveWebUIDir', 'settings.serveRequestTimeout',
     'settings.serveMaxConcurrent', 'settings.serveLogLevel', 'settings.serveDefaultMode',
     'settings.serveFeatures', 'settings.serveMultiAgent', 'settings.serveCapabilities',
-    'settings.serveEnableWebSearch', 'settings.serveEnableBrowser',
+    'settings.serveEnableWebSearch', 'settings.serveEnableBrowser', 'settings.serveEnableArtifact',
     'settings.serveOutput', 'settings.serveToolMode', 'settings.serveToolDetail',
     'settings.serveAutomation', 'settings.serveCronEnabled', 'settings.serveCronInterval',
     'settings.serveMemoryEnabled', 'settings.serveMemoryPath', 'settings.serveSecurity',
@@ -279,6 +291,7 @@ test('serve settings render an ACP-backed form without local persistence', () =>
   assert.match(manage, /renderServe/, 'serve settings need a dedicated renderer');
   assert.match(manage, /ServeConfigView/, 'serve settings need a typed view');
   assert.match(manage, /application-settings-workspace/, 'serve settings should reuse application settings cards');
+  assert.match(manage, /enableArtifact/, 'serve settings must expose the WebUI\/API artifact switch');
   assert.doesNotMatch(manage, /localStorage[^\n]*(serve|serveConfig)/i, 'serve drafts must not be persisted locally');
 });
 
@@ -320,6 +333,7 @@ test('channel settings translations remain bilingual', () => {
     'settings.channelsAppIDConfigured', 'settings.channelsAppIDUnset', 'settings.channelsAppSecret',
     'settings.channelsAppSecretConfigured', 'settings.channelsAppSecretUnset',
     'settings.channelsClearAppID', 'settings.channelsClearAppSecret', 'settings.channelsHint',
+    'settings.channelsArtifact', 'settings.channelsArtifactDesc', 'settings.channelsArtifactEnabled',
   ]) {
     const occurrences = translations.split(`'${key}'`).length - 1;
     assert.equal(occurrences, 2, `${key} must be present in both translation maps`);
@@ -330,6 +344,7 @@ test('channel settings render ACP-backed cards without local persistence', () =>
   assert.match(manage, /renderChannels/, 'channel settings need a dedicated renderer');
   assert.match(manage, /ChannelsConfigView/, 'channel settings need a typed view');
   assert.match(manage, /manage-channels/, 'channel settings need a container in the HTML');
+  assert.match(manage, /artifactEnabled/, 'channel settings must expose an independent artifact switch');
   assert.doesNotMatch(manage, /localStorage[^\n]*(channel|wechat|feishu)/i, 'channel drafts must not be persisted locally');
 });
 

@@ -19,6 +19,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.MultiAgent {
 		t.Error("expected multi_agent disabled by default")
 	}
+	if cfg.Artifact {
+		t.Error("expected artifact publishing disabled by default")
+	}
 }
 
 func TestGetDefaultProvider(t *testing.T) {

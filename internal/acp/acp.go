@@ -78,6 +78,7 @@ type RunOptions struct {
 	Workflows  bool
 	WebSearch  bool
 	Browser    bool
+	Artifact   bool
 	// PermissionTimeout and QuestionTimeout configure the approval and
 	// question decision deadlines (Go duration, injected from CLI flags or
 	// MOTHX_ACP_PERMISSION_TIMEOUT / MOTHX_ACP_QUESTION_TIMEOUT). Zero values
@@ -132,12 +133,14 @@ type server struct {
 	ruleContent   string
 	contextFiles  string
 
-	multiAgent bool
-	delegate   bool
-	workflows  bool
-	browser    bool
-	runtime    *agentruntime.SessionRuntime
-	agentMgr   *agent.AgentManager
+	multiAgent       bool
+	delegate         bool
+	workflows        bool
+	browser          bool
+	artifact         bool
+	artifactOverride bool
+	runtime          *agentruntime.SessionRuntime
+	agentMgr         *agent.AgentManager
 
 	sessions map[string]*sessionRuntime
 	pending  map[string]chan json.RawMessage
@@ -210,6 +213,43 @@ type sessionRuntime struct {
 
 	usageMu sync.Mutex
 	cost    float64
+}
+
+func (s *server) artifactEnabled() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.artifact
+}
+
+// applyACPArtifactSetting updates the ACP/Desktop policy for subsequent runs
+// without moving the setting into Electron-owned presentation storage. A CLI
+// override remains authoritative for the lifetime of this ACP process.
+func (s *server) applyACPArtifactSetting(enabled bool) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.settings != nil {
+		s.settings.EnableACPArtifact = config.BoolPtr(enabled)
+	}
+	s.artifact = enabled || s.artifactOverride
+	effective := s.artifact
+	runtimes := make([]*agentruntime.SessionRuntime, 0, len(s.sessions)+1)
+	if s.runtime != nil {
+		runtimes = append(runtimes, s.runtime)
+	}
+	for _, session := range s.sessions {
+		if session != nil && session.runtime != nil {
+			runtimes = append(runtimes, session.runtime)
+		}
+	}
+	s.mu.Unlock()
+	for _, runtime := range runtimes {
+		_ = runtime.SetArtifactEnabled(effective)
+	}
 }
 
 // sessionProviderMismatchError is returned only when a persisted session
@@ -937,20 +977,22 @@ func Run(opts RunOptions) (runErr error) {
 	}
 
 	srv = &server{
-		settings:   settings,
-		allow:      config.LoadAllow(),
-		cwd:        cwd,
-		version:    runVersion,
-		multiAgent: opts.MultiAgent,
-		delegate:   opts.Delegate,
-		workflows:  opts.Workflows,
-		browser:    opts.Browser,
-		sessions:   make(map[string]*sessionRuntime),
-		pending:    make(map[string]chan json.RawMessage),
-		toolTitles: make(map[string]string),
-		mcpNotify:  make(map[string]bool),
-		r:          bufio.NewReader(os.Stdin),
-		w:          os.Stdout,
+		settings:         settings,
+		allow:            config.LoadAllow(),
+		cwd:              cwd,
+		version:          runVersion,
+		multiAgent:       opts.MultiAgent,
+		delegate:         opts.Delegate,
+		workflows:        opts.Workflows,
+		browser:          opts.Browser,
+		artifact:         opts.Artifact || settings.IsACPArtifactEnabled(),
+		artifactOverride: opts.Artifact,
+		sessions:         make(map[string]*sessionRuntime),
+		pending:          make(map[string]chan json.RawMessage),
+		toolTitles:       make(map[string]string),
+		mcpNotify:        make(map[string]bool),
+		r:                bufio.NewReader(os.Stdin),
+		w:                os.Stdout,
 
 		permissionTimeout: opts.PermissionTimeout,
 		questionTimeout:   opts.QuestionTimeout,
@@ -1032,7 +1074,7 @@ func Run(opts RunOptions) (runErr error) {
 		Source: agentruntime.SourceACP, EntrySource: agentruntime.SourceACP,
 		WorkDir: cwd, SandboxMgr: sbMgr, SkillsMgr: resources.SkillsMgr,
 		ExtraContext: srv.extraContext, RuleContent: srv.ruleContent,
-		Providers: srv.providers,
+		Providers: srv.providers, ArtifactEnabled: srv.artifact,
 	}
 	// Agent manager backs multi-agent and delegate workflows.
 	if opts.MultiAgent || opts.Delegate || opts.Workflows {
@@ -1529,6 +1571,7 @@ func (s *server) handleInitialize(req rpcRequest) {
 			"sessionEvent":       true,
 			"artifactProjection": true,
 			"attachmentFetch":    true,
+			"artifactEnabled":    s.artifactEnabled(),
 			"features": []string{
 				"sessionConfigProvider",
 				"sessionDraftConfigOptions",
@@ -1967,7 +2010,7 @@ func (s *server) handleNewSession(req rpcRequest) {
 		ID: id, Source: agentruntime.SourceACP, WorkDir: cwd, Manager: mgr, Registry: registry,
 		Providers:  s.providers,
 		SandboxMgr: s.sbMgr, SkillsMgr: s.skillsMgr, ExtraContext: s.extraContext, RuleContent: s.ruleContent,
-		Settings: s.settings, Workflows: s.workflows, Browser: s.browser,
+		Settings: s.settings, Workflows: s.workflows, Browser: s.browser, ArtifactEnabled: s.artifactEnabled(),
 	})
 	if err == nil {
 		err = s.configureSessionBindings(runtime, mgr, true)
@@ -2429,7 +2472,7 @@ func (s *server) openSessionRuntime(sessionID, cwd string, servers []mcp.ServerC
 		ID: sessionID, Source: resolvedSource.Source, EntrySource: agentruntime.SourceACP, WorkDir: cwd, Manager: mgr, Registry: registry,
 		Providers:  s.providers,
 		SandboxMgr: s.sbMgr, SkillsMgr: s.skillsMgr, ExtraContext: s.extraContext, RuleContent: s.ruleContent,
-		Settings: s.settings, Workflows: s.workflows, Browser: s.browser,
+		Settings: s.settings, Workflows: s.workflows, Browser: s.browser, ArtifactEnabled: s.artifactEnabled(),
 	})
 	if err == nil {
 		err = s.configureSessionBindings(runtime, mgr, false)

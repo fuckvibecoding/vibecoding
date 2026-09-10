@@ -6,6 +6,9 @@
 
 ### ✨ 新功能
 
+- **独立的制品发布开关**
+  - TUI/CLI、WebUI/API、Desktop/ACP 与消息渠道现在分别拥有制品发布开关，且全部默认关闭。每个入口只启用共享 Runtime 托管的 `publish_artifact` 路径，不会联动其他入口。
+
 - **TUI、WebUI 与 Desktop 全端主角团**
   - 会话可通过 `--expert <id>` 或 TUI `/expert list|show|bind|unbind|switch` 命令绑定可复用主角包。团队包会注入 lead 身份与名册并自动启用成员调度；单人包只改变 lead 身份。
   - 替换已绑定主角会创建分叉，而不会覆盖源会话。WebUI 主角面板和 Desktop ACP 的 **Expert** 选项复用同一条 Runtime 绑定与分叉路径。

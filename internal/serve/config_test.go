@@ -48,6 +48,41 @@ type fakeActiveSessionManager struct {
 	err            error
 }
 
+func TestArtifactSwitchesDefaultOffAndRoundTripIndependently(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.API.EnableArtifact || cfg.Channels.Artifact {
+		t.Fatalf("artifact defaults = API %v, Channel %v; want both false", cfg.API.EnableArtifact, cfg.Channels.Artifact)
+	}
+
+	decoded, err := DecodeConfigBytes([]byte(`{"artifact":true,"channels":{"artifact":false}}`))
+	if err != nil {
+		t.Fatalf("decode WebUI artifact config: %v", err)
+	}
+	if !decoded.API.EnableArtifact || decoded.Channels.Artifact {
+		t.Fatalf("decoded artifact switches = API %v, Channel %v", decoded.API.EnableArtifact, decoded.Channels.Artifact)
+	}
+
+	decoded, err = DecodeConfigBytes([]byte(`{"api":{"enableArtifact":false},"channels":{"artifact":true}}`))
+	if err != nil {
+		t.Fatalf("decode Channel artifact config: %v", err)
+	}
+	if decoded.API.EnableArtifact || !decoded.Channels.Artifact {
+		t.Fatalf("decoded artifact switches = API %v, Channel %v", decoded.API.EnableArtifact, decoded.Channels.Artifact)
+	}
+
+	data, err := json.Marshal(decoded)
+	if err != nil {
+		t.Fatalf("marshal artifact config: %v", err)
+	}
+	roundTrip, err := DecodeConfigBytes(data)
+	if err != nil {
+		t.Fatalf("round-trip artifact config: %v", err)
+	}
+	if roundTrip.API.EnableArtifact || !roundTrip.Channels.Artifact {
+		t.Fatalf("round-trip artifact switches = API %v, Channel %v", roundTrip.API.EnableArtifact, roundTrip.Channels.Artifact)
+	}
+}
+
 func (f *fakeActiveSessionManager) ListActiveSessions() []openaiapi.ActiveSessionInfo {
 	return append([]openaiapi.ActiveSessionInfo(nil), f.sessions...)
 }
@@ -1960,13 +1995,16 @@ func TestApplyOverridesPreservesMultiAgentFlagThroughFeatureSync(t *testing.T) {
 func TestApplyOverridesEnablesExtendedRuntimeTools(t *testing.T) {
 	cfg := DefaultConfig()
 
-	applyOverrides(cfg, RunOptions{WebSearch: true, Browser: true, A2AMaster: true})
+	applyOverrides(cfg, RunOptions{WebSearch: true, Browser: true, Artifact: true, A2AMaster: true})
 
 	if !cfg.API.EnableWebSearch {
 		t.Fatal("web search should be enabled")
 	}
 	if !cfg.API.EnableBrowser {
 		t.Fatal("browser should be enabled")
+	}
+	if !cfg.API.EnableArtifact {
+		t.Fatal("WebUI/API artifacts should be enabled")
 	}
 	if !cfg.API.EnableA2AMaster {
 		t.Fatal("A2A master should be enabled")
@@ -2068,6 +2106,7 @@ func TestBuildConfigFromServeConfigAppliesFeatureGating(t *testing.T) {
 	cfg.API.EnableWebSearch = true
 	cfg.API.EnableBrowser = true
 	cfg.API.EnableA2AMaster = true
+	cfg.Channels.Artifact = true
 	cfg.Features.MultiAgent = true
 	cfg.Features.Wechat = false
 	cfg.Features.Feishu = true
@@ -2099,6 +2138,9 @@ func TestBuildConfigFromServeConfigAppliesFeatureGating(t *testing.T) {
 	}
 	if !hCfg.Browser {
 		t.Fatal("browser should be enabled")
+	}
+	if !hCfg.Artifact {
+		t.Fatal("channel artifacts should be enabled independently from WebUI/API")
 	}
 	if !hCfg.A2AMaster {
 		t.Fatal("A2A master should be enabled")

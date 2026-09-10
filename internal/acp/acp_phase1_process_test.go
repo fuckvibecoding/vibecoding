@@ -704,6 +704,9 @@ func TestACPStdioProcessResumeArtifactReplayAndAttachmentList(t *testing.T) {
 	}))
 	defer providerServer.Close()
 	writeACPPhase1Settings(t, configDir, "resume-test", "resume-model", providerServer.URL+"/v1", false)
+	if err := config.SaveGlobalSettingsPatch(map[string]any{"enableACPArtifact": true}); err != nil {
+		t.Fatalf("enable ACP artifacts for fixture: %v", err)
+	}
 
 	process := startACPPhase1Process(t, configDir)
 	defer process.closeAndWait(t)

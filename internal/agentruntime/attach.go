@@ -34,9 +34,10 @@ type AttachedResources struct {
 	// Settings and capability flags describe the shared resource assembly policy
 	// for this compatibility bridge. When present, AttachSessionResources uses
 	// them to reload context/skills with the persisted expert package included.
-	Settings  *config.Settings
-	Workflows bool
-	Browser   bool
+	Settings        *config.Settings
+	Workflows       bool
+	Browser         bool
+	ArtifactEnabled bool
 }
 
 // AttachSessionResources creates a SessionRuntime around already-selected
@@ -79,6 +80,7 @@ func AttachSessionResources(resources AttachedResources) (*SessionRuntime, error
 		SkillsMgr: resources.SkillsMgr, MCPClients: resources.MCPClients,
 		Providers:    resources.Providers,
 		ExtraContext: resources.ExtraContext, RuleContent: resources.RuleContent, AdditionalDirectories: additionalDirectories, LastUsed: time.Now(),
+		ArtifactEnabled:   resources.ArtifactEnabled,
 		resourceSettings:  resources.Settings,
 		resourceWorkflows: resources.Workflows,
 		resourceBrowser:   resources.Browser,

@@ -111,6 +111,7 @@ func TestManageServeConfigPatchRoundTripKeepsSecrets(t *testing.T) {
 			"enableWorkflows":       true,
 			"enableWebSearch":       true,
 			"enableBrowser":         true,
+			"enableArtifact":        true,
 			"enableA2AMaster":       true,
 			"toolVisibility":        map[string]any{"mode": "sse_event", "detail": "expanded"},
 			"systemPromptMode":      "ignore",
@@ -155,6 +156,9 @@ func TestManageServeConfigPatchRoundTripKeepsSecrets(t *testing.T) {
 	if result["features"].(map[string]any)["multiAgent"] != true || result["api"].(map[string]any)["enableSubAgents"] != true {
 		t.Fatalf("multiAgent/enableSubAgents not synced: %#v / %#v", result["features"], result["api"])
 	}
+	if result["api"].(map[string]any)["enableArtifact"] != true {
+		t.Fatalf("WebUI/API artifact setting not updated: %#v", result["api"])
+	}
 	if result["cron"].(map[string]any)["interval"] != float64(60) {
 		t.Fatalf("cron.interval not updated: %#v", result["cron"])
 	}
@@ -167,6 +171,9 @@ func TestManageServeConfigPatchRoundTripKeepsSecrets(t *testing.T) {
 	}
 	if listen != "127.0.0.1:7873" {
 		t.Fatalf("listen on disk = %q, want 127.0.0.1:7873", listen)
+	}
+	if string(raw["artifact"]) != "true" {
+		t.Fatalf("artifact on disk = %s, want true", raw["artifact"])
 	}
 	authRaw := map[string]json.RawMessage{}
 	if err := json.Unmarshal(raw["auth"], &authRaw); err != nil {

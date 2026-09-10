@@ -105,6 +105,11 @@ func applyRawConfig(cfg *Config, raw *rawConfig) {
 	} else if raw.API != nil && raw.API.EnableBrowser != nil {
 		cfg.API.EnableBrowser = *raw.API.EnableBrowser
 	}
+	if raw.Artifact != nil {
+		cfg.API.EnableArtifact = *raw.Artifact
+	} else if raw.API != nil && raw.API.EnableArtifact != nil {
+		cfg.API.EnableArtifact = *raw.API.EnableArtifact
+	}
 	if raw.A2AMaster != nil {
 		cfg.API.EnableA2AMaster = *raw.A2AMaster
 	} else if raw.API != nil && raw.API.EnableA2AMaster != nil {
@@ -227,6 +232,9 @@ func applyRawChannels(cfg *ChannelConfig, raw *rawChannelConfig) {
 	if cfg == nil || raw == nil {
 		return
 	}
+	if raw.Artifact != nil {
+		cfg.Artifact = *raw.Artifact
+	}
 	if raw.Wechat != nil {
 		if raw.Wechat.Enabled != nil {
 			cfg.Wechat.Enabled = *raw.Wechat.Enabled
@@ -277,6 +285,8 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	maxConcurrentRequests := c.API.MaxConcurrentReqs
 	webSearchEnabled := c.API.EnableWebSearch
 	browserEnabled := c.API.EnableBrowser
+	artifactEnabled := c.API.EnableArtifact
+	channelArtifactEnabled := c.Channels.Artifact
 	a2aMasterEnabled := c.API.EnableA2AMaster
 	defaultWorkDir := c.API.DefaultWorkDir
 	if defaultWorkDir == "" {
@@ -320,6 +330,7 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 		MaxConcurrentReqs:  &maxConcurrentRequests,
 		WebSearch:          &webSearchEnabled,
 		Browser:            &browserEnabled,
+		Artifact:           &artifactEnabled,
 		A2AMaster:          &a2aMasterEnabled,
 		Agent: &rawAgentConfig{
 			MaxTurns:                 &agentMaxTurns,
@@ -338,6 +349,7 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 		Security:    &rawSecurityConfig{SmartApprovals: &securitySmartApprovals, AllowedWorkDirs: &c.Security.AllowedWorkDirs},
 		Hooks:       &rawHooksConfig{PreToolCall: c.Hooks.PreToolCall, PostToolCall: c.Hooks.PostToolCall},
 		Channels: &rawChannelConfig{
+			Artifact: &channelArtifactEnabled,
 			Wechat: &rawWechatConfig{
 				Enabled:    &wechatEnabled,
 				CredPath:   c.Channels.Wechat.CredPath,

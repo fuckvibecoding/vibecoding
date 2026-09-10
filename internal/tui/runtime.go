@@ -28,6 +28,7 @@ func tuiRuntime(sess *session.Manager, registry *tools.Registry, sandboxInfo, ex
 	runtime, err := agentruntime.AttachSessionResources(agentruntime.AttachedResources{
 		ID: header.ID, Source: agentruntime.SourceTUI, WorkDir: header.Cwd, Manager: sess, Registry: registry,
 		ExtraContext: extraContext, RuleContent: ruleContent, SkillsMgr: skillsMgr, Settings: settings,
+		ArtifactEnabled: settings.IsArtifactEnabled(),
 	})
 	if err != nil {
 		return nil

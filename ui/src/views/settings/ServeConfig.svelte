@@ -40,6 +40,7 @@
         logLevel: 'info',
         enableWebSearch: false,
         enableBrowser: false,
+        enableArtifact: false,
         enableA2AMaster: false,
         enableDelegate: false,
         enableWorkflows: false,
@@ -62,6 +63,7 @@
       },
       hooks: { preToolCall: '', postToolCall: '' },
       channels: {
+        artifact: false,
         wechat: { enabled: false, credPath: '', workDir: '', autoTyping: true },
         feishu: { enabled: false, appID: '', appSecret: '', workDir: '' }
       },
@@ -119,6 +121,7 @@
         logLevel: stringValue(api.logLevel, base.api.logLevel),
         enableWebSearch: readBool(api.enableWebSearch, cfg.webSearch, false),
         enableBrowser: readBool(api.enableBrowser, cfg.browser, false),
+        enableArtifact: readBool(api.enableArtifact, cfg.artifact, false),
         enableA2AMaster: readBool(api.enableA2AMaster, cfg.a2aMaster, false),
         enableDelegate: readBool(api.enableDelegate, false),
         enableWorkflows: readBool(api.enableWorkflows, false),
@@ -167,6 +170,7 @@
         postToolCall: stringValue(hooks.post_tool_call, '')
       },
       channels: {
+        artifact: readBool(channels.artifact, false),
         wechat: {
           enabled: readBool(wechat.enabled, features.wechat, false),
           credPath: stringValue(wechat.cred_path, ''),
@@ -264,9 +268,11 @@
     api.logLevel = form.api.logLevel || 'info';
     api.enableWebSearch = Boolean(form.api.enableWebSearch);
     api.enableBrowser = Boolean(form.api.enableBrowser);
+    api.enableArtifact = Boolean(form.api.enableArtifact);
     api.enableA2AMaster = Boolean(form.api.enableA2AMaster);
     cfg.webSearch = Boolean(form.api.enableWebSearch);
     cfg.browser = Boolean(form.api.enableBrowser);
+    cfg.artifact = Boolean(form.api.enableArtifact);
     cfg.a2aMaster = Boolean(form.api.enableA2AMaster);
     api.enableDelegate = Boolean(form.api.enableDelegate);
     api.enableWorkflows = Boolean(form.api.enableWorkflows);
@@ -303,6 +309,7 @@
     hooks.post_tool_call = form.hooks.postToolCall.trim();
 
     wechat.enabled = Boolean(form.features.wechat);
+    channels.artifact = Boolean(form.channels.artifact);
     wechat.cred_path = form.channels.wechat.credPath.trim();
     wechat.work_dir = form.channels.wechat.workDir.trim();
     wechat.auto_typing = Boolean(form.channels.wechat.autoTyping);
@@ -407,6 +414,7 @@
     <SettingsSwitch title="Delegate" bind:checked={form.api.enableDelegate} />
     <SettingsSwitch title="Web Search" bind:checked={form.api.enableWebSearch} />
     <SettingsSwitch title="Browser" bind:checked={form.api.enableBrowser} />
+    <SettingsSwitch title={$t('settings.serve.artifact')} bind:checked={form.api.enableArtifact} />
     <SettingsSwitch title="A2A Master" bind:checked={form.api.enableA2AMaster} />
     <SettingsSwitch title="Workflows" bind:checked={form.api.enableWorkflows} />
     <SettingsSwitch title="Lobster mode" bind:checked={form.lobsterMode} />
@@ -519,6 +527,7 @@
 
 <SettingsSection title={$t('settings.serve.sections.channels')} description={$t('settings.serve.channelsHint')}>
   <div class="settings-form-grid">
+    <SettingsSwitch title={$t('settings.serve.channelArtifact')} bind:checked={form.channels.artifact} />
     <SettingsSwitch title="WeChat" bind:checked={form.features.wechat} />
     <SettingsField label={$t('settings.serve.wechatCred')}>
       <Input bind:value={form.channels.wechat.credPath} placeholder="wechat-cred.json" />

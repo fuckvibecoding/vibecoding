@@ -19,6 +19,7 @@ mothx [flags] [message...]
 | `--multi-agent` | - | `false` | Enable multi-agent tools and commands |
 | `--delegate` | - | `false` | Enable delegation mode (blocking single sub-agent tool) |
 | `--workflows` | - | `false` | Enable JavaScript workflow tools and `/workflows` commands |
+| `--artifact` | - | `false` | Enable generated artifact publishing for this TUI/CLI process |
 
 ### Session Management
 
@@ -79,6 +80,7 @@ Supports VS Code, JetBrains IDEs, and any ACP-compatible editor.
 | `--multi-agent` | - | false | Enable multi-agent tools for ACP sessions |
 | `--delegate` | - | false | Enable delegation mode for ACP sessions |
 | `--workflows` | - | false | Enable JavaScript workflow tools for ACP sessions |
+| `--artifact` | - | false | Enable generated artifact publishing for this ACP/Desktop process |
 
 See the [ACP Protocol](acp.md) documentation for IDE integration details.
 
@@ -126,6 +128,7 @@ mothx serve [flags]
 | `--workflows` | - | false | Enable JavaScript workflow tools |
 | `--web-search` | - | false | Enable configured local web search for Serve sessions |
 | `--browser` | - | false | Enable browser automation for Serve sessions |
+| `--artifact` | - | false | Enable generated artifact publishing for WebUI/API sessions |
 | `--enable-a2a-master` | - | false | Enable A2A master mode for remote-agent dispatch |
 | `--lobster` | - | false | Enable yolo mode, disable sandbox, and enable sub-agents |
 | `--verbose` | - | false | Verbose output |

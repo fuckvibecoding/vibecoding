@@ -56,10 +56,12 @@ mothx serve init-config project  # 生成 .mothx/serve.json
     "multiAgent": true,
     "workflows": true
   },
+  "artifact": false,
   "sandbox": {
     "enabled": false
   },
   "channels": {
+    "artifact": false,
     "wechat": { "enabled": false },
     "feishu": { "enabled": false },
     "webhooks": {
@@ -83,6 +85,8 @@ mothx serve init-config project  # 生成 .mothx/serve.json
   }
 }
 ```
+
+制品发布默认关闭。顶层 `artifact` 控制 WebUI/API 会话，`channels.artifact` 独立控制微信与飞书会话。
 
 ### 配置热重载
 

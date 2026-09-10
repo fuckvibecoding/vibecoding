@@ -28,6 +28,8 @@ type Settings struct {
 	ToolExecution        ToolExecutionSettings      `json:"toolExecution,omitempty"`
 	StatusLine           StatusLineSettings         `json:"statusLine,omitempty"`
 	EnablePlanTool       *bool                      `json:"enablePlanTool,omitempty"`
+	EnableArtifact       *bool                      `json:"enableArtifact,omitempty"`
+	EnableACPArtifact    *bool                      `json:"enableACPArtifact,omitempty"`
 	WebSearch            WebSearchSettings          `json:"webSearch"`
 	ImageGeneration      ImageGenerationSettings    `json:"imageGeneration"`
 	MaxContextTokens     int                        `json:"maxContextTokens,omitempty"`
@@ -1014,11 +1016,13 @@ func DefaultSettings() *Settings {
 			TimeoutMs: 800,
 			Fallback:  "builtin",
 		},
-		EnablePlanTool:  boolPtr(true),
-		WebSearch:       WebSearchSettings{Enabled: boolPtr(false), Provider: "openai", ProviderType: "openai-responses"},
-		ImageGeneration: ImageGenerationSettings{Enabled: boolPtr(false), Provider: "openai", APIType: "openai-images", BaseURL: "https://api.openai.com/v1", Model: "gpt-image-1"},
-		ContextFiles:    ContextFilesSettings{Enabled: true},
-		SkillsDir:       platform.SkillsDir(),
+		EnablePlanTool:    boolPtr(true),
+		EnableArtifact:    boolPtr(false),
+		EnableACPArtifact: boolPtr(false),
+		WebSearch:         WebSearchSettings{Enabled: boolPtr(false), Provider: "openai", ProviderType: "openai-responses"},
+		ImageGeneration:   ImageGenerationSettings{Enabled: boolPtr(false), Provider: "openai", APIType: "openai-images", BaseURL: "https://api.openai.com/v1", Model: "gpt-image-1"},
+		ContextFiles:      ContextFilesSettings{Enabled: true},
+		SkillsDir:         platform.SkillsDir(),
 		SkillHub: SkillHubSettings{
 			DefaultMarket:       "skillhub.cn",
 			DefaultInstallScope: "project",
@@ -1823,6 +1827,18 @@ func (s *Settings) IsPlanToolEnabled() bool {
 		return true
 	}
 	return *s.EnablePlanTool
+}
+
+// IsArtifactEnabled reports whether terminal (TUI and print-mode CLI)
+// sessions may publish generated artifacts. The capability is opt-in.
+func (s *Settings) IsArtifactEnabled() bool {
+	return s != nil && s.EnableArtifact != nil && *s.EnableArtifact
+}
+
+// IsACPArtifactEnabled reports whether ACP/Desktop sessions may publish
+// generated artifacts. It is intentionally independent from terminal use.
+func (s *Settings) IsACPArtifactEnabled() bool {
+	return s != nil && s.EnableACPArtifact != nil && *s.EnableACPArtifact
 }
 
 // IsUpdateCheckEnabled reports whether startup update checks against the npm

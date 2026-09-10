@@ -497,19 +497,20 @@ func (s *Server) buildSessionRuntimeForCommand(sess *APISession) (*agentruntime.
 		return nil, fmt.Errorf("session runtime resources are unavailable")
 	}
 	return agentruntime.AttachSessionResources(agentruntime.AttachedResources{
-		ID:           sess.ID,
-		Source:       agentruntime.SourceWebUI,
-		WorkDir:      sess.WorkDir,
-		Manager:      sess.Manager,
-		Registry:     sess.Registry,
-		SandboxMgr:   sess.SandboxMgr,
-		SkillsMgr:    sess.SkillsMgr,
-		MCPClients:   sess.MCPClients,
-		ExtraContext: sess.ExtraContext,
-		RuleContent:  sess.RuleContent,
-		Settings:     s.settings,
-		Workflows:    sess.Workflows,
-		Browser:      sess.Browser,
+		ID:              sess.ID,
+		Source:          agentruntime.SourceWebUI,
+		WorkDir:         sess.WorkDir,
+		Manager:         sess.Manager,
+		Registry:        sess.Registry,
+		SandboxMgr:      sess.SandboxMgr,
+		SkillsMgr:       sess.SkillsMgr,
+		MCPClients:      sess.MCPClients,
+		ExtraContext:    sess.ExtraContext,
+		RuleContent:     sess.RuleContent,
+		Settings:        s.settings,
+		Workflows:       sess.Workflows,
+		Browser:         sess.Browser,
+		ArtifactEnabled: s.cfg != nil && s.cfg.EnableArtifact,
 	})
 }
 
@@ -613,6 +614,7 @@ func (s *Server) newAgentManagerForSession(sess *APISession) *agent.AgentManager
 			WorkDir: sess.WorkDir, Manager: sess.Manager, Registry: sess.Registry,
 			SandboxMgr: sess.SandboxMgr, SkillsMgr: sess.SkillsMgr, MCPClients: sess.MCPClients,
 			ExtraContext: sess.ExtraContext, RuleContent: sess.RuleContent,
+			ArtifactEnabled: s.cfg != nil && s.cfg.EnableArtifact,
 		}
 	}
 	if sess.Manager != nil {

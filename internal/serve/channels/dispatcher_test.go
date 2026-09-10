@@ -554,11 +554,12 @@ func TestHandleDeliveryProjectsRuntimePublishedArtifact(t *testing.T) {
 	settings.SessionDir = t.TempDir()
 	cfg := DefaultConfig()
 	cfg.WorkDir = workDir
+	cfg.Artifact = true
 	model := &provider.Model{ID: "artifact-model", ContextWindow: 32768, MaxTokens: 1024}
 	p := &artifactPublishingChannelProvider{model: model}
 	d := &Dispatcher{
 		cfg: cfg, settings: settings, allow: &config.AllowConfig{}, sessionDir: settings.SessionDir,
-		security: NewSecurity(cfg), hooksMgr: hooks.NewManager("", ""), provider: p, model: model,
+		security: NewSecurity(cfg), hooksMgr: hooks.NewManager("", ""), provider: p, model: model, artifact: true,
 		sessions: make(map[string]*ChannelSession), identityLocks: session.NewIdentityLocks(),
 	}
 	response, err := d.HandleDelivery(context.Background(), messaging.InboundMessage{

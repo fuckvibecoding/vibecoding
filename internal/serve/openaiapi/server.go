@@ -48,6 +48,7 @@ type RunOptions struct {
 	Workflows     bool
 	WebSearch     bool
 	Browser       bool
+	Artifact      bool
 	A2AMaster     bool
 	CronStore     cron.CronStore
 	CronScheduler *cron.Scheduler
@@ -186,6 +187,11 @@ func (s *Server) ApplyServeConfig(next *Config) error {
 		}
 		sess.SandboxMgr = sessMgr
 		sess.Registry.SetSandbox(sessMgr.GetActive())
+		if sess.Runtime != nil {
+			// A pool snapshot can include a runtime that completed shutdown just
+			// before eviction. It cannot start another run, so it needs no update.
+			_ = sess.Runtime.SetArtifactEnabled(next.EnableArtifact)
+		}
 	}
 	return nil
 }
@@ -489,6 +495,9 @@ func Run(opts RunOptions, version string) error {
 		if gCfg.EnableBrowser {
 			fmt.Fprintf(os.Stderr, "  Browser: enabled\n")
 		}
+		if gCfg.EnableArtifact {
+			fmt.Fprintf(os.Stderr, "  Artifacts: enabled\n")
+		}
 		if gCfg.EnableA2AMaster {
 			fmt.Fprintf(os.Stderr, "  A2A master: enabled\n")
 		}
@@ -568,6 +577,9 @@ func applyRunOverrides(cfg *Config, opts RunOptions) {
 	}
 	if opts.Browser {
 		cfg.EnableBrowser = true
+	}
+	if opts.Artifact {
+		cfg.EnableArtifact = true
 	}
 	if opts.A2AMaster {
 		cfg.EnableA2AMaster = true

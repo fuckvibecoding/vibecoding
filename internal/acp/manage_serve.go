@@ -38,6 +38,7 @@ var (
 		"enableWorkflows":         true,
 		"enableWebSearch":         true,
 		"enableBrowser":           true,
+		"enableArtifact":          true,
 		"enableA2AMaster":         true,
 		"toolVisibility":          true,
 		"systemPromptMode":        true,
@@ -131,6 +132,7 @@ func manageServeConfigView(cfg *serve.Config) map[string]any {
 			"enableWorkflows":      cfg.API.EnableWorkflows,
 			"enableWebSearch":      cfg.API.EnableWebSearch,
 			"enableBrowser":        cfg.API.EnableBrowser,
+			"enableArtifact":       cfg.API.EnableArtifact,
 			"enableA2AMaster":      cfg.API.EnableA2AMaster,
 			"toolVisibility": map[string]any{
 				"mode":   cfg.API.ToolVisibility.Mode,
@@ -348,6 +350,12 @@ func manageServePatchAPI(cfg *serve.Config, raw json.RawMessage) *mcp.RPCError {
 				return rpcErr
 			}
 			cfg.API.EnableBrowser = b
+		case "enableArtifact":
+			b, rpcErr := manageServeRequireBool(value, field)
+			if rpcErr != nil {
+				return rpcErr
+			}
+			cfg.API.EnableArtifact = b
 		case "enableA2AMaster":
 			b, rpcErr := manageServeRequireBool(value, field)
 			if rpcErr != nil {
@@ -730,8 +738,9 @@ func sortedKeys(m map[string]json.RawMessage) []string {
 // credential path, app id, or app secret.
 
 type manageChannelsView struct {
-	Wechat manageChannelsWechatView `json:"wechat"`
-	Feishu manageChannelsFeishuView `json:"feishu"`
+	Artifact bool                     `json:"artifact"`
+	Wechat   manageChannelsWechatView `json:"wechat"`
+	Feishu   manageChannelsFeishuView `json:"feishu"`
 }
 
 type manageChannelsWechatView struct {
@@ -750,8 +759,9 @@ type manageChannelsFeishuView struct {
 
 var (
 	manageChannelsPatchTopLevel = map[string]bool{
-		"wechat": true,
-		"feishu": true,
+		"artifact": true,
+		"wechat":   true,
+		"feishu":   true,
 	}
 
 	manageChannelsWechatFields = map[string]bool{
@@ -774,6 +784,7 @@ var (
 
 func manageChannelsConfigView(cfg *serve.Config) manageChannelsView {
 	return manageChannelsView{
+		Artifact: cfg.Channels.Artifact,
 		Wechat: manageChannelsWechatView{
 			Enabled:              cfg.Channels.Wechat.Enabled,
 			WorkDir:              cfg.Channels.Wechat.WorkDir,
@@ -828,6 +839,15 @@ func (s *server) handleManageChannelsPatch(req rpcRequest) {
 				fmt.Sprintf("channel config section %q is not writable", key),
 				map[string]any{"field": key, "allowed": allowed}))
 			return
+		}
+		if key == "artifact" {
+			value, rpcErr := manageServeRequireBool(raw, "artifact")
+			if rpcErr != nil {
+				s.writeResponse(req.ID, nil, rpcErr)
+				return
+			}
+			cfg.Channels.Artifact = value
+			continue
 		}
 		trimmed := bytes.TrimSpace(raw)
 		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {

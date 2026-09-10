@@ -124,7 +124,7 @@ func runPrint(args []string, p provider.Provider, providerName string, model *pr
 	if runtime == nil {
 		runtime = &agentruntime.SessionRuntime{
 			Source: agentruntime.SourceCLI, EntrySource: agentruntime.SourceCLI, WorkDir: workDir, Registry: registry,
-			ExtraContext: extraContext, RuleContent: ruleContent,
+			ExtraContext: extraContext, RuleContent: ruleContent, ArtifactEnabled: settings.IsArtifactEnabled(),
 		}
 		if sess != nil && sess.GetHeader() != nil {
 			if err := runtime.BindSession(sess, agentruntime.SourceCLI); err != nil {

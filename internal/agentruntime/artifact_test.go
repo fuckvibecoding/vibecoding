@@ -8,13 +8,45 @@ import (
 	"github.com/startvibecoding/mothx/internal/tools"
 )
 
+func TestBeginArtifactCollectionDisabledByDefault(t *testing.T) {
+	registry := tools.NewRegistry(t.TempDir(), nil)
+	runtime := &SessionRuntime{Registry: registry}
+	collector, err := runtime.BeginArtifactCollection("run-disabled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if collector != nil {
+		t.Fatalf("collector = %#v, want nil while artifacts are disabled", collector)
+	}
+	if _, ok := registry.Get("publish_artifact"); ok {
+		t.Fatal("publish_artifact must not be registered by default")
+	}
+}
+
+func TestSetArtifactEnabledRejectsClosedRuntime(t *testing.T) {
+	runtime := &SessionRuntime{}
+	if err := runtime.SetArtifactEnabled(true); err != nil {
+		t.Fatal(err)
+	}
+	if !runtime.ArtifactCapabilitySnapshot() {
+		t.Fatal("artifact capability was not enabled")
+	}
+	runtime.Close()
+	if err := runtime.SetArtifactEnabled(false); err == nil {
+		t.Fatal("expected a closed runtime update to fail")
+	}
+	if !runtime.ArtifactCapabilitySnapshot() {
+		t.Fatal("closed runtime capability changed")
+	}
+}
+
 func TestArtifactCollectorObserverReceivesPersistedRecord(t *testing.T) {
 	root, workDir, mgr := inputTestSession(t)
 	service, err := NewAttachmentService(root, DefaultAttachmentPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := &SessionRuntime{ID: mgr.GetHeader().ID, WorkDir: workDir, Attachments: service, Registry: tools.NewRegistry(workDir, nil)}
+	runtime := &SessionRuntime{ID: mgr.GetHeader().ID, WorkDir: workDir, Attachments: service, Registry: tools.NewRegistry(workDir, nil), ArtifactEnabled: true}
 	collector, err := runtime.BeginArtifactCollection("run-observer")
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +89,7 @@ func TestArtifactCollectorObserverPanicDoesNotAffectRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := &SessionRuntime{ID: mgr.GetHeader().ID, WorkDir: workDir, Attachments: service, Registry: tools.NewRegistry(workDir, nil)}
+	runtime := &SessionRuntime{ID: mgr.GetHeader().ID, WorkDir: workDir, Attachments: service, Registry: tools.NewRegistry(workDir, nil), ArtifactEnabled: true}
 	collector, err := runtime.BeginArtifactCollection("run-panic")
 	if err != nil {
 		t.Fatal(err)

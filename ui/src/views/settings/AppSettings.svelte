@@ -76,6 +76,8 @@
         defaultThinkingLevel: 'medium',
         theme: 'dark',
         enablePlanTool: '',
+        enableArtifact: false,
+        enableACPArtifact: false,
         authored: false,
         updateCheck: '',
         skillsDir: '',
@@ -141,6 +143,8 @@
         defaultThinkingLevel: stringValue(cfg.defaultThinkingLevel, base.defaults.defaultThinkingLevel),
         theme: stringValue(cfg.theme, base.defaults.theme),
         enablePlanTool: triBool(cfg.enablePlanTool),
+        enableArtifact: cfg.enableArtifact === true,
+        enableACPArtifact: cfg.enableACPArtifact === true,
         authored: Boolean(cfg.authored),
         updateCheck: triBool(cfg.updateCheck),
         skillsDir: stringValue(cfg.skillsDir, ''),
@@ -272,6 +276,8 @@
     cfg.defaultMode = form.defaults.defaultMode || 'yolo';
     cfg.theme = form.defaults.theme || 'dark';
     writeTriBool(cfg, 'enablePlanTool', form.defaults.enablePlanTool);
+    cfg.enableArtifact = Boolean(form.defaults.enableArtifact);
+    cfg.enableACPArtifact = Boolean(form.defaults.enableACPArtifact);
     cfg.authored = Boolean(form.defaults.authored);
     writeTriBool(cfg, 'updateCheck', form.defaults.updateCheck);
     writeString(cfg, 'skillsDir', form.defaults.skillsDir);
@@ -885,6 +891,8 @@
           <option value="false">{$t('common.disabled')}</option>
         </select>
       </SettingsField>
+      <SettingsSwitch title={$t('settings.app.enableArtifact')} bind:checked={form.defaults.enableArtifact} />
+      <SettingsSwitch title={$t('settings.app.enableACPArtifact')} bind:checked={form.defaults.enableACPArtifact} />
       <SettingsSwitch title={$t('settings.app.authored')} bind:checked={form.defaults.authored} />
       <SettingsField label={$t('settings.app.updateCheck')}>
         <select bind:value={form.defaults.updateCheck} class="settings-select">

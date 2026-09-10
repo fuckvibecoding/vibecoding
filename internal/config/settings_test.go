@@ -26,6 +26,18 @@ func TestDefaultSettings(t *testing.T) {
 	if s.Authored {
 		t.Error("expected authored commits to be disabled by default")
 	}
+	if s.IsArtifactEnabled() || s.IsACPArtifactEnabled() {
+		t.Fatal("artifact publishing must default to disabled for terminal and ACP runtimes")
+	}
+	*s.EnableArtifact = true
+	if !s.IsArtifactEnabled() || s.IsACPArtifactEnabled() {
+		t.Fatal("terminal artifact setting must not enable ACP artifacts")
+	}
+	*s.EnableArtifact = false
+	*s.EnableACPArtifact = true
+	if s.IsArtifactEnabled() || !s.IsACPArtifactEnabled() {
+		t.Fatal("ACP artifact setting must not enable terminal artifacts")
+	}
 
 	if len(s.Providers) < 35 {
 		t.Errorf("expected at least 35 providers, got %d", len(s.Providers))

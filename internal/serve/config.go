@@ -35,8 +35,9 @@ type FeatureConfig struct {
 }
 
 type ChannelConfig struct {
-	Wechat channels.WechatConfig `json:"wechat"`
-	Feishu channels.FeishuConfig `json:"feishu"`
+	Artifact bool                  `json:"artifact,omitempty"`
+	Wechat   channels.WechatConfig `json:"wechat"`
+	Feishu   channels.FeishuConfig `json:"feishu"`
 }
 
 type WebUIConfig struct {

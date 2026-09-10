@@ -21,7 +21,14 @@ export interface SettingsView {
   providers?: ProviderView[];
 }
 interface ApplicationSettingsView {
-  defaults?: { defaultMode?: string; enablePlanTool?: boolean; authored?: boolean; updateCheck?: boolean };
+  defaults?: {
+    defaultMode?: string;
+    enablePlanTool?: boolean;
+    enableArtifact?: boolean;
+    enableACPArtifact?: boolean;
+    authored?: boolean;
+    updateCheck?: boolean;
+  };
   contextFiles?: { enabled?: boolean; extraFiles?: string[] };
   compaction?: { enabled?: boolean; reserveTokens?: number; keepRecentTokens?: number; tokenizer?: string; tokenizerModel?: string; template?: string };
   toolExecution?: { mode?: string; maxConcurrency?: number };
@@ -41,6 +48,7 @@ interface ServeConfigAPIView {
   enableWorkflows?: boolean;
   enableWebSearch?: boolean;
   enableBrowser?: boolean;
+  enableArtifact?: boolean;
   enableA2AMaster?: boolean;
   toolVisibility?: { mode?: string; detail?: string };
   systemPromptMode?: string;
@@ -94,10 +102,12 @@ interface ChannelsFeishuView {
   appSecretConfigured?: boolean;
 }
 interface ChannelsConfigView {
+  artifact?: boolean;
   wechat?: ChannelsWechatView;
   feishu?: ChannelsFeishuView;
 }
 interface ChannelsConfigPatch {
+  artifact?: boolean;
   wechat?: ChannelsWechatPatch;
   feishu?: ChannelsFeishuPatch;
 }
@@ -429,11 +439,13 @@ function renderApplicationSettings(container: HTMLElement, view: ApplicationSett
   const defaultCard = applicationCard(t('settings.applicationDefaults'), t('settings.applicationDefaultsDesc'));
   const defaultMode = applicationSelect(defaults.defaultMode || 'yolo', ['agent', 'plan', 'yolo', 'os']);
   const enablePlanTool = applicationToggle(t('settings.applicationEnablePlanTool'), defaults.enablePlanTool === true);
+  const enableArtifact = applicationToggle(t('settings.applicationEnableArtifact'), defaults.enableArtifact === true);
+  const enableACPArtifact = applicationToggle(t('settings.applicationEnableACPArtifact'), defaults.enableACPArtifact === true);
   const authored = applicationToggle(t('settings.applicationAuthored'), defaults.authored === true);
   const updateCheck = applicationToggle(t('settings.applicationUpdateCheck'), defaults.updateCheck !== false);
   defaultCard.grid.append(
     applicationField(t('settings.applicationDefaultMode'), defaultMode),
-    enablePlanTool.field, authored.field, updateCheck.field,
+    enablePlanTool.field, enableArtifact.field, enableACPArtifact.field, authored.field, updateCheck.field,
   );
   root.appendChild(defaultCard.card);
 
@@ -550,6 +562,7 @@ function renderApplicationSettings(container: HTMLElement, view: ApplicationSett
     void saveApplicationSettings(save, {
       defaults: {
         defaultMode: defaultMode.value, enablePlanTool: enablePlanTool.input.checked,
+        enableArtifact: enableArtifact.input.checked, enableACPArtifact: enableACPArtifact.input.checked,
         authored: authored.input.checked, updateCheck: updateCheck.input.checked,
       },
       contextFiles: { enabled: contextFiles.input.checked, extraFiles: applicationLines(extraFiles.value) },
@@ -855,6 +868,13 @@ function renderChannelsSettings(container: HTMLElement, view: ChannelsConfigView
 
   root.appendChild(el('div', 'row-desc', t('settings.channelsHint')));
 
+  const artifactCard = applicationCard(t('settings.channelsArtifact'), t('settings.channelsArtifactDesc'));
+  const artifactEnabled = applicationToggle(t('settings.channelsArtifactEnabled'), view.artifact === true);
+  const artifactSave = el('button', 'btn-primary', t('settings.channelsSave')) as HTMLButtonElement;
+  artifactCard.grid.append(artifactEnabled.field);
+  artifactCard.card.appendChild(artifactSave);
+  root.appendChild(artifactCard.card);
+
   const wechatCard = applicationCard(t('settings.channelsWechat'), t('settings.channelsWechatDesc'));
   const wechatEnabled = applicationToggle(t('settings.channelsEnabled'), wechat.enabled === true);
   const wechatWorkDir = applicationInput(wechat.workDir || '');
@@ -909,6 +929,10 @@ function renderChannelsSettings(container: HTMLElement, view: ChannelsConfigView
       patch.wechat!.credPath = wechatCred.value.trim();
     }
     void saveChannelsConfig(wechatSave, patch);
+  });
+
+  artifactSave.addEventListener('click', () => {
+    void saveChannelsConfig(artifactSave, { artifact: artifactEnabled.input.checked });
   });
 
   feishuSave.addEventListener('click', () => {
@@ -1027,9 +1051,10 @@ function renderServeSettings(container: HTMLElement, view: ServeConfigView): voi
   const enableWorkflows = applicationToggle(t('settings.serveEnableWorkflows'), api.enableWorkflows === true);
   const enableWebSearch = applicationToggle(t('settings.serveEnableWebSearch'), api.enableWebSearch === true);
   const enableBrowser = applicationToggle(t('settings.serveEnableBrowser'), api.enableBrowser === true);
+  const enableArtifact = applicationToggle(t('settings.serveEnableArtifact'), api.enableArtifact === true);
   const enableA2AMaster = applicationToggle(t('settings.serveEnableA2AMaster'), api.enableA2AMaster === true);
   capabilitiesCard.grid.append(
-    enableDelegate.field, enableWorkflows.field, enableWebSearch.field, enableBrowser.field, enableA2AMaster.field,
+    enableDelegate.field, enableWorkflows.field, enableWebSearch.field, enableBrowser.field, enableArtifact.field, enableA2AMaster.field,
   );
   root.appendChild(capabilitiesCard.card);
 
@@ -1110,6 +1135,7 @@ function renderServeSettings(container: HTMLElement, view: ServeConfigView): voi
         enableWorkflows: enableWorkflows.input.checked,
         enableWebSearch: enableWebSearch.input.checked,
         enableBrowser: enableBrowser.input.checked,
+        enableArtifact: enableArtifact.input.checked,
         enableA2AMaster: enableA2AMaster.input.checked,
         toolVisibility: { mode: toolMode.value, detail: toolDetail.value },
         systemPromptMode: systemPromptMode.value,

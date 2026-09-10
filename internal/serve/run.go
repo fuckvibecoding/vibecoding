@@ -49,6 +49,7 @@ type RunOptions struct {
 	Workflows  bool
 	WebSearch  bool
 	Browser    bool
+	Artifact   bool
 	A2AMaster  bool
 	Lobster    bool
 	Verbose    bool
@@ -215,6 +216,7 @@ func Run(opts RunOptions, version string) error {
 		Workflows:     opts.Workflows,
 		WebSearch:     opts.WebSearch,
 		Browser:       opts.Browser,
+		Artifact:      opts.Artifact,
 		A2AMaster:     opts.A2AMaster,
 		CronStore:     rt.cronSnapshot(),
 		CronScheduler: rt.cronSchedulerSnapshot(),
@@ -348,6 +350,9 @@ func applyOverrides(cfg *Config, opts RunOptions) {
 	if opts.WebSearch {
 		cfg.API.EnableWebSearch = true
 	}
+	if opts.Artifact {
+		cfg.API.EnableArtifact = true
+	}
 	if opts.Browser {
 		cfg.API.EnableBrowser = true
 	}
@@ -419,6 +424,7 @@ func buildConfigFromServeConfig(cfg *Config) *channels.Config {
 	hCfg.Sandbox = cfg.API.Sandbox.Enabled
 	hCfg.WebSearch = cfg.API.EnableWebSearch
 	hCfg.Browser = cfg.API.EnableBrowser
+	hCfg.Artifact = cfg.Channels.Artifact
 	hCfg.A2AMaster = cfg.API.EnableA2AMaster
 	hCfg.WorkDir = cfg.API.GetWorkDir()
 	hCfg.Wechat = cfg.Channels.Wechat

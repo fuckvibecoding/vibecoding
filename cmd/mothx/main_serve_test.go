@@ -11,7 +11,7 @@ func TestServeFlagsIncludeExtendedExecutionOptions(t *testing.T) {
 	fs := pflag.NewFlagSet("serve", pflag.ContinueOnError)
 	registerServeFlags(fs, flags)
 
-	if err := fs.Parse([]string{"--web-search", "--browser", "--enable-a2a-master", "--unsafe"}); err != nil {
+	if err := fs.Parse([]string{"--web-search", "--browser", "--artifact", "--enable-a2a-master", "--unsafe"}); err != nil {
 		t.Fatalf("parse serve flags: %v", err)
 	}
 	opts := flags.serveOptions()
@@ -20,6 +20,9 @@ func TestServeFlagsIncludeExtendedExecutionOptions(t *testing.T) {
 	}
 	if !opts.Browser {
 		t.Fatal("expected browser serve option")
+	}
+	if !opts.Artifact {
+		t.Fatal("expected artifact serve option")
 	}
 	if !opts.A2AMaster {
 		t.Fatal("expected A2A master serve option")

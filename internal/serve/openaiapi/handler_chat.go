@@ -1585,10 +1585,11 @@ func (s *Server) buildSessionResources(workDir string) (*sessionResources, error
 		level = s.sandboxMgr.GetActive().Level()
 	}
 	runtime, err := (agentruntime.Builder{Settings: s.settings, SandboxLevel: level}).Build(context.Background(), agentruntime.BuildOptions{
-		Source:    agentruntime.SourceWebUI,
-		WorkDir:   workDir,
-		Workflows: s.cfg.EnableWorkflows,
-		Browser:   s.cfg.EnableBrowser,
+		Source:          agentruntime.SourceWebUI,
+		WorkDir:         workDir,
+		Workflows:       s.cfg.EnableWorkflows,
+		Browser:         s.cfg.EnableBrowser,
+		ArtifactEnabled: s.cfg.EnableArtifact,
 		RegistryHooks: []agentruntime.RegistryHook{func(runtime *agentruntime.SessionRuntime) error {
 			return s.registerA2AMasterTool(runtime.Registry)
 		}},
@@ -1734,6 +1735,7 @@ func (s *Server) refreshSessionContext(sess *APISession) error {
 			WorkDir: sess.WorkDir, Manager: sess.Manager, Registry: sess.Registry,
 			SandboxMgr: sess.SandboxMgr, SkillsMgr: sess.SkillsMgr, MCPClients: sess.MCPClients,
 			ExtraContext: sess.ExtraContext, RuleContent: sess.RuleContent,
+			ArtifactEnabled: s.cfg != nil && s.cfg.EnableArtifact,
 		}
 		if sess.Manager != nil {
 			if err := sess.Runtime.BindSession(sess.Manager, agentruntime.SourceWebUI); err != nil {

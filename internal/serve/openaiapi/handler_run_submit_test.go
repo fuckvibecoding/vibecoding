@@ -968,8 +968,25 @@ func TestSubmitRunAcceptsImageResourceForTextOnlyModel(t *testing.T) {
 	}
 }
 
+func TestSubmitRunArtifactToolDisabledByDefault(t *testing.T) {
+	srv, p := newHistoryRecordingServer(t)
+	defer srv.pool.Stop()
+
+	w := submitRun(t, srv, "run-artifact-disabled", `{"message":"create a report","transcript":true}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("submit status = %d, body = %s", w.Code, w.Body.String())
+	}
+	call := waitForProviderCall(t, p)
+	for _, tool := range call.Tools {
+		if tool.Name == "publish_artifact" {
+			t.Fatalf("publish_artifact was offered while WebUI artifacts were disabled: %#v", call.Tools)
+		}
+	}
+}
+
 func TestSubmitRunNormalizesFileAttachmentThroughRuntime(t *testing.T) {
 	srv, p := newHistoryRecordingServer(t)
+	srv.cfg.EnableArtifact = true
 	sessionID := "run-file-attachment-session"
 	w := submitRun(t, srv, sessionID, `{"message":"inspect the attached file","attachments":[{"kind":"file","filename":"notes.txt","mediaType":"text/plain","dataUrl":"data:text/plain;base64,aGVsbG8gYXR0YWNobWVudA==","size":16}],"transcript":true}`)
 	if w.Code != http.StatusAccepted {

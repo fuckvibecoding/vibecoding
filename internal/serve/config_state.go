@@ -335,6 +335,9 @@ func stripRunOverrides(cfg, base *Config, opts RunOptions) {
 	if opts.Browser {
 		cfg.API.EnableBrowser = base.API.EnableBrowser
 	}
+	if opts.Artifact {
+		cfg.API.EnableArtifact = base.API.EnableArtifact
+	}
 	if opts.A2AMaster {
 		cfg.API.EnableA2AMaster = base.API.EnableA2AMaster
 	}

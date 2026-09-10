@@ -472,7 +472,7 @@ func TestPublishArtifactCopiesWorkDirectoryFileIntoRuntimeStorage(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime := &SessionRuntime{ID: mgr.GetHeader().ID, WorkDir: workDir, Attachments: service, Registry: tools.NewRegistry(workDir, nil)}
+	runtime := &SessionRuntime{ID: mgr.GetHeader().ID, WorkDir: workDir, Attachments: service, Registry: tools.NewRegistry(workDir, nil), ArtifactEnabled: true}
 	collector, err := runtime.BeginArtifactCollection("run-output")
 	if err != nil {
 		t.Fatal(err)

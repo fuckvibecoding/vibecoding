@@ -284,7 +284,7 @@ func TestManageApplicationSettingsProjectionAndPatchStaySecretSafe(t *testing.T)
 
 	updated := manageFixtureResult(t, callManageFixture(t, srv, output, 2, "mothx/manage/application/patch", map[string]any{
 		"patch": map[string]any{
-			"defaults":        map[string]any{"defaultMode": "plan", "enablePlanTool": false, "authored": true, "updateCheck": false},
+			"defaults":        map[string]any{"defaultMode": "plan", "enablePlanTool": false, "enableArtifact": true, "enableACPArtifact": true, "authored": true, "updateCheck": false},
 			"contextFiles":    map[string]any{"enabled": false, "extraFiles": []string{"AGENTS.md", "TEAM.md"}},
 			"toolExecution":   map[string]any{"mode": "sequential", "maxConcurrency": 1},
 			"imageGeneration": map[string]any{"enabled": true, "provider": "openai", "apiType": "openai-images", "baseUrl": "https://images.example/v1", "model": "image-model", "token": "img-REPLACED-SECRET"},
@@ -300,12 +300,15 @@ func TestManageApplicationSettingsProjectionAndPatchStaySecretSafe(t *testing.T)
 		t.Fatalf("application patch response leaked image token: %s", updatedEncoded)
 	}
 	defaults, _ := updated["defaults"].(map[string]any)
-	if defaults["defaultMode"] != "plan" || defaults["enablePlanTool"] != false {
+	if defaults["defaultMode"] != "plan" || defaults["enablePlanTool"] != false || defaults["enableArtifact"] != true || defaults["enableACPArtifact"] != true {
 		t.Fatalf("updated defaults = %#v", defaults)
+	}
+	if !srv.artifact {
+		t.Fatal("ACP runtime artifact setting was not applied live")
 	}
 
 	raw := readManageRawFile(t, config.GlobalSettingsPath())
-	for _, key := range []string{"defaultMode", "contextFiles", "toolExecution", "imageGeneration", "sandbox", "approval"} {
+	for _, key := range []string{"defaultMode", "enableArtifact", "enableACPArtifact", "contextFiles", "toolExecution", "imageGeneration", "sandbox", "approval"} {
 		if len(raw[key]) == 0 {
 			t.Fatalf("settings file missing application key %q: %#v", key, raw)
 		}

@@ -6,6 +6,9 @@ This file contains the changes for the **current version only**. The full histor
 
 ### ✨ New Features
 
+- **Independent Artifact Publishing Switches**
+  - TUI/CLI, WebUI/API, Desktop/ACP, and messaging channels now have separate artifact publishing switches, all disabled by default. Each entry point enables the shared Runtime-owned `publish_artifact` path without changing the others.
+
 - **Expert Teams Across TUI, WebUI, and Desktop**
   - Sessions can bind a reusable expert bundle with `--expert <id>` or TUI `/expert list|show|bind|unbind|switch` commands. A team bundle injects its lead identity and roster and automatically enables member dispatch; a single-persona bundle changes only the lead identity.
   - Replacing an existing expert creates a fork instead of overwriting the source session. The WebUI expert panel and Desktop ACP **Expert** option use the same Runtime-owned binding and fork path.

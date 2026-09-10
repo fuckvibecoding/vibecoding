@@ -83,6 +83,33 @@ func TestACPInitializeDeclaresPromptCapabilitiesMatchingImplementation(t *testin
 	}
 }
 
+func TestACPInitializeProjectsArtifactSwitchDefaultAndOverride(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%v", enabled), func(t *testing.T) {
+			var output bytes.Buffer
+			s := &server{
+				artifact: enabled,
+				w:        &output,
+				pending:  make(map[string]chan json.RawMessage),
+				sessions: make(map[string]*sessionRuntime),
+			}
+			s.handleInitialize(rpcRequest{JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "initialize", Params: json.RawMessage(`{"protocolVersion":1}`)})
+
+			var response map[string]any
+			if err := json.Unmarshal(output.Bytes(), &response); err != nil {
+				t.Fatalf("parse initialize response %q: %v", output.String(), err)
+			}
+			result, _ := response["result"].(map[string]any)
+			capabilities, _ := result["agentCapabilities"].(map[string]any)
+			meta, _ := capabilities["_meta"].(map[string]any)
+			mothx, _ := meta[mothxExtensionNamespace].(map[string]any)
+			if got, ok := mothx["artifactEnabled"].(bool); !ok || got != enabled {
+				t.Fatalf("artifactEnabled = %#v, want %v", mothx["artifactEnabled"], enabled)
+			}
+		})
+	}
+}
+
 func TestACPDecisionTimeoutFallsBackToDefaultsAndHonorsConfiguration(t *testing.T) {
 	if defaultPermissionTimeout != 30*time.Second || defaultQuestionTimeout != 5*time.Minute {
 		t.Fatalf("decision timeout defaults = %v / %v, want 30s / 5m", defaultPermissionTimeout, defaultQuestionTimeout)
@@ -245,6 +272,7 @@ func TestACPStdioProcessArtifactProjectionFetchAndLoadReplay(t *testing.T) {
 	settings.DefaultProvider = "artifact-test"
 	settings.DefaultModel = "artifact-model"
 	settings.DefaultMode = "yolo"
+	settings.EnableACPArtifact = config.BoolPtr(true)
 	settings.SessionDir = filepath.Join(configDir, "sessions")
 	settings.Providers = map[string]*config.ProviderConfig{
 		"artifact-test": {

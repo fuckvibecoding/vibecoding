@@ -21,6 +21,7 @@ type rawConfig struct {
 	MaxConcurrentReqs  *int                     `json:"maxConcurrentRequests,omitempty"`
 	WebSearch          *bool                    `json:"webSearch,omitempty"`
 	Browser            *bool                    `json:"browser,omitempty"`
+	Artifact           *bool                    `json:"artifact,omitempty"`
 	A2AMaster          *bool                    `json:"a2aMaster,omitempty"`
 	Agent              *rawAgentConfig          `json:"agent,omitempty"`
 	WebUI              *rawWebUIConfig          `json:"webUI,omitempty"`
@@ -34,6 +35,7 @@ type rawConfig struct {
 type rawAPIConfig struct {
 	EnableWebSearch *bool `json:"enableWebSearch,omitempty"`
 	EnableBrowser   *bool `json:"enableBrowser,omitempty"`
+	EnableArtifact  *bool `json:"enableArtifact,omitempty"`
 	EnableA2AMaster *bool `json:"enableA2AMaster,omitempty"`
 	EnableDelegate  *bool `json:"enableDelegate,omitempty"`
 	EnableWorkflows *bool `json:"enableWorkflows,omitempty"`
@@ -50,8 +52,9 @@ type rawFeaturesConfig struct {
 }
 
 type rawChannelConfig struct {
-	Wechat *rawWechatConfig `json:"wechat,omitempty"`
-	Feishu *rawFeishuConfig `json:"feishu,omitempty"`
+	Artifact *bool            `json:"artifact,omitempty"`
+	Wechat   *rawWechatConfig `json:"wechat,omitempty"`
+	Feishu   *rawFeishuConfig `json:"feishu,omitempty"`
 }
 
 type rawAuthConfig struct {

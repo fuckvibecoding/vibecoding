@@ -93,6 +93,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Sandbox.Enabled {
 		t.Error("sandbox should be disabled by default")
 	}
+	if cfg.EnableArtifact {
+		t.Error("artifact publishing should be disabled by default")
+	}
 }
 
 func TestValidateListenSecurity(t *testing.T) {
@@ -242,6 +245,7 @@ func TestApplyRunOverrides(t *testing.T) {
 		Workflows:  true,
 		WebSearch:  true,
 		Browser:    true,
+		Artifact:   true,
 		A2AMaster:  true,
 	})
 
@@ -268,6 +272,9 @@ func TestApplyRunOverrides(t *testing.T) {
 	}
 	if !cfg.EnableBrowser {
 		t.Fatal("browser should be enabled")
+	}
+	if !cfg.EnableArtifact {
+		t.Fatal("artifact publishing should be enabled")
 	}
 	if !cfg.EnableA2AMaster {
 		t.Fatal("A2A master should be enabled")
@@ -349,6 +356,7 @@ func TestLoadRunConfig_UsesInMemoryConfigAndClones(t *testing.T) {
 		Workflows:  true,
 		WebSearch:  true,
 		Browser:    true,
+		Artifact:   true,
 		A2AMaster:  true,
 	})
 	if err != nil {
@@ -365,7 +373,7 @@ func TestLoadRunConfig_UsesInMemoryConfigAndClones(t *testing.T) {
 		t.Fatalf("defaultWorkDir = %q, effective = %q, want /tmp/work", cfg.DefaultWorkDir, cfg.GetWorkDir())
 	}
 	if !cfg.Sandbox.Enabled || !cfg.EnableSubAgents || !cfg.EnableDelegate || !cfg.EnableWorkflows ||
-		!cfg.EnableWebSearch || !cfg.EnableBrowser || !cfg.EnableA2AMaster {
+		!cfg.EnableWebSearch || !cfg.EnableBrowser || !cfg.EnableArtifact || !cfg.EnableA2AMaster {
 		t.Fatal("expected overrides to be applied")
 	}
 
@@ -376,7 +384,7 @@ func TestLoadRunConfig_UsesInMemoryConfigAndClones(t *testing.T) {
 		t.Fatalf("original workDir mutated: default=%q legacy=%q", original.DefaultWorkDir, original.WorkingDir)
 	}
 	if original.Sandbox.Enabled || original.EnableSubAgents || original.EnableDelegate || original.EnableWorkflows ||
-		original.EnableWebSearch || original.EnableBrowser || original.EnableA2AMaster {
+		original.EnableWebSearch || original.EnableBrowser || original.EnableArtifact || original.EnableA2AMaster {
 		t.Fatal("original config booleans mutated")
 	}
 }

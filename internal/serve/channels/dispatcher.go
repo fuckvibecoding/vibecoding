@@ -248,6 +248,7 @@ type Dispatcher struct {
 	sandbox    bool
 	sandboxMgr *sandbox.Manager
 	browser    bool
+	artifact   bool
 	a2aMaster  bool
 
 	// Active sessions: key = "<platform-channel>/<user_id>"
@@ -333,6 +334,7 @@ type dispatcherRuntimeSnapshot struct {
 	multiAgent   bool
 	sandbox      bool
 	browser      bool
+	artifact     bool
 	a2aMaster    bool
 	cronStore    cron.CronStore
 	scheduler    *cron.Scheduler
@@ -348,7 +350,7 @@ func (d *Dispatcher) runtimeSnapshot() dispatcherRuntimeSnapshot {
 	return dispatcherRuntimeSnapshot{
 		cfg: d.cfg, settings: d.settings, provider: d.provider, providerName: d.providerName, model: d.model,
 		allow: d.allow, security: d.security, hooksMgr: d.hooksMgr,
-		multiAgent: d.multiAgent, sandbox: d.sandbox, browser: d.browser, a2aMaster: d.a2aMaster,
+		multiAgent: d.multiAgent, sandbox: d.sandbox, browser: d.browser, artifact: d.artifact, a2aMaster: d.a2aMaster,
 		cronStore: d.cronStore, scheduler: d.scheduler, agentMgr: d.agentMgr,
 	}
 }
@@ -466,6 +468,7 @@ func NewDispatcher(cfg *Config, settings *config.Settings, version string, cronS
 		sandbox:       cfg.Sandbox,
 		sandboxMgr:    sandbox.NewManagerWithOptions(cfg.GetWorkDir(), settings.Sandbox.Options()),
 		browser:       cfg.Browser,
+		artifact:      cfg.Artifact,
 		a2aMaster:     cfg.A2AMaster,
 		cronStore:     cronStore,
 		scheduler:     scheduler,
@@ -532,6 +535,7 @@ func (d *Dispatcher) ApplyConfig(cfg *Config) error {
 	d.multiAgent = cfg.MultiAgent
 	d.sandbox = cfg.Sandbox
 	d.browser = cfg.Browser
+	d.artifact = cfg.Artifact
 	d.a2aMaster = cfg.A2AMaster
 	for key, sess := range d.sessions {
 		if shouldInvalidateSession(previousCfg, cfg, key) {
@@ -595,6 +599,7 @@ func shouldInvalidateSession(previous, next *Config, key string) bool {
 		previous.MultiAgent != next.MultiAgent ||
 		previous.Sandbox != next.Sandbox ||
 		previous.Browser != next.Browser ||
+		previous.Artifact != next.Artifact ||
 		previous.A2AMaster != next.A2AMaster ||
 		!reflect.DeepEqual(previous.Security, next.Security) ||
 		!reflect.DeepEqual(previous.Memory, next.Memory) ||
@@ -1735,6 +1740,7 @@ func (d *Dispatcher) resolveSession(platform, userID string) (*ChannelSession, e
 	security := d.security
 	sandboxEnabled := d.sandbox
 	browserEnabled := d.browser
+	artifactEnabled := d.artifact
 	a2aEnabled := d.a2aMaster
 	multiAgentEnabled := d.multiAgent
 	cronStore := d.cronStore
@@ -1867,6 +1873,7 @@ func (d *Dispatcher) resolveSession(platform, userID string) (*ChannelSession, e
 		Source: agentruntime.SourceFromChannelType(platform), WorkDir: workDir, Manager: mgr, Registry: reg,
 		SandboxMgr: sbMgr, SkillsMgr: resources.SkillsMgr, ExtraContext: resources.ExtraContext,
 		RuleContent: resources.RuleContent, Settings: d.settings, Browser: selectedBrowser,
+		ArtifactEnabled: artifactEnabled,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("attach channel session runtime: %w", err)
@@ -2175,7 +2182,7 @@ func (d *Dispatcher) buildAgent(ctx context.Context, sess *ChannelSession, appro
 			ID: sess.ID, Source: agentruntime.SourceFromChannelType(sess.Platform), WorkDir: sess.WorkDir,
 			Manager: sess.Manager, Registry: sess.Registry, SandboxMgr: sess.SandboxMgr, MCPClients: sess.MCPClients,
 			SkillsMgr: resources.SkillsMgr, ExtraContext: resources.ExtraContext, RuleContent: resources.RuleContent,
-			Settings: settings, Browser: runtime.browser,
+			Settings: settings, Browser: runtime.browser, ArtifactEnabled: runtime.artifact,
 		})
 		if err != nil {
 			return nil, func(error) {}
@@ -2656,12 +2663,15 @@ func (d *Dispatcher) runAgent(ctx context.Context, sess *ChannelSession, userMes
 }
 
 func (d *Dispatcher) collectChannelArtifacts(ctx context.Context, sess *ChannelSession, collector *agentruntime.ArtifactCollector, items []provider.Attachment) []agentruntime.SessionAttachment {
+	if sess == nil || sess.Runtime == nil || !sess.Runtime.ArtifactCapabilitySnapshot() {
+		return nil
+	}
 	artifacts := collector.Artifacts()
 	return append(artifacts, d.materializeChannelArtifacts(ctx, sess, items)...)
 }
 
 func (d *Dispatcher) materializeChannelArtifacts(ctx context.Context, sess *ChannelSession, items []provider.Attachment) []agentruntime.SessionAttachment {
-	if sess == nil || sess.Runtime == nil || sess.runID == "" || len(items) == 0 {
+	if sess == nil || sess.Runtime == nil || !sess.Runtime.ArtifactCapabilitySnapshot() || sess.runID == "" || len(items) == 0 {
 		return nil
 	}
 	runtime := d.runtimeSnapshot()

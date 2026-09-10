@@ -19,7 +19,8 @@ import (
 // Those values must never be echoed to a Desktop renderer.
 var manageApplicationSections = map[string]map[string]bool{
 	"defaults": {
-		"defaultMode": true, "enablePlanTool": true, "authored": true, "updateCheck": true,
+		"defaultMode": true, "enablePlanTool": true, "enableArtifact": true, "enableACPArtifact": true,
+		"authored": true, "updateCheck": true,
 	},
 	"contextFiles": {
 		"enabled": true, "extraFiles": true,
@@ -83,6 +84,7 @@ func manageApplicationView(settings *config.Settings) map[string]any {
 	return map[string]any{
 		"defaults": map[string]any{
 			"defaultMode": defaultMode, "enablePlanTool": manageOptionalBool(settings.EnablePlanTool),
+			"enableArtifact": settings.IsArtifactEnabled(), "enableACPArtifact": settings.IsACPArtifactEnabled(),
 			"authored": settings.Authored, "updateCheck": settings.UpdateCheck == nil || *settings.UpdateCheck,
 		},
 		"contextFiles": map[string]any{
@@ -332,5 +334,6 @@ func (s *server) handleManageApplicationPatch(req rpcRequest) {
 		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32000, "settings_unavailable", err.Error(), nil))
 		return
 	}
+	s.applyACPArtifactSetting(updated.IsACPArtifactEnabled())
 	s.writeResponse(req.ID, manageApplicationView(updated), nil)
 }

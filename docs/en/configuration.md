@@ -96,6 +96,8 @@ The top-level `tuilang` setting accepts `"auto"` (the default), `"zh"`, or `"en"
     "fallback": "builtin"
   },
   "enablePlanTool": true,
+  "enableArtifact": false,
+  "enableACPArtifact": false,
   "maxContextTokens": 1000000,
   "contextFiles": {
     "enabled": true,
@@ -152,6 +154,8 @@ The top-level `tuilang` setting accepts `"auto"` (the default), `"zh"`, or `"en"
 | `toolExecution` | object | *(see below)* | Local function/custom tool execution mode and per-batch concurrency |
 | `statusLine` | object | *(see below)* | External status line command settings for TUI only |
 | `enablePlanTool` | bool | `true` | Register the built-in `plan` tool |
+| `enableArtifact` | bool | `false` | Allow TUI/CLI sessions to publish generated artifacts |
+| `enableACPArtifact` | bool | `false` | Allow Desktop/ACP sessions to publish generated artifacts |
 | `maxContextTokens` | int | `0` (auto) | Override maximum context token count |
 | `contextFiles` | object | *(see below)* | Context file loading settings |
 | `skillsDir` | string | `"~/.mothx/skills"` | Global skills directory path |
@@ -601,6 +605,17 @@ Whether to register the built-in `plan` tool that allows the agent to create and
 ```
 
 Set to `false` to disable it (e.g., if you prefer the agent not to use structured plans).
+
+### enableArtifact / enableACPArtifact
+
+Artifact publishing is opt-in and independently configured for terminal and ACP/Desktop sessions. Enabling one does not enable the other.
+
+```json
+{
+  "enableArtifact": false,
+  "enableACPArtifact": false
+}
+```
 
 ### maxContextTokens
 

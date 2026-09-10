@@ -48,6 +48,46 @@ func TestRootPrintAcceptsMessageArgument(t *testing.T) {
 	}
 }
 
+func TestArtifactFlagMapsIndependentlyToTerminalAndACP(t *testing.T) {
+	var terminalOpts runOptions
+	terminal := newRootCommand(
+		func(_ []string, opts runOptions) error {
+			terminalOpts = opts
+			return nil
+		},
+		func(acp.RunOptions) error {
+			t.Fatal("unexpected ACP command execution")
+			return nil
+		},
+	)
+	terminal.SetArgs([]string{"--artifact", "-P", "publish report"})
+	if err := terminal.Execute(); err != nil {
+		t.Fatalf("execute terminal command: %v", err)
+	}
+	if !terminalOpts.artifact {
+		t.Fatal("terminal --artifact flag was not mapped")
+	}
+
+	var acpOpts acp.RunOptions
+	acpCommand := newRootCommand(
+		func([]string, runOptions) error {
+			t.Fatal("unexpected terminal command execution")
+			return nil
+		},
+		func(opts acp.RunOptions) error {
+			acpOpts = opts
+			return nil
+		},
+	)
+	acpCommand.SetArgs([]string{"acp", "--artifact"})
+	if err := acpCommand.Execute(); err != nil {
+		t.Fatalf("execute ACP command: %v", err)
+	}
+	if !acpOpts.Artifact {
+		t.Fatal("ACP --artifact flag was not mapped")
+	}
+}
+
 func TestBuildInitialMessageForCreatedGlobalConfig(t *testing.T) {
 	msg := buildInitialMessage(runInteractiveConfig{
 		settings: config.DefaultSettings(),

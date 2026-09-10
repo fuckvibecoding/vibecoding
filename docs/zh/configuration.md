@@ -96,6 +96,8 @@ MothX 使用两个配置文件:
     "fallback": "builtin"
   },
   "enablePlanTool": true,
+  "enableArtifact": false,
+  "enableACPArtifact": false,
   "maxContextTokens": 1000000,
   "contextFiles": {
     "enabled": true,
@@ -152,6 +154,8 @@ MothX 使用两个配置文件:
 | `toolExecution` | object | *(见下文)* | 本地 function/custom tool 执行模式与每批并发上限 |
 | `statusLine` | object | *(见下文)* | 仅 TUI 生效的外部状态行命令设置 |
 | `enablePlanTool` | bool | `true` | 是否注册内置 `plan` 工具 |
+| `enableArtifact` | bool | `false` | 是否允许 TUI/CLI 会话发布生成制品 |
+| `enableACPArtifact` | bool | `false` | 是否允许 Desktop/ACP 会话发布生成制品 |
 | `maxContextTokens` | int | `0` (自动) | 覆盖最大上下文 token 数 |
 | `contextFiles` | object | *(见下文)* | 上下文文件加载设置 |
 | `skillsDir` | string | `"~/.mothx/skills"` | 全局技能目录路径 |
@@ -601,6 +605,17 @@ WebUI 在“设置 > Tools”中提供这两个字段，TUI 在 `/settings` > Be
 ```
 
 设为 `false` 可禁用（例如不希望 agent 使用结构化计划）。
+
+### enableArtifact / enableACPArtifact
+
+制品发布默认关闭，并分别为终端与 ACP/Desktop 会话配置；启用其中一个不会启用另一个。
+
+```json
+{
+  "enableArtifact": false,
+  "enableACPArtifact": false
+}
+```
 
 ### maxContextTokens
 

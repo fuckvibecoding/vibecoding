@@ -65,6 +65,7 @@ func TestManageChannelsPatchRoundTripPreservesAndClears(t *testing.T) {
 	output := &syncedBuffer{}
 	srv := newManageFixtureServer(output, configDir)
 	patch := map[string]any{
+		"artifact": true,
 		"wechat": map[string]any{
 			"enabled":    true,
 			"workDir":    "/new/wechat",
@@ -79,6 +80,9 @@ func TestManageChannelsPatchRoundTripPreservesAndClears(t *testing.T) {
 		},
 	}
 	result := manageFixtureResult(t, callManageFixture(t, srv, output, 1, "mothx/manage/channels/patch", map[string]any{"patch": patch}))
+	if result["artifact"] != true {
+		t.Fatalf("channel artifact setting not updated: %#v", result)
+	}
 
 	wechat := result["wechat"].(map[string]any)
 	if wechat["enabled"] != true || wechat["workDir"] != "/new/wechat" || wechat["autoTyping"] != false || wechat["credentialConfigured"] != true {
@@ -100,6 +104,9 @@ func TestManageChannelsPatchRoundTripPreservesAndClears(t *testing.T) {
 	var channels map[string]json.RawMessage
 	if err := json.Unmarshal(raw["channels"], &channels); err != nil {
 		t.Fatal(err)
+	}
+	if string(channels["artifact"]) != "true" {
+		t.Fatalf("channel artifact on disk = %s, want true", channels["artifact"])
 	}
 	var storedWechat map[string]json.RawMessage
 	if err := json.Unmarshal(channels["wechat"], &storedWechat); err != nil {

@@ -68,11 +68,15 @@ func (r *SessionRuntime) BeginArtifactCollection(runID string) (*ArtifactCollect
 		return nil, fmt.Errorf("artifact run ID is required")
 	}
 	r.mu.RLock()
+	enabled := r.ArtifactEnabled
 	service := r.Attachments
 	registry := r.Registry
 	sessionID := r.ID
 	workDir := r.WorkDir
 	r.mu.RUnlock()
+	if !enabled {
+		return nil, nil
+	}
 	if service == nil || registry == nil || sessionID == "" || workDir == "" {
 		return nil, fmt.Errorf("artifact runtime is not bound to a session and registry")
 	}

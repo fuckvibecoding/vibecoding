@@ -60,6 +60,7 @@ type SessionRuntime struct {
 	SandboxEnabled        bool
 	BrowserEnabled        bool
 	WebSearchEnabled      bool
+	ArtifactEnabled       bool
 	// Expert is the resolved expert binding (nil when the session has no
 	// expert identity). Mailbox is the runtime-owned member completion queue
 	// drained into steering at run input boundaries. ExpertCenter resolves
@@ -414,6 +415,33 @@ func (r *SessionRuntime) CapabilitySnapshot() (sandboxEnabled, browserEnabled, w
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.SandboxEnabled, r.BrowserEnabled, r.WebSearchEnabled
+}
+
+// ArtifactCapabilitySnapshot reports whether this entry point permits agents
+// to publish generated files for the current session.
+func (r *SessionRuntime) ArtifactCapabilitySnapshot() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.ArtifactEnabled
+}
+
+// SetArtifactEnabled updates the entry-point policy used by subsequent runs.
+// An already active collector retains ownership until that run terminates.
+func (r *SessionRuntime) SetArtifactEnabled(enabled bool) error {
+	if r == nil {
+		return fmt.Errorf("agent runtime is nil")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return fmt.Errorf("agent runtime is closed")
+	}
+	r.ArtifactEnabled = enabled
+	r.LastUsed = time.Now()
+	return nil
 }
 
 // ConfigureCapabilities applies adapter-selected defaults and replays the
@@ -871,13 +899,14 @@ type RegistryHook func(*SessionRuntime) error
 // BuildOptions are the resource-affecting session capabilities. They are kept
 // separate from adapter-specific presentation and approval options.
 type BuildOptions struct {
-	ID            string
-	Source        RuntimeSource
-	WorkDir       string
-	Manager       *session.Manager
-	Workflows     bool
-	Browser       bool
-	RegistryHooks []RegistryHook
+	ID              string
+	Source          RuntimeSource
+	WorkDir         string
+	Manager         *session.Manager
+	Workflows       bool
+	Browser         bool
+	ArtifactEnabled bool
+	RegistryHooks   []RegistryHook
 }
 
 // RefreshOptions are mutable resource-affecting session capabilities.
@@ -965,6 +994,7 @@ func (b Builder) Build(ctx context.Context, opts BuildOptions) (*SessionRuntime,
 		ExtraContext:      extraContext,
 		RuleContent:       resources.RuleContent,
 		LastUsed:          time.Now(),
+		ArtifactEnabled:   opts.ArtifactEnabled,
 		resourceSettings:  b.Settings,
 		resourceWorkflows: opts.Workflows,
 		resourceBrowser:   opts.Browser,

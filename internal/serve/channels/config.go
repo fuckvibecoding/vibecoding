@@ -16,6 +16,7 @@ type Config struct {
 	MultiAgent      bool           `json:"multi_agent,omitempty"`
 	WebSearch       bool           `json:"web_search,omitempty"`
 	Browser         bool           `json:"browser,omitempty"`
+	Artifact        bool           `json:"artifact,omitempty"`
 	A2AMaster       bool           `json:"a2a_master,omitempty"`
 	Sandbox         bool           `json:"sandbox,omitempty"`
 	Wechat          WechatConfig   `json:"wechat"`

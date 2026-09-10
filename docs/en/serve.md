@@ -56,10 +56,12 @@ The project config overlays the global config.
     "multiAgent": true,
     "workflows": true
   },
+  "artifact": false,
   "sandbox": {
     "enabled": false
   },
   "channels": {
+    "artifact": false,
     "wechat": { "enabled": false },
     "feishu": { "enabled": false },
     "webhooks": {
@@ -83,6 +85,8 @@ The project config overlays the global config.
   }
 }
 ```
+
+Artifact publishing is disabled by default. Top-level `artifact` controls WebUI/API sessions; `channels.artifact` independently controls WeChat and Feishu sessions.
 
 ### Configuration Hot-Reload
 
