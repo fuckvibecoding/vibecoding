@@ -103,6 +103,13 @@ func TestBotStartReportsHealthyOnlyAfterSuccessfulPollAndPersistsCursor(t *testi
 		once             sync.Once
 		releaseFirstPoll = make(chan struct{})
 		releaseLongPoll  = make(chan struct{})
+		// secondPollArrived is closed once the post-message long-poll request has
+		// reached the server (and its path has been recorded). The test waits for
+		// it before cancelling so the shutdown notifystop is deterministically the
+		// last recorded lifecycle path. Without this, cancellation can race the
+		// in-flight poll and the server may record notifystop before getupdates.
+		secondPollArrived = make(chan struct{})
+		onceSecondPoll    sync.Once
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -120,6 +127,9 @@ func TestBotStartReportsHealthyOnlyAfterSuccessfulPollAndPersistsCursor(t *testi
 				_, _ = io.WriteString(w, `{"ret":0,"get_updates_buf":"saved-cursor","longpolling_timeout_ms":1200,"msgs":[{"message_id":7,"from_user_id":"wx-user","create_time_ms":1,"message_type":1,"context_token":"ctx","item_list":[{"type":1,"text_item":{"text":"hello"}}]}]}`)
 				return
 			}
+			// The path is already recorded above; signal arrival before blocking
+			// so the test can sequence cancellation after this poll is in flight.
+			onceSecondPoll.Do(func() { close(secondPollArrived) })
 			<-releaseLongPoll
 			_, _ = io.WriteString(w, `{"ret":0,"msgs":[]}`)
 		default:
@@ -176,6 +186,15 @@ func TestBotStartReportsHealthyOnlyAfterSuccessfulPollAndPersistsCursor(t *testi
 	}
 	if loaded.GetUpdatesBuf != "saved-cursor" {
 		t.Fatalf("persisted cursor = %q, want saved-cursor", loaded.GetUpdatesBuf)
+	}
+
+	// Wait until the post-message long-poll is in flight (its path recorded)
+	// before cancelling. This makes the shutdown notifystop deterministically
+	// the last lifecycle path instead of racing the in-flight getupdates.
+	select {
+	case <-secondPollArrived:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the post-message long-poll to reach the server")
 	}
 
 	cancel()

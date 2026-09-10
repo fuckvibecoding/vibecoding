@@ -52,6 +52,21 @@ func productionArchitectureViolations(root string) ([]string, error) {
 		if err != nil {
 			return err
 		}
+		// SQLite foreign key enforcement is owned solely by internal/db, which
+		// keeps it OFF for the canonical session database and exposes an opt-in
+		// for private, rebuildable derived stores. No other production file may
+		// construct a foreign_keys(1) DSN or PRAGMA, or it would silently
+		// re-activate the dormant REFERENCES clauses on canonical session data
+		// that project policy keeps in the repository layer instead.
+		if filepath.ToSlash(rel) != "internal/db/db.go" {
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return readErr
+			}
+			if strings.Contains(string(content), "foreign_keys(1)") || strings.Contains(string(content), "foreign_keys = ON") || strings.Contains(string(content), "foreign_keys=ON") {
+				violations = append(violations, fmt.Sprintf("%s: SQLite foreign key enforcement is owned by internal/db; do not enable foreign_keys here", rel))
+			}
+		}
 		skipConstructionChecks := strings.HasPrefix(filepath.ToSlash(rel), "internal/agentruntime/")
 		fileAST, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {

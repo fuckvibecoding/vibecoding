@@ -56,7 +56,12 @@ func openKnowledgeBaseDatabase(sessionDir, knowledgeBaseID string, create bool) 
 			return nil, path, fmt.Errorf("knowledge base database is not a regular file")
 		}
 	}
-	connection, err := database.Open(path, EnsureKnowledgeBaseSchema)
+	// The per-knowledge-base graph/FTS database is a private, rebuildable
+	// derived store whose snapshot lifecycle prunes child rows (chunks, nodes,
+	// evidence, FTS) through ON DELETE CASCADE. It therefore opts into SQLite
+	// foreign key enforcement, unlike the canonical session database which
+	// keeps integrity in the repository layer. See internal/db.Options.
+	connection, err := database.OpenWithOptions(path, EnsureKnowledgeBaseSchema, database.Options{ForeignKeys: true})
 	if err != nil {
 		return nil, path, err
 	}

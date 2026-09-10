@@ -28,6 +28,27 @@ import (
 // are the one place where schema SQL is required.
 type Migrator func(*sql.DB) error
 
+// Options configures per-database SQLite connection behavior.
+//
+// ForeignKeys enables SQLite foreign key enforcement for one database file.
+// The canonical session database must keep it disabled: project policy
+// enforces referential integrity in the repository layer (transactional
+// writes, centralized deletion cleanup lists, and integrity tests such as
+// TestDeleteSessionRemovesEveryChildRow), not in the database engine, so that
+// cross-version recovery and partially corrupted canonical stores are never
+// amplified by hard constraints. See
+// docs/proposal/channel-config-runtime-binding-remediation.md and
+// docs/proposal/openai-responses-api-complete-proposal.md.
+//
+// A private, rebuildable derived store may opt in. The per-knowledge-base
+// graph/FTS database designs its snapshot lifecycle around ON DELETE CASCADE
+// pruning and can always be rebuilt from its source directory, so it enables
+// enforcement without exposing canonical session data to it. Options must be
+// consistent for a given file path because connections are cached per path.
+type Options struct {
+	ForeignKeys bool
+}
+
 var state = struct {
 	sync.Mutex
 	dbs map[string]*bun.DB
@@ -44,9 +65,18 @@ func CanonicalPath(path string) (string, error) {
 	return abs, nil
 }
 
-// Open returns the process-wide Bun connection for path. Callers must not
-// close it; CloseAll owns the lifecycle.
+// Open returns the process-wide Bun connection for path with foreign key
+// enforcement disabled (the canonical session database policy). Callers must
+// not close it; CloseAll owns the lifecycle. Derived stores that need cascade
+// behavior use OpenWithOptions.
 func Open(path string, migrate Migrator) (*bun.DB, error) {
+	return OpenWithOptions(path, migrate, Options{})
+}
+
+// OpenWithOptions returns the process-wide Bun connection for path, applying
+// per-database Options. The connection is cached by canonical path, so the
+// options for a given file must be stable across callers.
+func OpenWithOptions(path string, migrate Migrator, opts Options) (*bun.DB, error) {
 	canonical, err := CanonicalPath(path)
 	if err != nil {
 		return nil, err
@@ -56,7 +86,7 @@ func Open(path string, migrate Migrator) (*bun.DB, error) {
 	if existing := state.dbs[canonical]; existing != nil {
 		return existing, nil
 	}
-	db, err := open(canonical, migrate)
+	db, err := open(canonical, migrate, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -65,13 +95,14 @@ func Open(path string, migrate Migrator) (*bun.DB, error) {
 }
 
 // OpenStandalone opens an uncached connection for callers that explicitly own
-// its lifecycle, such as offline integrity checks.
+// its lifecycle, such as offline integrity checks. Foreign key enforcement
+// stays disabled to match the canonical session database policy.
 func OpenStandalone(path string, migrate Migrator) (*bun.DB, error) {
 	canonical, err := CanonicalPath(path)
 	if err != nil {
 		return nil, err
 	}
-	return open(canonical, migrate)
+	return open(canonical, migrate, Options{})
 }
 
 // Query runs a read operation through the process-wide connection.
@@ -139,11 +170,11 @@ func Close(path string) error {
 	return errors.Join(errs...)
 }
 
-func open(path string, migrate Migrator) (*bun.DB, error) {
+func open(path string, migrate Migrator, opts Options) (*bun.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
-	sqlDB, err := sql.Open("sqlite", dsn(path))
+	sqlDB, err := sql.Open("sqlite", dsn(path, opts.ForeignKeys))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite db: %w", err)
 	}
@@ -174,13 +205,18 @@ func open(path string, migrate Migrator) (*bun.DB, error) {
 	return bun.NewDB(sqlDB, sqlitedialect.New()), nil
 }
 
-func dsn(path string) string {
-	return DSNForOS(path, runtime.GOOS == "windows")
+func dsn(path string, foreignKeys bool) string {
+	return dsnForOS(path, runtime.GOOS == "windows", foreignKeys)
 }
 
-// DSNForOS returns the configured SQLite file URI. It is exported for
+// DSNForOS returns the configured SQLite file URI with foreign key enforcement
+// disabled, which is the canonical session database policy. It is exported for
 // platform-specific integration tests.
 func DSNForOS(path string, windows bool) string {
+	return dsnForOS(path, windows, false)
+}
+
+func dsnForOS(path string, windows bool, foreignKeys bool) string {
 	uriPath := filepath.ToSlash(path)
 	if windows && !strings.HasPrefix(uriPath, "/") {
 		uriPath = "/" + uriPath
@@ -188,7 +224,17 @@ func DSNForOS(path string, windows bool) string {
 	u := url.URL{Scheme: "file", Path: uriPath}
 	q := u.Query()
 	q.Add("_pragma", "busy_timeout(10000)")
-	q.Add("_pragma", "foreign_keys(1)")
+	// Foreign key enforcement is opt-in per database. The canonical session
+	// database keeps it OFF so referential integrity stays a repository-layer
+	// concern (transactional writes, centralized deletion cleanup, integrity
+	// tests) and dormant REFERENCES clauses in schema.go/migrations.go are
+	// never activated as hard constraints. Only private, rebuildable derived
+	// stores such as the per-knowledge-base graph/FTS database opt in, because
+	// their snapshot lifecycle is designed around ON DELETE CASCADE pruning.
+	// An architecture guard rejects re-enabling this for the session database.
+	if foreignKeys {
+		q.Add("_pragma", "foreign_keys(1)")
+	}
 	q.Add("_pragma", "synchronous(FULL)")
 	q.Set("_txlock", "immediate")
 	q.Set("_dqs", "false")
