@@ -163,6 +163,7 @@ const DefaultRuleContent = `# Project Rules
 - Do not install dependencies, change lockfiles, or use network/package managers unless necessary for the task and approved.
 - Local background services are allowed when needed to develop or verify the task, such as dev servers, test watchers, local databases, or local containers. Prefer localhost bindings, avoid privileged ports, report the command and URL/log path, and stop them when no longer needed unless the user asks to keep them running.
 - Do not create commits, tags, or ordinary pushes unless explicitly requested.
+- Never amend or rewrite previous commits (git commit --amend, interactive rebase, etc.) on your own initiative; only do so when the user explicitly requests it.
 - Do not deploy, release, publish packages, expose services publicly, register system daemons, modify startup services, or start cloud/production infrastructure unless the user explicitly asks and approval is granted.
 
 ## Work Style
