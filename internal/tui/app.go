@@ -613,7 +613,10 @@ func (a *App) SetProgram(p *tea.Program) {
 // stopPrintLoop asks the deferred print goroutine to drain and exit. Any
 // already-queued transcript lines are still flushed before the goroutine
 // returns; callers should use it when the Bubble Tea program is about to quit
-// so the background loop does not outlive the process teardown.
+// so the background loop does not outlive the process teardown. Note that
+// printMessageOnce calls made after the pump exits are queued but never
+// printed (and their index is still marked done), so only quit/reload paths
+// may stop the loop.
 func (a *App) stopPrintLoop() {
 	a.printMu.Lock()
 	a.printStop = true
@@ -873,6 +876,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmds...)
 
 	case renderRequestMsg:
+		// Trailing throttled renders land here so the status line refresh runs
+		// on the tea loop instead of scheduleRender's timer goroutine.
+		a.requestStatusLineRefresh(false)
 		a.updateViewportContent()
 		return a, nil
 
@@ -1541,8 +1547,9 @@ func (a *App) scheduleRender() {
 					// The status line footer is only refreshed when an actual render
 					// is emitted, so event-dense bursts coalesce into a single
 					// request instead of re-arming the external status command on
-					// every scheduleRender call.
-					a.requestStatusLineRefresh(false)
+					// every scheduleRender call. The refresh itself runs on the tea
+					// loop via renderRequestMsg; this timer goroutine must never
+					// touch statusLine* state directly.
 					if a.program != nil {
 						a.program.Send(renderRequestMsg{})
 					}

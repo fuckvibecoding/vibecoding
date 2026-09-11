@@ -210,6 +210,10 @@ const (
 	MsgThinkingPrefix                     MessageID = "transcript.thinking_prefix"
 	MsgThinkingStatus                     MessageID = "agent.thinking_status"
 	MsgCancelHint                         MessageID = "agent.cancel_hint"
+	MsgFooterLastDuration                 MessageID = "footer.last_duration"
+	MsgFooterToolModalHints               MessageID = "footer.tool_modal_hints"
+	MsgFooterMainHints                    MessageID = "footer.main_hints"
+	MsgFooterApprovalAlert                MessageID = "footer.approval_alert"
 	MsgLanguageConfiguredSource           MessageID = "settings.language.configured_source"
 	MsgLanguageScopeGlobal                MessageID = "settings.language.scope.global"
 	MsgLanguageScopeProject               MessageID = "settings.language.scope.project"
@@ -762,6 +766,10 @@ var catalogs = map[Language]map[MessageID]string{
 		MsgThinkingPrefix:                   "think: ",
 		MsgThinkingStatus:                   "Thinking...",
 		MsgCancelHint:                       "esc to cancel",
+		MsgFooterLastDuration:               "last %s",
+		MsgFooterToolModalHints:             "Left/Right:switch PgUp/PgDn:page Up/Down:scroll Esc/Ctrl+O:close",
+		MsgFooterMainHints:                  "Tab:mode Esc:abort Ctrl+O:details Ctrl+E:ESM Ctrl+R:preview Ctrl+G:events",
+		MsgFooterApprovalAlert:              "! APPROVAL REQUIRED: ↑/↓ Enter",
 		MsgLanguageConfiguredSource:         "%s",
 		MsgLanguageScopeGlobal:              "Global default",
 		MsgLanguageScopeProject:             "Current project",
@@ -1251,6 +1259,10 @@ var catalogs = map[Language]map[MessageID]string{
 		MsgThinkingPrefix:               "思考：",
 		MsgThinkingStatus:               "思考中...",
 		MsgCancelHint:                   "按 Esc 取消",
+		MsgFooterLastDuration:           "上次用时 %s",
+		MsgFooterToolModalHints:         "左/右:切换 PgUp/PgDn:翻页 上/下:滚动 Esc/Ctrl+O:关闭",
+		MsgFooterMainHints:              "Tab:模式 Esc:中止 Ctrl+O:详情 Ctrl+E:ESM Ctrl+R:预览 Ctrl+G:事件",
+		MsgFooterApprovalAlert:          "! 需要审批：↑/↓ Enter",
 		MsgLanguageConfiguredSource:     "%s",
 		MsgLanguageScopeGlobal:          "全局默认",
 		MsgLanguageScopeProject:         "当前项目",

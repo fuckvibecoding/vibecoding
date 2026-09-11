@@ -866,7 +866,7 @@ func TestViewKeepsTranscriptInMainOutputWhenNoProgram(t *testing.T) {
 	if !strings.Contains(got, app.input.Placeholder()) {
 		t.Fatalf("View() missing input placeholder:\n%s", got)
 	}
-	if !strings.Contains(got, "Tab:mode") {
+	if !strings.Contains(got, app.translator.Text(i18n.MsgFooterMainHints)) {
 		t.Fatalf("View() missing footer:\n%s", got)
 	}
 }
@@ -1179,6 +1179,25 @@ func TestRenderFooterShowsBlinkingApprovalAlert(t *testing.T) {
 	}
 }
 
+func TestRenderFooterTruncatesRightColumnOnNarrowWidth(t *testing.T) {
+	percent := 99.9
+	a := &App{
+		width:            24,
+		sandboxInfo:      "sandbox:none",
+		contextUsage:     &ctxpkg.ContextUsage{ContextWindow: 200000, Percent: &percent},
+		totalInputTokens: 1000,
+		totalCacheRead:   800,
+	}
+	footer := a.renderBuiltinFooter()
+	if h := lipgloss.Height(footer); h != 2 {
+		t.Fatalf("footer height = %d, want 2 (right column must not wrap): %q", h, stripANSI(footer))
+	}
+	for i, line := range strings.Split(footer, "\n") {
+		if w := lipgloss.Width(line); w > a.width {
+			t.Fatalf("footer line %d width = %d, want <= %d: %q", i, w, a.width, line)
+		}
+	}
+}
 func TestPlanUpdateStaysInStickyPanel(t *testing.T) {
 	a := &App{
 		messages: []string{"You: inspect the repository"},
