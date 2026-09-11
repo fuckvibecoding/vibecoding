@@ -1199,9 +1199,30 @@ func TestManageKnowledgeBasesCreateScanQueryAndDelete(t *testing.T) {
 	}
 
 	scanned := manageFixtureResult(t, callManageFixture(t, srv, output, 3, "mothx/manage/knowledge-bases/scan", map[string]any{"id": baseID}))
-	snapshot, _ := scanned["snapshot"].(map[string]any)
-	if scanned["status"] != "completed" || snapshot["fileCount"] != float64(1) || snapshot["nodeCount"].(float64) < 2 {
-		t.Fatalf("scan result = %#v", scanned)
+	if scanned["started"] != true || scanned["status"] != "indexing" {
+		t.Fatalf("scan must start in the background and return immediately: %#v", scanned)
+	}
+	// Hosts poll list/status for progress; wait for the background scan commit.
+	var polled map[string]any
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+		polled = manageFixtureResult(t, callManageFixture(t, srv, output, 20, "mothx/manage/knowledge-bases/list", map[string]any{}))
+		items, _ := polled["knowledgeBases"].([]any)
+		if len(items) == 1 {
+			view, _ := items[0].(map[string]any)
+			if view["status"] == "completed" {
+				break
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	polledItems, _ := polled["knowledgeBases"].([]any)
+	if len(polledItems) != 1 {
+		t.Fatalf("list after scan = %#v", polled)
+	}
+	polledView, _ := polledItems[0].(map[string]any)
+	snapshot, _ := polledView["snapshot"].(map[string]any)
+	if polledView["status"] != "completed" || snapshot["fileCount"] != float64(1) || snapshot["nodeCount"].(float64) < 2 {
+		t.Fatalf("background scan result = %#v", polledView)
 	}
 
 	queried := manageFixtureResult(t, callManageFixture(t, srv, output, 4, "mothx/manage/knowledge-bases/query", map[string]any{"id": baseID, "query": "durable graph"}))

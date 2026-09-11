@@ -52,6 +52,7 @@ export function applyTranscriptPage(sessionId: string, updates: Record<string, u
   const existing = new Set(state.transcript.map((item) => item.key));
   const pageItems: TranscriptItem[] = [];
   const originalPush = state.transcript.push.bind(state.transcript);
+  pageOverlay = pageItems;
   state.transcript.push = (...items: TranscriptItem[]) => {
     for (const item of items) {
       if (!existing.has(item.key)) {
@@ -64,6 +65,7 @@ export function applyTranscriptPage(sessionId: string, updates: Record<string, u
   try {
     for (const update of updates) applySessionUpdate(sessionId, update);
   } finally {
+    pageOverlay = null;
     state.transcript.push = originalPush;
   }
   const resolved: TranscriptItem[] = [];
@@ -87,7 +89,16 @@ export function applyTranscriptPage(sessionId: string, updates: Record<string, u
   emit();
 }
 
+// 分页回放期间,同页先创建的条目(如 tool_call)必须能被后续 update(如
+// tool_call_update)找到并就地改写;否则 update 会造出被丢弃的重复对象,
+// 状态修改丢失,历史 tool 卡永远停留在初始 pending(排队中)。
+let pageOverlay: TranscriptItem[] | null = null;
+
 function findItem(key: string): TranscriptItem | undefined {
+  if (pageOverlay) {
+    const hit = pageOverlay.find((entry) => entry.key === key);
+    if (hit) return hit;
+  }
   return state.transcript.find((entry) => entry.key === key);
 }
 

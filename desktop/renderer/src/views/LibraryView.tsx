@@ -1,7 +1,7 @@
 // 资料库视图:知识库状态的 ACP 投影。完整编辑集中在设置页(知识库条目),
 // 这里只提供只读状态与跳转,避免 renderer 复制配置或索引生命周期。
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { BookOpen } from 'lucide-react';
 
 import { PageHead, PageInner, PageScroll, RowItem, RowList } from '@/components/layout';
@@ -19,25 +19,37 @@ type LibraryLoadState =
   | { status: 'ready'; knowledgeBases: KnowledgeBaseView[] }
   | { status: 'error'; message: string };
 
+// 后台扫描进行中时展示周期轮询拿到的进度。
+function knowledgeIndexingText(indexing: NonNullable<KnowledgeBaseView['indexing']>): string {
+  const label = t('library.knowledgeIndexing', { p: indexing.phase || '' });
+  return indexing.filesTotal > 0 ? `${label} · ${indexing.filesDone}/${indexing.filesTotal}` : label;
+}
+
 export function LibraryView() {
   const [load, setLoad] = useState<LibraryLoadState>({ status: 'loading' });
   const supported = hasFeature(KNOWLEDGE_BASE_FEATURE);
 
+  const reload = useCallback(async () => {
+    try {
+      const knowledgeBases = await loadKnowledgeBaseViews();
+      setLoad({ status: 'ready', knowledgeBases });
+    } catch (error) {
+      setLoad({ status: 'error', message: error instanceof Error ? error.message : String(error) });
+    }
+  }, []);
+
   useEffect(() => {
     if (!supported) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const knowledgeBases = await loadKnowledgeBaseViews();
-        if (!cancelled) setLoad({ status: 'ready', knowledgeBases });
-      } catch (error) {
-        if (!cancelled) setLoad({ status: 'error', message: error instanceof Error ? error.message : String(error) });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [supported]);
+    void reload();
+  }, [supported, reload]);
+
+  // 后台扫描进行中时周期轮询进度,避免阻塞或停留在过期状态。
+  const anyIndexing = load.status === 'ready' && load.knowledgeBases.some((view) => view.indexing?.running);
+  useEffect(() => {
+    if (!anyIndexing) return;
+    const timer = window.setInterval(() => void reload(), 4000);
+    return () => window.clearInterval(timer);
+  }, [anyIndexing, reload]);
 
   return (
     <PageScroll>
@@ -85,7 +97,7 @@ export function LibraryView() {
                     title={base.name || base.id}
                     desc={
                       <>
-                        <div>{formatKnowledgeBaseStatus(view)}</div>
+                        <div>{view.indexing?.running ? knowledgeIndexingText(view.indexing) : formatKnowledgeBaseStatus(view)}</div>
                         {snapshot ? (
                           <div>
                             {t('library.knowledgeStats', {

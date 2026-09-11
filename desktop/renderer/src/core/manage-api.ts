@@ -232,10 +232,21 @@ export interface KnowledgeSnapshot {
   finishedAt?: string;
   errorSummary?: string;
 }
+export interface KnowledgeIndexProgressView {
+  running: boolean;
+  phase?: string;
+  filesTotal: number;
+  filesDone: number;
+  chunks: number;
+  startedAt?: string;
+  runId?: string;
+  error?: string;
+}
 export interface KnowledgeBaseView {
   knowledgeBase: KnowledgeBase;
   snapshot?: KnowledgeSnapshot | null;
   status?: string;
+  indexing?: KnowledgeIndexProgressView;
 }
 export interface CronJobView {
   id: string;

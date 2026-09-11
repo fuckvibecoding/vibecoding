@@ -70,6 +70,28 @@ type manageKnowledgeBaseView struct {
 	KnowledgeBase session.KnowledgeBase      `json:"knowledgeBase"`
 	Snapshot      *session.KnowledgeSnapshot `json:"snapshot"`
 	Status        string                     `json:"status"`
+	Indexing      *manageKnowledgeIndexView  `json:"indexing,omitempty"`
+}
+
+// manageKnowledgeIndexView projects the live background scan progress. Hosts
+// poll list/status while running is true instead of blocking on the scan RPC.
+type manageKnowledgeIndexView struct {
+	Running    bool      `json:"running"`
+	Phase      string    `json:"phase,omitempty"`
+	FilesTotal int64     `json:"filesTotal"`
+	FilesDone  int64     `json:"filesDone"`
+	Chunks     int64     `json:"chunks"`
+	StartedAt  time.Time `json:"startedAt,omitempty"`
+	RunID      string    `json:"runId,omitempty"`
+	Error      string    `json:"error,omitempty"`
+}
+
+func manageKnowledgeIndexViewFrom(progress agentruntime.KnowledgeIndexProgress) manageKnowledgeIndexView {
+	return manageKnowledgeIndexView{
+		Running: progress.Running, Phase: progress.Phase,
+		FilesTotal: progress.FilesTotal, FilesDone: progress.FilesDone, Chunks: progress.Chunks,
+		StartedAt: progress.StartedAt, RunID: progress.RunID, Error: progress.Error,
+	}
 }
 
 func (s *server) manageKnowledgeBaseService() (*agentruntime.KnowledgeBaseService, error) {
@@ -208,7 +230,14 @@ func (s *server) runKnowledgeBaseCronJob(ctx context.Context, job cron.CronJob) 
 	if err != nil {
 		return true, "", err
 	}
-	snapshot, err := service.IndexDurable(ctx, id, agentruntime.SourceCron)
+	// Scheduled scans share the same background job machinery as manual scans;
+	// the cron goroutine waits for the terminal result so Cron records the
+	// scheduling outcome and moves the next-run cursor.
+	indexJob, err := service.StartIndex(ctx, id, agentruntime.SourceCron)
+	if err != nil {
+		return true, "", err
+	}
+	snapshot, err := indexJob.Wait(ctx)
 	if err != nil {
 		return true, "", err
 	}
@@ -255,7 +284,24 @@ func (s *server) manageKnowledgeBaseView(ctx context.Context, base session.Knowl
 	}
 	view.Snapshot = &snapshot
 	view.Status = snapshot.Status
+	s.attachKnowledgeIndexProgress(ctx, &view, base.ID)
 	return view, nil
+}
+
+// attachKnowledgeIndexProgress adds the live scan progress (when a background
+// index job is running) so management surfaces can poll periodic progress.
+func (s *server) attachKnowledgeIndexProgress(ctx context.Context, view *manageKnowledgeBaseView, baseID string) {
+	_ = ctx
+	service, err := s.manageKnowledgeBaseService()
+	if err != nil {
+		return
+	}
+	progress, running := service.IndexProgress(baseID)
+	if !running {
+		return
+	}
+	indexing := manageKnowledgeIndexViewFrom(progress)
+	view.Indexing = &indexing
 }
 
 func (s *server) validateKnowledgeBaseProvider(spec session.KnowledgeBaseSpec) *mcp.RPCError {
@@ -437,17 +483,28 @@ func (s *server) handleManageKnowledgeBasesScan(req rpcRequest) {
 		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32000, "knowledge_base_unavailable", err.Error(), nil))
 		return
 	}
-	snapshot, err := service.IndexDurable(context.Background(), id, agentruntime.SourceACP)
+	// Scans always run in the background: the RPC returns as soon as the job is
+	// admitted so a long index can never stall the ACP request loop. Hosts poll
+	// list/status for progress and terminal snapshot state.
+	alreadyRunning := false
+	if existing, ok := service.IndexJob(id); ok {
+		select {
+		case <-existing.Done():
+		default:
+			alreadyRunning = true
+		}
+	}
+	job, err := service.StartIndex(context.Background(), id, agentruntime.SourceACP)
 	if err != nil {
 		s.writeResponse(req.ID, nil, manageKnowledgeBaseRPCError(err))
 		return
 	}
-	base, err := session.GetKnowledgeBase(context.Background(), s.settings.GetSessionDir(), id)
-	if err != nil {
-		s.writeResponse(req.ID, nil, manageKnowledgeBaseRPCError(err))
-		return
-	}
-	s.writeResponse(req.ID, manageKnowledgeBaseView{KnowledgeBase: base, Snapshot: &snapshot, Status: snapshot.Status}, nil)
+	progress := job.Progress()
+	s.writeResponse(req.ID, map[string]any{
+		"started": true, "alreadyRunning": alreadyRunning, "id": id,
+		"status":   "indexing",
+		"indexing": manageKnowledgeIndexViewFrom(progress),
+	}, nil)
 }
 
 func (s *server) handleManageKnowledgeBasesStatus(req rpcRequest) {

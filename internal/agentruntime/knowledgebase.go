@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -43,6 +44,10 @@ type KnowledgeBaseService struct {
 	policy          KnowledgeBaseIndexPolicy
 	settings        *config.Settings
 	providerFactory KnowledgeBaseProviderFactory
+	// indexJobs tracks background scans so management RPCs can start a scan
+	// without blocking and poll its progress afterwards.
+	indexJobsMu sync.Mutex
+	indexJobs   map[string]*KnowledgeIndexJob
 }
 
 // KnowledgeBaseProviderFactory creates the configured provider/model for an
@@ -90,7 +95,18 @@ func (s *KnowledgeBaseService) Index(ctx context.Context, knowledgeBaseID string
 // a provider/model is configured, its bounded Indexer Agent runs inside this
 // same durable Run after deterministic extraction. SourceCron is used for
 // scheduled scans; SourceACP is used by explicit Desktop management scans.
-func (s *KnowledgeBaseService) IndexDurable(ctx context.Context, knowledgeBaseID string, source RuntimeSource) (snapshot session.KnowledgeSnapshot, err error) {
+func (s *KnowledgeBaseService) IndexDurable(ctx context.Context, knowledgeBaseID string, source RuntimeSource) (session.KnowledgeSnapshot, error) {
+	return s.indexDurable(ctx, knowledgeBaseID, source, nil)
+}
+
+// IndexDurableWithProgress behaves like IndexDurable but reports scan/index
+// progress into job while the pass runs. It is the entry point used by
+// background scans; interactive callers return before the pass completes.
+func (s *KnowledgeBaseService) IndexDurableWithProgress(ctx context.Context, knowledgeBaseID string, source RuntimeSource, job *KnowledgeIndexJob) (session.KnowledgeSnapshot, error) {
+	return s.indexDurable(ctx, knowledgeBaseID, source, job)
+}
+
+func (s *KnowledgeBaseService) indexDurable(ctx context.Context, knowledgeBaseID string, source RuntimeSource, job *KnowledgeIndexJob) (snapshot session.KnowledgeSnapshot, err error) {
 	if s == nil {
 		return session.KnowledgeSnapshot{}, fmt.Errorf("knowledge base service is nil")
 	}
@@ -128,6 +144,7 @@ func (s *KnowledgeBaseService) IndexDurable(ctx context.Context, knowledgeBaseID
 	defer guard.Release()
 
 	runID := "knowledge_index_" + session.GenerateID()
+	job.update(func(p *KnowledgeIndexProgress) { p.RunID = runID })
 	execution := &ExecutionRuntime{}
 	execution.SetRunStore(RunStore{SessionDir: s.sessionDir})
 	execution.SetEventSink(SessionRunEventSink{SessionDir: s.sessionDir})
@@ -162,7 +179,7 @@ func (s *KnowledgeBaseService) IndexDurable(ctx context.Context, knowledgeBaseID
 			err = fmt.Errorf("finish knowledge indexing run: %w", finishErr)
 		}
 	}()
-	files, scanErr := s.scanFileManifest(ctx, base)
+	files, scanErr := s.scanFileManifest(ctx, base, job)
 	if scanErr != nil {
 		return session.KnowledgeSnapshot{}, scanErr
 	}
@@ -186,10 +203,19 @@ func (s *KnowledgeBaseService) IndexDurable(ctx context.Context, knowledgeBaseID
 	if planErr != nil {
 		return session.KnowledgeSnapshot{}, fmt.Errorf("prepare incremental knowledge graph reuse: %w", planErr)
 	}
-	indexedBase, graph, buildErr := s.buildGraph(ctx, knowledgeBaseID, runID, reusePlan)
+	job.update(func(p *KnowledgeIndexProgress) {
+		p.Phase = KnowledgeIndexPhaseIndexing
+		p.FilesTotal = int64(len(files))
+		p.FilesDone = 0
+	})
+	indexedBase, graph, buildErr := s.buildGraph(ctx, knowledgeBaseID, runID, reusePlan, job)
 	if buildErr != nil {
 		return session.KnowledgeSnapshot{}, buildErr
 	}
+	job.update(func(p *KnowledgeIndexProgress) {
+		p.Phase = KnowledgeIndexPhaseEnriching
+		p.Chunks = int64(len(graph.Chunks))
+	})
 	indexer, err := s.resolveKnowledgeIndexer(indexedBase)
 	if err != nil {
 		return session.KnowledgeSnapshot{}, err
@@ -197,6 +223,7 @@ func (s *KnowledgeBaseService) IndexDurable(ctx context.Context, knowledgeBaseID
 	if err := s.enrichGraphWithIndexer(ctx, execution, manager, indexedBase, &graph, mode, indexer); err != nil {
 		return session.KnowledgeSnapshot{}, err
 	}
+	job.update(func(p *KnowledgeIndexProgress) { p.Phase = KnowledgeIndexPhaseCommitting })
 	snapshot, err = session.StoreKnowledgeGraphSnapshot(ctx, s.sessionDir, graph)
 	if err != nil {
 		return session.KnowledgeSnapshot{}, err
@@ -212,7 +239,7 @@ func (s *KnowledgeBaseService) IndexWithRun(ctx context.Context, knowledgeBaseID
 	if err != nil {
 		return session.KnowledgeSnapshot{}, err
 	}
-	files, err := s.scanFileManifest(ctx, base)
+	files, err := s.scanFileManifest(ctx, base, nil)
 	if err != nil {
 		return session.KnowledgeSnapshot{}, err
 	}
@@ -225,7 +252,7 @@ func (s *KnowledgeBaseService) IndexWithRun(ctx context.Context, knowledgeBaseID
 	if err != nil {
 		return session.KnowledgeSnapshot{}, err
 	}
-	_, graph, err := s.buildGraph(ctx, knowledgeBaseID, runID, reusePlan)
+	_, graph, err := s.buildGraph(ctx, knowledgeBaseID, runID, reusePlan, nil)
 	if err != nil {
 		return session.KnowledgeSnapshot{}, err
 	}
@@ -237,7 +264,7 @@ func (s *KnowledgeBaseService) IndexWithRun(ctx context.Context, knowledgeBaseID
 // avoids chunk construction, marker extraction, graph allocation, provider
 // calls and SQLite writes. Scheduled scans of an unchanged large directory
 // therefore return the active immutable snapshot early.
-func (s *KnowledgeBaseService) scanFileManifest(ctx context.Context, base session.KnowledgeBase) ([]session.KnowledgeFile, error) {
+func (s *KnowledgeBaseService) scanFileManifest(ctx context.Context, base session.KnowledgeBase, job *KnowledgeIndexJob) ([]session.KnowledgeFile, error) {
 	if s == nil {
 		return nil, fmt.Errorf("knowledge base service is nil")
 	}
@@ -285,6 +312,10 @@ func (s *KnowledgeBaseService) scanFileManifest(ctx context.Context, base sessio
 		}
 		files = append(files, session.KnowledgeFile{RelativePath: source.relativePath, ContentSHA256: knowledgeSHA256(source.data),
 			ByteSize: int64(len(source.data)), MediaType: source.mediaType, Status: "indexed"})
+		job.update(func(p *KnowledgeIndexProgress) {
+			p.Phase = KnowledgeIndexPhaseScanning
+			p.FilesDone++
+		})
 		return nil
 	})
 	if err != nil {
@@ -293,7 +324,7 @@ func (s *KnowledgeBaseService) scanFileManifest(ctx context.Context, base sessio
 	return files, nil
 }
 
-func (s *KnowledgeBaseService) buildGraph(ctx context.Context, knowledgeBaseID, runID string, reusePlan session.KnowledgeGraphReusePlan) (session.KnowledgeBase, session.KnowledgeGraphSnapshot, error) {
+func (s *KnowledgeBaseService) buildGraph(ctx context.Context, knowledgeBaseID, runID string, reusePlan session.KnowledgeGraphReusePlan, job *KnowledgeIndexJob) (session.KnowledgeBase, session.KnowledgeGraphSnapshot, error) {
 	if s == nil {
 		return session.KnowledgeBase{}, session.KnowledgeGraphSnapshot{}, fmt.Errorf("knowledge base service is nil")
 	}
@@ -350,9 +381,20 @@ func (s *KnowledgeBaseService) buildGraph(ctx context.Context, knowledgeBaseID, 
 			return err
 		} else if reusable, ok := reusePlan.Files[relativePath]; ok {
 			session.AppendKnowledgeFileGraph(&graph, reusable)
+			job.update(func(p *KnowledgeIndexProgress) {
+				p.Phase = KnowledgeIndexPhaseIndexing
+				p.FilesDone++
+			})
 			return nil
 		}
-		return s.indexFile(ctx, root, path, entry, &graph)
+		if err := s.indexFile(ctx, root, path, entry, &graph); err != nil {
+			return err
+		}
+		job.update(func(p *KnowledgeIndexProgress) {
+			p.Phase = KnowledgeIndexPhaseIndexing
+			p.FilesDone++
+		})
+		return nil
 	})
 	if err != nil {
 		return session.KnowledgeBase{}, session.KnowledgeGraphSnapshot{}, fmt.Errorf("scan knowledge base: %w", err)

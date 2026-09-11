@@ -16,6 +16,7 @@ const skillhubCore = await readFile(new URL('../../core/skillhub.ts', import.met
 const composerCore = await readFile(new URL('../../core/composer.ts', import.meta.url), 'utf8');
 const composerTsx = await readFile(new URL('../../components/Composer.tsx', import.meta.url), 'utf8');
 const knowledgePanel = await readFile(new URL('./KnowledgePanel.tsx', import.meta.url), 'utf8');
+const libraryView = await readFile(new URL('../LibraryView.tsx', import.meta.url), 'utf8');
 const cronPanel = await readFile(new URL('./CronPanel.tsx', import.meta.url), 'utf8');
 const automationCore = await readFile(new URL('../../core/automation.ts', import.meta.url), 'utf8');
 const servePanel = await readFile(new URL('./ServePanel.tsx', import.meta.url), 'utf8');
@@ -182,6 +183,16 @@ test('knowledge-base settings stay ACP-backed and keep source files outside Desk
   assert.match(knowledgePanel, /desktop\.chooseDirectory/, 'source selection must use the Desktop-controlled directory picker');
   assert.doesNotMatch(knowledgePanel, /desktop\.storeSet\([^)]*(knowledge|rootDir|preprocessProfile)/i, 'knowledge-base configuration must not enter the Desktop store');
   assert.doesNotMatch(knowledgePanel, /readFileBase64\([^)]*(knowledge|rootDir)/i, 'Desktop must not read knowledge-source files');
+});
+
+test('knowledge scans start in the background and surfaces poll progress periodically', () => {
+  assert.match(knowledgePanel, /await scanKnowledgeBase\(base\.id\)/, 'scan button must call the scan RPC');
+  assert.match(knowledgePanel, /settings\.knowledgeScanStarted/, 'scan must report background start instead of waiting for completion');
+  assert.match(knowledgePanel, /window\.setInterval\(\(\) => void reload\(\), 3000\)/, 'panel must poll progress while a scan runs');
+  assert.match(knowledgePanel, /view\.indexing\?\.running/, 'panel must drive polling from the projected indexing state');
+  assert.match(libraryView, /window\.setInterval\(\(\) => void reload\(\), 4000\)/, 'library view must poll indexing progress');
+  assert.match(libraryView, /knowledgeIndexingText\(view\.indexing\)/, 'library rows must show live progress');
+  assert.match(manageApi, /indexing\?: KnowledgeIndexProgressView/, 'view type must carry the indexing projection');
 });
 
 test('knowledge-base settings translations remain bilingual', () => {

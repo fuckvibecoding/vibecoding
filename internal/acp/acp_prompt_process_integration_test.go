@@ -127,6 +127,24 @@ func TestACPStdioProcessInitializeNewPromptClose(t *testing.T) {
 	})
 	assertACPResponseID(t, reader, 4)
 
+	// The scan RPC only admits a background index job now. Poll the projected
+	// status until the snapshot commits before the prompt requires the base.
+	for attempt := 0; ; attempt++ {
+		if attempt > 200 {
+			t.Fatal("knowledge base index did not complete in time")
+		}
+		pollID := 40 + attempt
+		sendACPRequest(t, stdin, map[string]any{
+			"jsonrpc": "2.0", "id": pollID, "method": "mothx/manage/knowledge-bases/get", "params": map[string]any{"id": baseID},
+		})
+		polled := assertACPResponseID(t, reader, float64(pollID))
+		polledResult, _ := polled["result"].(map[string]any)
+		if polledResult != nil && polledResult["status"] == "completed" {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	sendACPRequest(t, stdin, map[string]any{
 		"jsonrpc": "2.0",
 		"id":      5,

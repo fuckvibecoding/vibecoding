@@ -37,6 +37,16 @@ function knowledgeBaseStatus(view: KnowledgeBaseView): string {
   return t('settings.knowledgeStatus', { s: status || t('settings.knowledgeUnindexed') });
 }
 
+// 后台扫描进行中时显示周期轮询拿到的进度,而不是阻塞等待扫描结束。
+function knowledgeStatusText(view: KnowledgeBaseView): string {
+  const indexing = view.indexing;
+  if (indexing?.running) {
+    const label = t('library.knowledgeIndexing', { p: indexing.phase || '' });
+    return indexing.filesTotal > 0 ? `${label} · ${indexing.filesDone}/${indexing.filesTotal}` : label;
+  }
+  return knowledgeBaseStatus(view);
+}
+
 function KnowledgeBaseEditor({
   view,
   defaults,
@@ -90,8 +100,9 @@ function KnowledgeBaseEditor({
     if (!base) return;
     setBusy('scan');
     try {
+      // 扫描 RPC 现在立即返回(后台作业已启动),进度由面板周期轮询。
       await scanKnowledgeBase(base.id);
-      toast(t('settings.knowledgeScanned'));
+      toast(t('settings.knowledgeScanStarted'));
       onDone();
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error));
@@ -128,7 +139,7 @@ function KnowledgeBaseEditor({
   };
 
   return (
-    <ManageCard title={base ? base.name : t('settings.knowledgeNew')} desc={base ? knowledgeBaseStatus(view!) : t('settings.knowledgeNewDesc')}>
+    <ManageCard title={base ? base.name : t('settings.knowledgeNew')} desc={base ? knowledgeStatusText(view!) : t('settings.knowledgeNewDesc')}>
       <FieldGrid>
         <Field label={t('settings.knowledgeName')}>
           <Input value={spec.name} onChange={(event) => set('name', event.target.value)} />
@@ -266,6 +277,14 @@ export function KnowledgePanel() {
       cancelled = true;
     };
   }, [ready, supported]);
+
+  // 任一知识库在后台扫描时周期轮询进度,直到作业结束。
+  const anyIndexing = (views || []).some((view) => view.indexing?.running);
+  useEffect(() => {
+    if (!anyIndexing) return;
+    const timer = window.setInterval(() => void reload(), 3000);
+    return () => window.clearInterval(timer);
+  }, [anyIndexing, reload]);
 
   if (!supported) return <UnsupportedRow text={t('manage.unsupported')} />;
   if (!views || !defaults) return <UnsupportedRow text="…" />;
