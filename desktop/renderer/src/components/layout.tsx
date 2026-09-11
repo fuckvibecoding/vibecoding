@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 
 // 通用列表页骨架:滚动容器 + 居中内容列 + 页头(标题/副标题/右侧动作)。
 export function PageScroll({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('min-h-0 flex-1 overflow-y-auto', className)}>{children}</div>;
+  return <div className={cn('h-full min-h-0 overflow-y-auto', className)}>{children}</div>;
 }
 
 export function PageInner({ children, className }: { children: ReactNode; className?: string }) {

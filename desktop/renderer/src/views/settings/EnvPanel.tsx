@@ -151,8 +151,13 @@ export function EnvPanel() {
             <span>{t('settings.envValue')}</span>
             <Input type="password" placeholder={t('settings.envValue')} value={newValue} onChange={(event) => setNewValue(event.target.value)} />
           </label>
-          <div className="flex items-end">
-            <Button onClick={addVariable}>{t('settings.envAddButton')}</Button>
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <span className="invisible select-none text-[11px] font-semibold text-muted-foreground" aria-hidden="true">
+              {t('settings.envAddButton')}
+            </span>
+            <Button className="w-full" onClick={addVariable}>
+              {t('settings.envAddButton')}
+            </Button>
           </div>
         </div>
       </ManageCard>

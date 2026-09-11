@@ -1217,8 +1217,9 @@ func (s *server) handleManageSkillsSet(req rpcRequest) {
 
 // --- §6.1 mcp -------------------------------------------------------------------
 
-// manageMCPViews projects mcp.json servers without secret values: env and
-// header entries appear as name lists only.
+// manageMCPViews projects the complete local mcp.json schema. Desktop talks
+// only to its locally spawned ACP child over stdio, so MCP environment and
+// header values must remain editable just as they are in the local Web UI.
 func manageMCPViews(cfg *config.MCPConfig) []map[string]any {
 	views := make([]map[string]any, 0, len(cfg.MCPServers))
 	for _, srv := range cfg.MCPServers {
@@ -1240,26 +1241,57 @@ func manageMCPViews(cfg *config.MCPConfig) []map[string]any {
 			view["messageUrl"] = srv.MessageURL
 		}
 		if len(srv.Env) > 0 {
-			envKeys := make([]string, 0, len(srv.Env))
-			for _, env := range srv.Env {
-				envKeys = append(envKeys, env.Name)
-			}
-			view["envKeys"] = envKeys
+			view["env"] = append([]struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			}(nil), srv.Env...)
 		}
 		if len(srv.Headers) > 0 {
-			headerNames := make([]string, 0, len(srv.Headers))
-			for _, header := range srv.Headers {
-				headerNames = append(headerNames, header.Name)
-			}
-			view["headerNames"] = headerNames
+			view["headers"] = append([]struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			}(nil), srv.Headers...)
 		}
 		views = append(views, view)
 	}
 	return views
 }
 
-func (s *server) manageMCPConfig() (*config.MCPConfig, error) {
-	cfg, err := config.LoadMCPConfig(config.GlobalMCPPath())
+type manageMCPTarget struct {
+	Scope     string
+	SessionID string
+	Path      string
+}
+
+func (s *server) resolveManageMCPTarget(scope, sessionID string) (manageMCPTarget, error) {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		scope = "global"
+	}
+	switch scope {
+	case "global":
+		return manageMCPTarget{Scope: scope, Path: config.GlobalMCPPath()}, nil
+	case "project":
+		sessionID = strings.TrimSpace(sessionID)
+		if sessionID == "" {
+			return manageMCPTarget{}, fmt.Errorf("project MCP management requires sessionId")
+		}
+		rt := s.sessionRuntime(sessionID)
+		if rt == nil || rt.runtime == nil || strings.TrimSpace(rt.runtime.WorkDir) == "" {
+			return manageMCPTarget{}, fmt.Errorf("session %q is not active", sessionID)
+		}
+		return manageMCPTarget{
+			Scope:     scope,
+			SessionID: sessionID,
+			Path:      filepath.Join(rt.runtime.WorkDir, config.ProjectMCPPath()),
+		}, nil
+	default:
+		return manageMCPTarget{}, fmt.Errorf("MCP scope must be global or project")
+	}
+}
+
+func (s *server) manageMCPConfigAtPath(path string) (*config.MCPConfig, error) {
+	cfg, err := config.LoadMCPConfig(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &config.MCPConfig{}, nil
@@ -1274,35 +1306,52 @@ func (s *server) manageMCPConfig() (*config.MCPConfig, error) {
 }
 
 func (s *server) handleManageMCPList(req rpcRequest) {
-	cfg, err := s.manageMCPConfig()
+	var in struct {
+		Scope     string `json:"scope,omitempty"`
+		SessionID string `json:"sessionId,omitempty"`
+	}
+	if len(bytes.TrimSpace(req.Params)) > 0 {
+		if err := json.Unmarshal(req.Params, &in); err != nil {
+			s.writeResponse(req.ID, nil, acpStructuredRPCError(-32602, "invalid_params", "invalid MCP scope parameters", nil))
+			return
+		}
+	}
+	target, err := s.resolveManageMCPTarget(in.Scope, in.SessionID)
+	if err != nil {
+		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32602, "mcp_scope_invalid", err.Error(), nil))
+		return
+	}
+	cfg, err := s.manageMCPConfigAtPath(target.Path)
 	if err != nil {
 		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32000, "mcp_unavailable",
 			fmt.Sprintf("load MCP config: %v", err), nil))
 		return
 	}
 	s.writeResponse(req.ID, map[string]any{
-		"path":    config.GlobalMCPPath(),
+		"scope":   target.Scope,
+		"sessionId": target.SessionID,
+		"path":    target.Path,
 		"servers": manageMCPViews(cfg),
 	}, nil)
 }
 
-// manageMCPServerFields is the mcp/set whitelist. env and headers are
-// deliberately not writable through ACP so secret values never travel over
-// the management channel; existing values survive a set by name merge.
+// manageMCPServerFields is the mcp/set whitelist. MCP configuration is local
+// Desktop-to-ACP IPC, so headers and environment variables are first-class,
+// editable fields rather than a lossy name-only projection.
 var manageMCPServerFields = map[string]bool{
 	"name": true, "type": true, "command": true, "args": true,
-	"url": true, "messageUrl": true, "enabled": true,
+	"url": true, "messageUrl": true, "enabled": true, "headers": true, "env": true,
 }
 
 var manageMCPServerTypes = map[string]bool{"stdio": true, "http": true, "sse": true}
 
 // handleManageMCPSet fully replaces the global mcp.json server list from the
-// whitelisted input. Entries whose name matches an existing server keep their
-// non-whitelisted fields (env, headers) because the list view masks them;
-// servers absent from the input are removed.
+// complete whitelisted input. Servers absent from the input are removed.
 func (s *server) handleManageMCPSet(req rpcRequest) {
 	var envelope struct {
-		Servers []json.RawMessage `json:"servers"`
+		Servers   []json.RawMessage `json:"servers"`
+		Scope     string            `json:"scope,omitempty"`
+		SessionID string            `json:"sessionId,omitempty"`
 	}
 	if len(bytes.TrimSpace(req.Params)) == 0 {
 		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32602, "invalid_params", "servers is required", nil))
@@ -1317,7 +1366,12 @@ func (s *server) handleManageMCPSet(req rpcRequest) {
 		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32602, "invalid_params", "servers array is required", nil))
 		return
 	}
-	existing, err := s.manageMCPConfig()
+	target, err := s.resolveManageMCPTarget(envelope.Scope, envelope.SessionID)
+	if err != nil {
+		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32602, "mcp_scope_invalid", err.Error(), nil))
+		return
+	}
+	existing, err := s.manageMCPConfigAtPath(target.Path)
 	if err != nil {
 		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32000, "mcp_unavailable",
 			fmt.Sprintf("load MCP config: %v", err), nil))
@@ -1401,6 +1455,37 @@ func (s *server) handleManageMCPSet(req rpcRequest) {
 			}
 			entry.Args = args
 		}
+		for _, field := range []struct {
+			key    string
+			target *[]struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			}
+		}{
+			{"headers", &entry.Headers},
+			{"env", &entry.Env},
+		} {
+			rawPairs, present := fields[field.key]
+			if !present {
+				continue
+			}
+			var pairs []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			}
+			if err := json.Unmarshal(rawPairs, &pairs); err != nil {
+				invalidServer(fmt.Sprintf("server %s: %s must be an array of name/value objects", name, field.key))
+				return
+			}
+			for index := range pairs {
+				pairs[index].Name = strings.TrimSpace(pairs[index].Name)
+				if pairs[index].Name == "" {
+					invalidServer(fmt.Sprintf("server %s: %s entries require a non-empty name", name, field.key))
+					return
+				}
+			}
+			*field.target = pairs
+		}
 		if rawEnabled, present := fields["enabled"]; present {
 			enabled, _, fieldErr := manageDecodeOptionalBool(rawEnabled)
 			if fieldErr != nil {
@@ -1429,17 +1514,19 @@ func (s *server) handleManageMCPSet(req rpcRequest) {
 			}
 		}
 	}
-	if err := config.SaveMCPConfig(config.GlobalMCPPath(), cfg); err != nil {
+	if err := config.SaveMCPConfig(target.Path, cfg); err != nil {
 		s.writeResponse(req.ID, nil, acpStructuredRPCError(-32000, "mcp_unavailable",
 			fmt.Sprintf("save MCP config: %v", err), nil))
 		return
 	}
-	saved, err := s.manageMCPConfig()
+	saved, err := s.manageMCPConfigAtPath(target.Path)
 	if err != nil {
 		saved = cfg
 	}
 	s.writeResponse(req.ID, map[string]any{
-		"path":    config.GlobalMCPPath(),
+		"scope":   target.Scope,
+		"sessionId": target.SessionID,
+		"path":    target.Path,
 		"servers": manageMCPViews(saved),
 	}, nil)
 }

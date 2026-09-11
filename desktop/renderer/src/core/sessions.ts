@@ -81,7 +81,16 @@ export function sessionPage(key: string): SessionPageState {
 function rebuildSessionCache(): void {
   const byID = new Map<string, ListedSessionShape>();
   for (const page of Object.values(state.sessionPages)) {
-    for (const session of page.sessions) byID.set(session.sessionId, session);
+    for (const session of page.sessions) {
+      const existing = byID.get(session.sessionId);
+      // Different list scopes can arrive with different summary completeness.
+      // Keep the canonical Runtime title rather than letting a sparse recent
+      // row replace it with an ID-only projection.
+      byID.set(
+        session.sessionId,
+        existing?.title && !session.title ? { ...session, title: existing.title } : session,
+      );
+    }
   }
   state.sessions = [...byID.values()];
 }

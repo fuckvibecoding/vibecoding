@@ -834,7 +834,7 @@ func writeManageMCPFile(t *testing.T, configDir string) {
 	}
 }
 
-func TestManageMCPListMasksEnvAndHeaders(t *testing.T) {
+func TestManageMCPListReturnsCompleteLocalConfig(t *testing.T) {
 	configDir := t.TempDir()
 	writeManageSettings(t, configDir, nil)
 	writeManageMCPFile(t, configDir)
@@ -850,19 +850,13 @@ func TestManageMCPListMasksEnvAndHeaders(t *testing.T) {
 	if keeper["name"] != "keeper" || keeper["command"] != "/bin/keep" || keeper["enabled"] != true {
 		t.Fatalf("keeper = %#v", keeper)
 	}
-	envKeys, _ := keeper["envKeys"].([]any)
-	if len(envKeys) != 1 || envKeys[0] != "TOKEN" {
-		t.Fatalf("envKeys = %#v", envKeys)
+	env, _ := keeper["env"].([]any)
+	if len(env) != 1 || env[0].(map[string]any)["name"] != "TOKEN" || env[0].(map[string]any)["value"] != "mcp-super-secret" {
+		t.Fatalf("env = %#v", env)
 	}
-	headerNames, _ := keeper["headerNames"].([]any)
-	if len(headerNames) != 1 || headerNames[0] != "Authorization" {
-		t.Fatalf("headerNames = %#v", headerNames)
-	}
-	encoded, _ := json.Marshal(result)
-	for _, secret := range []string{"mcp-super-secret", "hdr-secret"} {
-		if strings.Contains(string(encoded), secret) {
-			t.Fatalf("mcp list leaks %q: %s", secret, encoded)
-		}
+	headers, _ := keeper["headers"].([]any)
+	if len(headers) != 1 || headers[0].(map[string]any)["name"] != "Authorization" || headers[0].(map[string]any)["value"] != "Bearer hdr-secret" {
+		t.Fatalf("headers = %#v", headers)
 	}
 }
 
@@ -875,7 +869,9 @@ func TestManageMCPSetReplacesAndMerges(t *testing.T) {
 
 	result := manageFixtureResult(t, callManageFixture(t, srv, output, 1, "mothx/manage/mcp/set", map[string]any{
 		"servers": []any{
-			map[string]any{"name": "keeper", "command": "/bin/keep2", "args": []any{"--new"}, "enabled": false},
+			map[string]any{"name": "keeper", "command": "/bin/keep2", "args": []any{"--new"}, "enabled": false,
+				"env":     []any{map[string]any{"name": "TOKEN", "value": "rotated-secret"}},
+				"headers": []any{map[string]any{"name": "Authorization", "value": "Bearer rotated-header"}}},
 			map[string]any{"name": "remote", "type": "http", "url": "https://mcp.example.org/api"},
 		},
 	}))
@@ -899,21 +895,15 @@ func TestManageMCPSetReplacesAndMerges(t *testing.T) {
 	if len(args) != 1 || args[0] != "--new" {
 		t.Fatalf("keeper args = %#v", args)
 	}
-	envKeys, _ := keeper["envKeys"].([]any)
-	if len(envKeys) != 1 || envKeys[0] != "TOKEN" {
-		t.Fatalf("keeper envKeys must survive the merge: %#v", keeper)
+	env, _ := keeper["env"].([]any)
+	if len(env) != 1 || env[0].(map[string]any)["value"] != "rotated-secret" {
+		t.Fatalf("keeper env = %#v", keeper)
 	}
 	remote := views["remote"]
 	if remote["type"] != "http" || remote["url"] != "https://mcp.example.org/api" || remote["enabled"] != true {
 		t.Fatalf("remote = %#v", remote)
 	}
-	encoded, _ := json.Marshal(result)
-	for _, secret := range []string{"mcp-super-secret", "hdr-secret"} {
-		if strings.Contains(string(encoded), secret) {
-			t.Fatalf("mcp set response leaks %q: %s", secret, encoded)
-		}
-	}
-	// On disk the non-whitelisted secret fields survived by name merge.
+	// The full local ACP projection persists updated environment and headers.
 	saved, err := config.LoadMCPConfig(config.GlobalMCPPath())
 	if err != nil {
 		t.Fatal(err)
@@ -927,22 +917,22 @@ func TestManageMCPSetReplacesAndMerges(t *testing.T) {
 			keeperSaved = &saved.MCPServers[index]
 		}
 	}
-	if keeperSaved == nil || len(keeperSaved.Env) != 1 || keeperSaved.Env[0].Value != "mcp-super-secret" {
-		t.Fatalf("keeper env did not survive: %#v", keeperSaved)
+	if keeperSaved == nil || len(keeperSaved.Env) != 1 || keeperSaved.Env[0].Value != "rotated-secret" {
+		t.Fatalf("keeper env was not updated: %#v", keeperSaved)
 	}
-	if len(keeperSaved.Headers) != 1 || keeperSaved.Headers[0].Value != "Bearer hdr-secret" {
-		t.Fatalf("keeper headers did not survive: %#v", keeperSaved)
+	if len(keeperSaved.Headers) != 1 || keeperSaved.Headers[0].Value != "Bearer rotated-header" {
+		t.Fatalf("keeper headers were not updated: %#v", keeperSaved)
 	}
 	if keeperSaved.Enabled == nil || *keeperSaved.Enabled {
 		t.Fatalf("keeper enabled = %#v, want explicit false", keeperSaved.Enabled)
 	}
 
-	// Whitelist violations.
+	// Schema validation.
 	message := callManageFixture(t, srv, output, 2, "mothx/manage/mcp/set", map[string]any{
-		"servers": []any{map[string]any{"name": "x", "command": "/bin/x", "env": []any{}}},
+		"servers": []any{map[string]any{"name": "x", "command": "/bin/x", "env": []any{map[string]any{"name": "", "value": "x"}}}},
 	})
-	if code, data := manageFixtureError(t, message); code != "mcp_field_not_allowed" || data["field"] != "env" {
-		t.Fatalf("env write code = %q data = %#v", code, data)
+	if code, _ := manageFixtureError(t, message); code != "mcp_server_invalid" {
+		t.Fatalf("invalid env code = %q", code)
 	}
 	message = callManageFixture(t, srv, output, 3, "mothx/manage/mcp/set", map[string]any{
 		"servers": []any{map[string]any{"name": "no-command"}},
@@ -980,6 +970,52 @@ func TestManageMCPSetReplacesAndMerges(t *testing.T) {
 	servers, present := result["servers"].([]any)
 	if !present || len(servers) != 0 {
 		t.Fatalf("clear-all result = %#v", result)
+	}
+}
+
+func TestManageMCPProjectScopeUsesActiveSessionWorkDir(t *testing.T) {
+	configDir := t.TempDir()
+	workDir := t.TempDir()
+	t.Setenv("MOTHX_DIR", configDir)
+	writeManageSettings(t, configDir, nil)
+	output := &syncedBuffer{}
+	srv := newManageFixtureServer(output, workDir)
+	srv.sessions["project-session"] = &sessionRuntime{
+		runtime: &agentruntime.SessionRuntime{WorkDir: workDir},
+	}
+
+	result := manageFixtureResult(t, callManageFixture(t, srv, output, 1, "mothx/manage/mcp/set", map[string]any{
+		"scope": "project", "sessionId": "project-session",
+		"servers": []any{map[string]any{"name": "project-server", "type": "stdio", "command": "/bin/project"}},
+	}))
+	if result["scope"] != "project" || result["sessionId"] != "project-session" {
+		t.Fatalf("project set response = %#v", result)
+	}
+	projectPath := filepath.Join(workDir, config.ProjectMCPPath())
+	if result["path"] != projectPath {
+		t.Fatalf("project path = %#v, want %s", result["path"], projectPath)
+	}
+	project, err := config.LoadMCPConfig(projectPath)
+	if err != nil || len(project.MCPServers) != 1 || project.MCPServers[0].Name != "project-server" {
+		t.Fatalf("project MCP config = %#v, err=%v", project, err)
+	}
+	if _, err := config.LoadMCPConfig(config.GlobalMCPPath()); !os.IsNotExist(err) {
+		t.Fatalf("project set must not write global MCP config: %v", err)
+	}
+
+	result = manageFixtureResult(t, callManageFixture(t, srv, output, 2, "mothx/manage/mcp/list", map[string]any{
+		"scope": "project", "sessionId": "project-session",
+	}))
+	servers, _ := result["servers"].([]any)
+	if len(servers) != 1 || servers[0].(map[string]any)["name"] != "project-server" {
+		t.Fatalf("project MCP list = %#v", result)
+	}
+
+	message := callManageFixture(t, srv, output, 3, "mothx/manage/mcp/list", map[string]any{
+		"scope": "project", "sessionId": "missing-session",
+	})
+	if code, _ := manageFixtureError(t, message); code != "mcp_scope_invalid" {
+		t.Fatalf("missing project session code = %q", code)
 	}
 }
 

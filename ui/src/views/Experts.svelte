@@ -4,6 +4,7 @@
   import { request, patchJSON, postJSON } from '../lib/api.js';
   import { navigate } from '../lib/router.js';
   import { language, t } from '../lib/preferences.js';
+  import SearchSelect from './settings/SearchSelect.svelte';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';
@@ -25,6 +26,10 @@
   $: sessionID = selectedSession || $currentSession || '';
   $: selectedSessionInfo = $sessions.find((item) => item.id === sessionID) || null;
   $: sessionBusy = Boolean(selectedSessionInfo?.execution?.busy || selectedSessionInfo?.running);
+  $: sessionOptions = ($sessions || []).map((item) => ({
+    value: item.id,
+    label: `${item.id} · ${item.title || item.name || item.id}`
+  }));
   $: boundID = state?.expert?.id || '';
   $: teamBound = state?.sessionId === sessionID && state?.expert?.expertType === 'team';
   $: selectedSummary = experts.find((item) => item.id === selectedID) || null;
@@ -227,12 +232,16 @@
     <div class="experts-toolbar-actions">
       <label class="experts-session-select">
         <span>{$t('experts.session')}</span>
-        <select value={sessionID} onchange={(event) => selectSession(event.currentTarget.value)}>
-          <option value="">{$t('experts.selectSession')}</option>
-          {#each $sessions as item}
-            <option value={item.id}>{item.title || item.id}</option>
-          {/each}
-        </select>
+        <SearchSelect
+          value={sessionID}
+          options={sessionOptions}
+          placeholder={$t('experts.searchSession')}
+          ariaLabel={$t('experts.searchSession')}
+          noOptionsLabel={$t('experts.noMatchingSession')}
+          className="experts-session-search"
+          menuClassName="experts-session-search-menu"
+          on:change={(event) => selectSession(event.detail)}
+        />
       </label>
       <Button type="button" variant="outline" size="sm" onclick={() => loadForSession()} disabled={loading || actionLoading || !sessionID}>
         <RefreshCw size={15} aria-hidden="true" />
@@ -360,7 +369,8 @@
   .experts-page h1, .experts-page h2, .experts-page h3, .experts-page p { margin: 0; }
   .experts-toolbar-actions, .experts-current, .experts-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .experts-session-select { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
-  .experts-session-select select { max-width: 240px; }
+  .experts-session-select :global(.experts-session-search) { width: min(360px, 52vw); }
+  .experts-session-select :global(.experts-session-search-menu) { max-height: 300px; }
   .experts-current { border: 1px solid var(--border); background: var(--panel-bg); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
   .experts-current-label, .experts-kicker { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
   .experts-workbench { display: grid; grid-template-columns: minmax(250px, .82fr) minmax(0, 1.4fr); gap: 16px; min-width: 0; }
@@ -395,6 +405,6 @@
     .experts-workbench { grid-template-columns: minmax(0, 1fr); }
     .experts-toolbar-actions { width: 100%; }
     .experts-session-select { flex: 1; }
-    .experts-session-select select { flex: 1; max-width: none; }
+    .experts-session-select :global(.experts-session-search) { flex: 1; width: auto; }
   }
 </style>

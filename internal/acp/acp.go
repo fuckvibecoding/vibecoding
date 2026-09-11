@@ -997,6 +997,16 @@ func Run(opts RunOptions) (runErr error) {
 		permissionTimeout: opts.PermissionTimeout,
 		questionTimeout:   opts.QuestionTimeout,
 	}
+	// Other Runtime hosts publish only advisory UDP lease-bus wake-ups. ACP
+	// re-reads the durable Run before projecting its standard run_status event;
+	// it never trusts notification fields as execution state.
+	stopLeaseNotifications := session.SubscribeRuntimeLeaseNotifications(func(notification session.RuntimeLeaseNotification) {
+		switch notification.Type {
+		case "acquired", "released", "lost", "state_changed":
+			go srv.notifyExternalRunStatus(notification.SessionID)
+		}
+	})
+	defer stopLeaseNotifications()
 	defer srv.shutdownAllSessionRuntimes()
 	// Defers run LIFO: stop the management-plane cron scheduler before the
 	// session runtimes so in-flight job runs are cancelled first.

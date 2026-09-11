@@ -292,6 +292,26 @@ func newHistoryRecordingServer(t *testing.T) (*Server, *historyRecordingProvider
 	return srv, p
 }
 
+func TestSubmitRunBindsRequestedTeamForNewSession(t *testing.T) {
+	srv, provider := newHistoryRecordingServer(t)
+	defer srv.pool.Stop()
+
+	const sessionID = "new-session-team-binding"
+	w := submitRun(t, srv, sessionID, `{"message":"start with a team","expertId":"software-company"}`)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("submit status = %d, body = %s", w.Code, w.Body.String())
+	}
+	waitForProviderCall(t, provider)
+
+	persisted, err := session.OpenByIDExact(srv.settings.GetSessionDir(), sessionID)
+	if err != nil {
+		t.Fatalf("open persisted session: %v", err)
+	}
+	if got := persisted.GetExpertID(); got != "software-company" {
+		t.Fatalf("persisted expert = %q, want software-company", got)
+	}
+}
+
 func TestSubmitRunPolicySnapshotIncludesProviderSelection(t *testing.T) {
 	snapshot, err := marshalRunPolicySnapshot(nil, nil, submitRunRequest{
 		Message:  "hello",

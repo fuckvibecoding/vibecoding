@@ -6,6 +6,7 @@ import { List, Search } from 'lucide-react';
 
 import { SessionMenu } from '@/components/Sidebar';
 import { EmptyState, PageHead, PageInner, PageScroll, RowItem, RowList } from '@/components/layout';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { t } from '@/core/i18n';
@@ -22,10 +23,56 @@ function sessionProjectName(session: ListedSessionShape): string {
   return project?.name || t('tree.ungrouped');
 }
 
-function sessionStatusLabel(session: ListedSessionShape): string {
-  const run = session._meta?.lastRun;
-  if (run?.active || run?.status === 'running') return t('status.working');
-  return run?.status ? t(`status.${run.status}`) : t('status.idle');
+type HistoryStatus = 'idle' | 'working' | 'pending' | 'completed' | 'failed' | 'incomplete' | 'cancelled';
+
+function historyStatus(session: ListedSessionShape, rememberedStatus?: string): HistoryStatus {
+  const status = rememberedStatus || (session._meta?.lastRun?.active ? 'running' : session._meta?.lastRun?.status);
+  switch (status) {
+    case 'created':
+    case 'queued':
+    case 'running':
+    case 'cancelling':
+    case 'terminalizing':
+    case 'working':
+      return 'working';
+    case 'waiting_for_approval':
+    case 'waiting_for_question':
+    case 'pending':
+      return 'pending';
+    case 'completed':
+      return 'completed';
+    case 'incomplete':
+      return 'incomplete';
+    case 'failed':
+    case 'expired':
+    case 'timed_out':
+      return 'failed';
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled';
+    default:
+      return 'idle';
+  }
+}
+
+function sessionStatusLabel(status: HistoryStatus): string {
+  return t(`status.${status}`);
+}
+
+function historyStatusVariant(status: HistoryStatus): 'secondary' | 'info' | 'success' | 'warning' | 'danger' {
+  switch (status) {
+    case 'working':
+      return 'info';
+    case 'completed':
+      return 'success';
+    case 'failed':
+    case 'incomplete':
+      return 'danger';
+    case 'pending':
+      return 'warning';
+    default:
+      return 'secondary';
+  }
 }
 
 export function HistoryView() {
@@ -104,26 +151,35 @@ export function HistoryView() {
         </div>
 
         <RowList>
-          {page.sessions.map((session) => (
-            <RowItem
-              key={session.sessionId}
-              className="min-h-[60px]"
-              icon={<List />}
-              title={sessionTitle(session)}
-              desc={[
-                sessionProjectName(session),
-                session.cwd,
-                [session.provider, session.model].filter(Boolean).join(' / '),
-                session.updatedAt ? new Date(session.updatedAt).toLocaleString() : '',
-                sessionStatusLabel(session),
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-              onClick={() => void openSession(session.sessionId)}
-            >
-              <SessionMenu session={session} />
-            </RowItem>
-          ))}
+          {page.sessions.map((session) => {
+            // ACP run_status events update this presentation projection before
+            // the next history page reload. Durable lastRun remains the fallback.
+            const status = historyStatus(session, appState.store.sessionStatus[session.sessionId]);
+            return (
+              <RowItem
+                key={session.sessionId}
+                className="min-h-[60px]"
+                icon={<List />}
+                title={
+                  <>
+                    <span className="min-w-0 truncate">{sessionTitle(session)}</span>
+                    <Badge variant={historyStatusVariant(status)}>{sessionStatusLabel(status)}</Badge>
+                  </>
+                }
+                desc={[
+                  sessionProjectName(session),
+                  session.cwd,
+                  [session.provider, session.model].filter(Boolean).join(' / '),
+                  session.updatedAt ? new Date(session.updatedAt).toLocaleString() : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                onClick={() => void openSession(session.sessionId)}
+              >
+                <SessionMenu session={session} />
+              </RowItem>
+            );
+          })}
           {page.loading && page.sessions.length === 0 ? (
             <div className="px-4 py-3 text-[11.5px] text-muted-foreground">…</div>
           ) : null}

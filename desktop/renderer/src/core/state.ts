@@ -112,7 +112,7 @@ export type TranscriptItem =
       contents: ToolCallContentShape[];
       locations?: { path: string }[];
     }
-  | { kind: 'plan'; key: string; entries: PlanEntryShape[] }
+  | { kind: 'plan'; key: string; entries: PlanEntryShape[]; title?: string; note?: string }
   | {
       kind: 'artifact';
       key: string;

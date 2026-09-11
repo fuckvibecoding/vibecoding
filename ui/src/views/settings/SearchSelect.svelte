@@ -28,6 +28,7 @@
   $: filteredOptions = normalizedQuery
     ? options.filter((option) => `${option.label} ${option.value}`.toLowerCase().includes(normalizedQuery))
     : options;
+  $: selectableOptions = filteredOptions.filter((option) => !option?.disabled);
 
   function openPicker() {
     if (disabled) return;
@@ -44,6 +45,7 @@
   }
 
   function choose(option) {
+    if (!option || option.disabled) return;
     value = option.value;
     closePicker();
     dispatch('change', value);
@@ -58,9 +60,9 @@
       closePicker();
       return;
     }
-    if (event.key === 'Enter' && filteredOptions.length > 0) {
+    if (event.key === 'Enter' && selectableOptions.length > 0) {
       event.preventDefault();
-      choose(filteredOptions[0]);
+      choose(selectableOptions[0]);
     }
   }
 </script>
@@ -99,8 +101,11 @@
           <button
             type="button"
             class:active={option.value === value}
+            class:disabled={option.disabled}
             role="option"
             aria-selected={option.value === value}
+            aria-disabled={option.disabled || undefined}
+            disabled={option.disabled}
             on:mousedown={(event) => { event.preventDefault(); choose(option); }}
           >{option.label}</button>
         {/each}

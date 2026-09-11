@@ -1,5 +1,6 @@
 // mothx/manage/* 数据访问层:类型、缓存、能力守卫与加载/变更动作。
-// 无发现键时面板显示 unsupported;密钥只掩码展示,绝不落本地持久化。
+// 无发现键时面板显示 unsupported;Provider 密钥只掩码展示，MCP 配置则
+// 通过本机 Desktop ↔ ACP IPC 完整编辑，二者都绝不落 Desktop 本地持久化。
 // React 设置面板只消费这里的函数,不再自行拼装 ACP 请求。
 
 import { desktop, invoke } from './api';
@@ -189,9 +190,10 @@ export interface McpServerView {
   url?: string;
   messageUrl?: string;
   enabled?: boolean;
-  envKeys?: string[];
-  headerNames?: string[];
+  headers?: McpNameValue[];
+  env?: McpNameValue[];
 }
+export interface McpNameValue { name: string; value: string; }
 export interface StatsSummary {
   sessions?: number;
   runs?: number;
@@ -338,7 +340,6 @@ export const cache: {
   providerCatalog?: ProviderCatalog;
   skillHub?: SkillHubView;
   skills?: SkillView[];
-  mcp?: McpServerView[];
   memory?: string;
   stats?: StatsSummary;
   points?: StatsPoint[];
@@ -558,22 +559,22 @@ export async function applyKnowledgeBaseMcp(baseId: string, enabled: boolean, cu
     args: ['knowledge-mcp', 'serve', '--knowledge-base', baseId],
     enabled,
   };
-  // The list projection includes env/header key names for display. mcp/set
-  // deliberately rejects those read-only fields, so submit only its writable
-  // standard MCP schema and let ACP preserve secret values by server name.
+  // Keep the update scoped to the deterministic knowledge-base entry while
+  // preserving any headers or environment values edited through the local MCP UI.
   const writable = (server: McpServerView): McpServerView => ({
     name: server.name, type: server.type, command: server.command, args: server.args,
     url: server.url, messageUrl: server.messageUrl, enabled: server.enabled,
+    env: server.env, headers: server.headers,
   });
   const others = currentServers.filter((server) => server.name !== name).map(writable);
   if (enabled) {
     // Enable/configure: upsert the deterministic stdio server with the canonical command/args.
     const server = existing ? { ...writable(existing), ...canonical } : canonical;
-    await invoke('mothx/manage/mcp/set', { servers: [...others, server] });
+    await setMcpServers([...others, server], 'global');
   } else {
     // Disable: retain every other entry and only flip the deterministic server's enabled flag.
     const server = existing ? { ...writable(existing), enabled: false } : { ...canonical, enabled: false };
-    await invoke('mothx/manage/mcp/set', { servers: [...others, server] });
+    await setMcpServers([...others, server], 'global');
   }
 }
 
@@ -622,15 +623,24 @@ export async function saveSkillHub(patch: SkillHubPatch): Promise<SkillHubView> 
 
 // ---- mcp ----
 
-export async function loadMcp(): Promise<McpServerView[] | undefined> {
-  if (!hasFeature('manageMcp')) return undefined;
-  const result = await guard('manageMcp', () => invoke<{ servers?: McpServerView[] }>('mothx/manage/mcp/list', {}), null);
-  if (result) cache.mcp = result.servers || [];
-  return cache.mcp;
+export type McpScope = 'global' | 'project';
+
+export interface McpListResult {
+  servers?: McpServerView[];
 }
 
-export async function setMcpServers(servers: McpServerView[]): Promise<void> {
-  await invoke('mothx/manage/mcp/set', { servers });
+export async function loadMcp(scope: McpScope = 'global', sessionId?: string): Promise<McpServerView[] | undefined> {
+  if (!hasFeature('manageMcp')) return undefined;
+  const params: Record<string, unknown> = { scope };
+  if (sessionId) params.sessionId = sessionId;
+  const result = await guard('manageMcp', () => invoke<McpListResult>('mothx/manage/mcp/list', params), null);
+  return result?.servers || [];
+}
+
+export async function setMcpServers(servers: McpServerView[], scope: McpScope = 'global', sessionId?: string): Promise<void> {
+  const params: Record<string, unknown> = { scope, servers };
+  if (sessionId) params.sessionId = sessionId;
+  await invoke('mothx/manage/mcp/set', params);
 }
 
 // ---- memory ----

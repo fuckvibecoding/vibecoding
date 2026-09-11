@@ -35,14 +35,22 @@ test('preset labels are non-empty and more concrete than generic verbs', () => {
   }
 });
 
-test('preset prompts are realistic professional workflows', () => {
+test('preset prompts are realistic professional workflows with deliverables and acceptance', () => {
   for (const category of CATEGORIES) {
     const preset = PRESETS[category];
     for (let i = 0; i < 6; i++) {
       const zh = preset.promptsZh[i];
       const en = preset.promptsEn[i];
-      assert.ok(zh.length >= 15, `${category} zh prompt ${i} must be a credible workflow`);
-      assert.ok(en.length >= 30, `${category} en prompt ${i} must be a credible workflow`);
+      assert.ok(zh.length >= 500, `${category} zh prompt ${i} must be a complete task brief`);
+      assert.ok(en.length >= 1_000, `${category} en prompt ${i} must be a complete task brief`);
+      assert.match(zh, /输出|交付|提供|列出|总结|交付物/, `${category} zh prompt ${i} must name a deliverable`);
+      assert.match(en, /deliver|output|provide|list|write|create|build|Deliverable/i, `${category} en prompt ${i} must name a deliverable`);
+      assert.ok(/验收|约束|要点/.test(zh), `${category} zh prompt ${i} must include acceptance or constraints`);
+      assert.ok(/Acceptance|acceptance|constraints|criteria/.test(en), `${category} en prompt ${i} must include acceptance or constraints`);
+      assert.match(zh, /【执行协议】/, `${category} zh prompt ${i} must include the execution protocol`);
+      assert.match(en, /## Execution protocol/, `${category} en prompt ${i} must include the execution protocol`);
+      assert.match(zh, /澄清问题|待确认项/, `${category} zh prompt ${i} must define how to handle missing input`);
+      assert.match(en, /clarification questions|open questions/, `${category} en prompt ${i} must define how to handle missing input`);
       assert.ok(!/[。！？]$/.test(en), `${category} en prompt ${i} must use sentence-ending punctuation consistent with English copy`);
       assert.ok(/[。！？]$/.test(zh), `${category} zh prompt ${i} must end with Chinese punctuation`);
     }

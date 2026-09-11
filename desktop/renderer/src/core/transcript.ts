@@ -204,7 +204,8 @@ export function applySessionUpdate(sessionId: string, update: Record<string, unk
       const entries = (update.entries as { content: string; priority: string; status: string }[]) || [];
       const key = state.currentPlanKey || `plan:${Date.now()}`;
       state.currentPlanKey = key;
-      upsert({ kind: 'plan', key, entries });
+      const meta = (update._meta as Record<string, unknown> | undefined)?.['mothx.dev'] as Record<string, string> | undefined;
+      upsert({ kind: 'plan', key, entries, title: meta?.title, note: meta?.note });
       emit();
       requestChatScroll();
       return;

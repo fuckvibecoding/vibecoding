@@ -65,7 +65,7 @@ export function FieldGrid({ children, className }: { children: ReactNode; classN
   return (
     <div
       className={cn(
-        'grid grid-cols-3 items-start gap-2.5 max-[760px]:grid-cols-1',
+        'grid grid-cols-3 items-end gap-2.5 max-[760px]:grid-cols-1',
         className
       )}
     >

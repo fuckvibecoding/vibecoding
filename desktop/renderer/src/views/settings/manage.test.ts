@@ -24,6 +24,8 @@ const channelsPanel = await readFile(new URL('./ChannelsPanel.tsx', import.meta.
 const envPanel = await readFile(new URL('./EnvPanel.tsx', import.meta.url), 'utf8');
 const expertsPanel = await readFile(new URL('./ExpertsPanel.tsx', import.meta.url), 'utf8');
 const skillhubPanel = await readFile(new URL('./SkillHubPanel.tsx', import.meta.url), 'utf8');
+const mcpPanel = await readFile(new URL('./McpPanel.tsx', import.meta.url), 'utf8');
+const chatView = await readFile(new URL('../ChatView.tsx', import.meta.url), 'utf8');
 const main = await readFile(new URL('../../main.tsx', import.meta.url), 'utf8');
 const sidebar = await readFile(new URL('../../components/Sidebar.tsx', import.meta.url), 'utf8');
 
@@ -123,6 +125,36 @@ test('provider management renders a catalog and tabbed draft editor without loca
   assert.doesNotMatch(providersPanel, /localStorage[^\n]*(provider|apiKey|model)/i, 'provider drafts must not be persisted locally');
 });
 
+test('provider catalog status and configured scope require an API key', () => {
+  assert.match(providersPanel, /scope === 'configured' && !provider\.apiKeyConfigured/, 'configured scope must exclude providers without a key');
+  assert.match(providersPanel, /provider\.apiKeyConfigured \? <Badge variant="info"/, 'configured badge must reflect API-key presence');
+  assert.doesNotMatch(providersPanel, /provider\.globalOverride \? <Badge variant="info"/, 'global overrides alone must not be presented as configured');
+  assert.match(providersPanel, /flex min-w-0 items-center gap-\[5px\]/, 'catalog title row must allow its provider name to shrink');
+  assert.match(providersPanel, /min-w-0 flex-1 truncate text-\[12px\]/, 'long provider names must truncate within the catalog row');
+});
+
+
+test('provider model discovery defers adding models until the user selects them in a dialog', () => {
+  const discoverHandler = providersPanel.slice(
+    providersPanel.indexOf('const discover = async'),
+    providersPanel.indexOf('const filteredCandidates'),
+  );
+  assert.match(providersPanel, /Dialog[\s\S]*?discoverDialogOpen/, 'discovery must use a shadcn Dialog');
+  assert.match(providersPanel, /setDiscoverDialogOpen\(true\)/, 'successful discovery must open the selection dialog');
+  assert.match(discoverHandler, /discoverProviderModels[\s\S]*?setDiscoveredCandidates/, 'discovery must only fetch candidates before confirmation');
+  assert.doesNotMatch(discoverHandler, /patchDraft\(/, 'discover must not patch the draft before confirmation');
+  assert.match(providersPanel, /confirmAddDiscovered/, 'dialog must have an explicit confirm action');
+  assert.match(providersPanel, /selectedIds\.has\(id\)/, 'dialog must track selected candidate IDs');
+  assert.match(providersPanel, /toast\(t\('settings\.modelsDiscovered'[\s\S]*?\{ n: added \}\)/, 'confirm must show the existing added-count toast');
+});
+
+test('provider discovery dialog translations remain bilingual', () => {
+  assertBilingual([
+    'settings.discoverModelsTitle', 'settings.discoverModelsDesc', 'settings.searchDiscoveredModels',
+    'settings.noDiscoveredModels', 'settings.noDiscoveredModelsMatch', 'settings.discoveredModelSelection',
+    'settings.addSelectedModels',
+  ]);
+});
 test('application settings remain an ACP projection and redact secret configuration', () => {
   assert.match(manageApi, /manageApplicationSettings/, 'application panel must gate on the ACP capability');
   assertAcpMethods(manageApi, ['mothx/manage/application/get', 'mothx/manage/application/patch']);
@@ -396,4 +428,83 @@ test('expert team UI treats built-in teams as read-only catalog entries', () => 
   assert.match(expertsPanel, /item\.source === 'builtin'/, 'builtin teams must be detected in the catalog');
   assert.match(expertsPanel, /settings\.expertsBuiltin/, 'builtin source must have a translated label');
   assert.match(expertsPanel, /item\.source !== 'builtin' \? \(/, 'builtin teams must not expose edit/delete actions');
+});
+
+test('MCP settings use the ACP management projection and expose a complete local editor', () => {
+  assertAcpMethods(manageApi, ['mothx/manage/mcp/list', 'mothx/manage/mcp/set']);
+  assert.match(mcpPanel, /export function McpPanel/, 'MCP panel must export a panel component');
+  assert.doesNotMatch(mcpPanel, /desktop\.storeSet|localStorage/i, 'MCP configuration must not persist locally');
+  assert.match(mcpPanel, /Select[\s\S]*value=.*draft\.type[\s\S]*SelectContent/, 'MCP panel must expose a transport type selector');
+  assert.match(mcpPanel, /value="stdio"/, 'MCP panel must offer stdio transport');
+  assert.match(mcpPanel, /value="http"/, 'MCP panel must offer http transport');
+  assert.match(mcpPanel, /value="sse"/, 'MCP panel must offer sse transport');
+  assert.match(mcpPanel, /settings\.mcpCommandRequired/, 'MCP panel must validate stdio command');
+  assert.match(mcpPanel, /settings\.mcpUrlRequired/, 'MCP panel must validate http/sse url');
+  assert.match(mcpPanel, /settings\.mcpNameDuplicate/, 'MCP panel must validate unique names');
+  assert.match(mcpPanel, /settings\.mcpHeaders/, 'MCP panel must expose header editing');
+  assert.match(mcpPanel, /settings\.mcpEnv/, 'MCP panel must expose environment variable editing');
+  assert.match(mcpPanel, /draftToServer[\s\S]*type: draft\.type/, 'saving must explicitly include the selected transport type');
+  assertBilingual([
+    'settings.mcpGroup', 'settings.mcpTitle', 'settings.mcpDesc', 'settings.mcpEmpty',
+    'settings.mcpAdd', 'settings.mcpEdit', 'settings.mcpNew', 'settings.mcpModalTitle',
+    'settings.mcpName', 'settings.mcpNameRequired', 'settings.mcpNameDuplicate',
+    'settings.mcpType', 'settings.mcpTypeStdio', 'settings.mcpTypeHttp', 'settings.mcpTypeSse',
+    'settings.mcpCommand', 'settings.mcpCommandRequired', 'settings.mcpArgs', 'settings.mcpUrl',
+    'settings.mcpUrlRequired', 'settings.mcpMessageUrl', 'settings.mcpHeaders',
+    'settings.mcpHeaderName', 'settings.mcpHeaderValue', 'settings.mcpAddHeader',
+    'settings.mcpEnv', 'settings.mcpEnvName', 'settings.mcpEnvValue', 'settings.mcpAddEnv',
+    'settings.mcpEnabled', 'settings.mcpSave', 'settings.mcpSaved', 'settings.mcpRemove',
+  ]);
+});
+
+test('MCP editor dialog uses a deliberate alignment grid', () => {
+  assert.match(mcpPanel, /grid-cols-1[\s\S]*?sm:grid-cols-\[140px_1fr\]/, 'MCP form rows must collapse to one column on narrow viewports');
+  assert.match(mcpPanel, /SelectTrigger[\s\S]*?className="w-full"/, 'MCP transport selector must fill the control column');
+  assert.match(mcpPanel, /grid-cols-\[1fr_1fr_auto\]/, 'MCP header/env rows must be a stable three-column grid');
+  assert.match(mcpPanel, /h-8\.5 w-full shrink-0 sm:w-8\.5/, 'MCP delete controls must match input height and fill on narrow widths');
+});
+
+test('MCP management functions are scope-aware and default to global', () => {
+  assert.match(manageApi, /loadMcp\(scope: McpScope = 'global', sessionId\?: string\)/, 'loadMcp must accept an optional scope and sessionId');
+  assert.match(manageApi, /setMcpServers\(servers: McpServerView\[\], scope: McpScope = 'global', sessionId\?: string\)/, 'setMcpServers must accept an optional scope and sessionId');
+  assert.match(manageApi, /invoke<McpListResult>\('mothx\/manage\/mcp\/list', params\)/, 'MCP list must call the ACP method with params');
+  assert.match(manageApi, /invoke\('mothx\/manage\/mcp\/set', params\)/, 'MCP set must call the ACP method with params');
+  assert.match(manageApi, /const params: Record<string, unknown> = \{ scope \};/, 'MCP list must include scope in params');
+  assert.match(manageApi, /const params: Record<string, unknown> = \{ scope, servers \};/, 'MCP set must include scope and servers in params');
+  assert.match(manageApi, /if \(sessionId\) params\.sessionId = sessionId;/, 'project MCP calls must include sessionId when provided');
+  assert.match(manageApi, /await setMcpServers\(\[\.\.\.others, server\], 'global'\)/, 'knowledge-base MCP upsert must remain global scoped');
+});
+
+test('ChatView exposes a capability-gated project MCP editor', () => {
+  assert.match(chatView, /hasFeature\('manageMcp'\)/, 'project MCP button must be gated by manageMcp capability');
+  assert.match(chatView, /projectMcpEnabled = Boolean\(appState\.activeSessionId\) && hasFeature\('manageMcp'\)/, 'project MCP button requires an active session and the capability');
+  assert.match(chatView, /<McpPanel scope="project" sessionId=\{appState\.activeSessionId \|\| undefined\}\s*\/>/, 'project MCP editor must reuse McpPanel with project scope');
+  assert.match(chatView, /<ServerCog \/>/, 'project MCP button must use a server icon');
+  assert.doesNotMatch(chatView, /desktop\.storeSet|localStorage/i, 'project MCP UI must not persist locally');
+});
+
+test('ChatView projects the current ACP plan as a collapsible progress overlay', () => {
+  assert.match(chatView, /item\.kind === 'plan' && item\.entries\.length > 0/, 'plan overlay must derive from the transcript projection');
+  assert.match(chatView, /planCollapsed/, 'plan overlay must keep collapse state in React only');
+  assert.match(chatView, /setPlanCollapsed\(false\)/, 'plan overlay must reset for a different session or plan');
+  assert.match(chatView, /chat\.planProgressCount/, 'plan overlay must display completed progress');
+  assert.match(chatView, /entry\.status === 'completed'/, 'plan overlay must render completed steps');
+  assert.match(chatView, /entry\.status === 'in_progress'/, 'plan overlay must render in-progress steps');
+  assert.doesNotMatch(chatView, /desktop\.storeSet|localStorage/i, 'plan overlay must not persist Desktop state');
+  assertBilingual(['chat.planProgress', 'chat.planProgressCount', 'chat.planCollapse', 'chat.planExpand']);
+});
+
+test('project MCP copy explains workspace scope and session attachment rules', () => {
+  assert.match(mcpPanel, /chat\.projectMcpHint/, 'project MCP panel must show a scope hint');
+  assert.match(translations, /当前会话工作目录/, 'Chinese hint must mention the active session workspace');
+  assert.match(translations, /active session workspace/, 'English hint must mention the active session workspace');
+  assert.match(translations, /新创建或重新打开的会话/, 'Chinese hint must explain that only new/reopened sessions attach changed servers');
+  assert.match(translations, /newly created or reopened sessions/, 'English hint must explain that only new/reopened sessions attach changed servers');
+});
+
+test('project MCP translations remain bilingual', () => {
+  assertBilingual([
+    'chat.projectMcp', 'chat.projectMcpTitle', 'chat.projectMcpDesc',
+    'chat.projectMcpHint', 'chat.projectMcpNoCwd',
+  ]);
 });

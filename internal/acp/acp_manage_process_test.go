@@ -361,6 +361,49 @@ func TestACPStdioProcessManageSettingsProvidersAndSecrets(t *testing.T) {
 
 // --- skills / mcp / memory / stats over the wire ----------------------------------
 
+func TestACPStdioProcessManageMCPProjectScope(t *testing.T) {
+	configDir := t.TempDir()
+	workDir := t.TempDir()
+	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		acpSSEText(w, "chatcmpl-manage-project-mcp", "pong")
+	}))
+	defer providerServer.Close()
+	writeManageWireSettings(t, configDir, providerServer.URL+"/v1", nil)
+
+	process := startManageProcess(t, configDir, workDir)
+	defer process.closeAndWait(t)
+	process.send(t, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1}})
+	process.result(t, 1)
+	process.send(t, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": map[string]any{"cwd": workDir}})
+	sessionResult := process.result(t, 2)
+	sessionID, _ := sessionResult["sessionId"].(string)
+	if sessionID == "" {
+		t.Fatalf("session/new result = %#v", sessionResult)
+	}
+
+	process.send(t, map[string]any{"jsonrpc": "2.0", "id": 3, "method": "mothx/manage/mcp/set", "params": map[string]any{
+		"scope": "project", "sessionId": sessionID,
+		"servers": []any{map[string]any{"name": "project-server", "type": "stdio", "command": "/bin/project"}},
+	}})
+	result := process.result(t, 3)
+	projectPath := filepath.Join(workDir, config.ProjectMCPPath())
+	if result["scope"] != "project" || result["sessionId"] != sessionID || result["path"] != projectPath {
+		t.Fatalf("project MCP set response = %#v", result)
+	}
+	if _, err := config.LoadMCPConfig(projectPath); err != nil {
+		t.Fatalf("project MCP file: %v", err)
+	}
+
+	process.send(t, map[string]any{"jsonrpc": "2.0", "id": 4, "method": "mothx/manage/mcp/list", "params": map[string]any{
+		"scope": "project", "sessionId": sessionID,
+	}})
+	result = process.result(t, 4)
+	servers, _ := result["servers"].([]any)
+	if len(servers) != 1 || servers[0].(map[string]any)["name"] != "project-server" {
+		t.Fatalf("project MCP list response = %#v", result)
+	}
+}
+
 func TestACPStdioProcessManageSkillsMcpMemoryStats(t *testing.T) {
 	configDir := t.TempDir()
 	workDir := t.TempDir()
@@ -435,7 +478,7 @@ func TestACPStdioProcessManageSkillsMcpMemoryStats(t *testing.T) {
 		t.Fatalf("empty disabled list must drop the skills key: %#v", raw["skills"])
 	}
 
-	// mcp/list masks env/header values.
+	// mcp/list returns the complete local MCP configuration.
 	process.send(t, map[string]any{"jsonrpc": "2.0", "id": 8, "method": "mothx/manage/mcp/list", "params": map[string]any{}})
 	result = process.result(t, 8)
 	servers, _ := result["servers"].([]any)
@@ -443,16 +486,17 @@ func TestACPStdioProcessManageSkillsMcpMemoryStats(t *testing.T) {
 		t.Fatalf("mcp servers = %#v", servers)
 	}
 	keeper, _ := servers[0].(map[string]any)
-	envKeys, _ := keeper["envKeys"].([]any)
-	if keeper["name"] != "keeper" || len(envKeys) != 1 || envKeys[0] != "TOKEN" {
+	env, _ := keeper["env"].([]any)
+	if keeper["name"] != "keeper" || len(env) != 1 || env[0].(map[string]any)["value"] != "mcp-super-secret" {
 		t.Fatalf("keeper view = %#v", keeper)
 	}
-	process.assertNoSecrets(t, "mcp-super-secret", "hdr-secret")
 
-	// mcp/set fully replaces the list, merging secret fields by name.
+	// mcp/set fully replaces the list and updates complete local config values.
 	process.send(t, map[string]any{"jsonrpc": "2.0", "id": 9, "method": "mothx/manage/mcp/set", "params": map[string]any{
 		"servers": []any{
-			map[string]any{"name": "keeper", "command": "/bin/keep2", "enabled": false},
+			map[string]any{"name": "keeper", "command": "/bin/keep2", "enabled": false,
+				"env":     []any{map[string]any{"name": "TOKEN", "value": "rotated-secret"}},
+				"headers": []any{map[string]any{"name": "Authorization", "value": "Bearer rotated-header"}}},
 			map[string]any{"name": "remote", "type": "http", "url": "https://mcp.example.org/x"},
 		},
 	}})
@@ -469,9 +513,9 @@ func TestACPStdioProcessManageSkillsMcpMemoryStats(t *testing.T) {
 	if views["keeper"]["command"] != "/bin/keep2" || views["keeper"]["enabled"] != false {
 		t.Fatalf("keeper after set = %#v", views["keeper"])
 	}
-	envKeys, _ = views["keeper"]["envKeys"].([]any)
-	if len(envKeys) != 1 || envKeys[0] != "TOKEN" {
-		t.Fatalf("keeper env must survive by name merge: %#v", views["keeper"])
+	env, _ = views["keeper"]["env"].([]any)
+	if len(env) != 1 || env[0].(map[string]any)["value"] != "rotated-secret" {
+		t.Fatalf("keeper env was not updated: %#v", views["keeper"])
 	}
 	if views["remote"]["type"] != "http" || views["remote"]["url"] != "https://mcp.example.org/x" {
 		t.Fatalf("remote = %#v", views["remote"])
@@ -486,16 +530,15 @@ func TestACPStdioProcessManageSkillsMcpMemoryStats(t *testing.T) {
 			keeperSaved = &saved.MCPServers[index]
 		}
 	}
-	if keeperSaved == nil || len(keeperSaved.Env) != 1 || keeperSaved.Env[0].Value != "mcp-super-secret" {
-		t.Fatalf("keeper env value must persist on disk: %#v", keeperSaved)
+	if keeperSaved == nil || len(keeperSaved.Env) != 1 || keeperSaved.Env[0].Value != "rotated-secret" {
+		t.Fatalf("keeper env value was not persisted: %#v", keeperSaved)
 	}
 	process.send(t, map[string]any{"jsonrpc": "2.0", "id": 10, "method": "mothx/manage/mcp/set", "params": map[string]any{
-		"servers": []any{map[string]any{"name": "x", "command": "/bin/x", "headers": []any{}}},
+		"servers": []any{map[string]any{"name": "x", "command": "/bin/x", "headers": []any{map[string]any{"name": "", "value": "x"}}}},
 	}})
-	if code, data := process.failure(t, 10); code != "mcp_field_not_allowed" || data["field"] != "headers" {
-		t.Fatalf("headers rejection = %q %#v", code, data)
+	if code, _ := process.failure(t, 10); code != "mcp_server_invalid" {
+		t.Fatalf("invalid headers rejection = %q", code)
 	}
-	process.assertNoSecrets(t, "mcp-super-secret", "hdr-secret")
 
 	// memory get/put round trip against the global memory.md.
 	process.send(t, map[string]any{"jsonrpc": "2.0", "id": 11, "method": "mothx/manage/memory/get", "params": map[string]any{}})
@@ -549,7 +592,7 @@ func TestACPStdioProcessManageSkillsMcpMemoryStats(t *testing.T) {
 		t.Fatalf("bad group code = %q", code)
 	}
 
-	process.assertNoSecrets(t, "PLAINKEY", "DOWNKEY", "mcp-super-secret", "hdr-secret")
+	process.assertNoSecrets(t, "PLAINKEY", "DOWNKEY")
 }
 
 // --- cron lifecycle + stats with recorded usage -----------------------------------

@@ -2,7 +2,7 @@
   import { onDestroy, onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { markdownToHTML, highlightedCodeToHTML } from '../lib/markdown.js';
-  import { ApiError, readSSE, postJSON, request } from '../lib/api.js';
+  import { ApiError, patchJSON, readSSE, postJSON, request } from '../lib/api.js';
   import { approvalSessionID, approvalRequestOwnership, approvalHistoryFromRunEvents, applyApprovalRequestToRuntime } from '../lib/approval.js';
   import {
     sessions,
@@ -96,7 +96,7 @@
   } from '../lib/session-runs.js';
   import MCPConfigEditor from '../components/MCPConfigEditor.svelte';
   import DirBrowser from '../components/DirBrowser.svelte';
-  import { t } from '../lib/preferences.js';
+  import { language, t } from '../lib/preferences.js';
   import { safeAttachmentURL, validProviderRef } from '../lib/attachments.js';
   import { canRetryError, errorDisplayMessage, normalizeErrorInfo, requiresRetryConfirmation } from '../lib/run-error.js';
   import { route, navigate } from '../lib/router.js';
@@ -179,6 +179,13 @@
   let skillPicker;
   let selectedProviderID = '';
   let providerID = '';
+  let teamExperts = [];
+  let selectedTeamID = '';
+  let boundExpertID = '';
+  let boundExpertType = '';
+  let teamLoading = false;
+  let teamApplying = false;
+  let teamCatalogKey = '';
   let showRuntimePanel = false;
   let showApprovalCenter = false;
   // Approvals the user explicitly closed. A closed request stays pending (the
@@ -327,6 +334,9 @@
         chatEvents = []; // reset tool events
         sessionRunEvents = [];
         sessionCapabilityEvents = [];
+        selectedTeamID = '';
+        boundExpertID = '';
+        boundExpertType = '';
         resetSelectedModelToDefault();
         shouldFollowOutput = true;
       } else {
@@ -715,6 +725,30 @@
   $: isNewSession = !$currentSession && !sessionCreated;
   $: activeToolCount = availableToolToggles.filter(i => sessionTools[i.key]).length;
   $: activeSessionWorkDir = activeSession?.workDir || workDir.trim();
+  $: teamExpertOptions = [
+    { value: '', label: $t('chat.expertTeam.none') },
+    ...teamExperts.map((expert) => ({
+      value: expert.id,
+      label: expert.invalid
+        ? `${teamExpertLabel(expert, $language)} · ${$t('experts.invalid')}`
+        : teamExpertLabel(expert, $language),
+      disabled: Boolean(expert.invalid)
+    }))
+  ];
+  $: teamSelectionBound = boundExpertID;
+  $: teamSelectionChanged = selectedTeamID !== teamSelectionBound;
+  $: teamMustFork = boundExpertID && selectedTeamID && boundExpertID !== selectedTeamID;
+  $: selectedTeamInvalid = Boolean(teamExperts.find((expert) => expert.id === selectedTeamID)?.invalid);
+  $: teamCanApply = !isNewSession && !busy && !teamApplying && teamSelectionChanged && !teamMustFork && !selectedTeamInvalid;
+  // An allocated ID is not a durable session until its first run has been
+  // accepted. Keep using the new-chat catalog during that short interval so
+  // the selector never queries a not-yet-materialized session.
+  $: teamExpertSessionID = $currentSession && sessionCreated ? $currentSession : '';
+  $: teamExpertCatalogContext = `${teamExpertSessionID || '__new__'}:${isNewSession ? workDir.trim() : activeSessionWorkDir}`;
+  $: if (apiEnabled && teamExpertCatalogContext !== teamCatalogKey) {
+    teamCatalogKey = teamExpertCatalogContext;
+    void loadTeamExperts(teamExpertCatalogContext, teamExpertSessionID);
+  }
   $: if ($currentSession && activeSession?.workDir && workDir !== activeSession.workDir) {
     workDir = activeSession.workDir;
   }
@@ -888,6 +922,83 @@
       const serverActive = data?.session?.activeSkills;
       activeSkills = Array.isArray(serverActive) ? serverActive : availableSkills.filter((item) => item.active).map((item) => item.name);
     } catch { availableSkills = []; }
+  }
+
+  function localizedExpertName(value, locale) {
+    if (!value || typeof value !== 'object') return '';
+    return locale === 'zh' ? (value.zh || value.en || '') : (value.en || value.zh || '');
+  }
+
+  function teamExpertLabel(expert, locale) {
+    const name = localizedExpertName(expert?.displayName, locale) || expert?.id || '';
+    return expert?.id ? `${name} · ${expert.id}` : name;
+  }
+
+  async function loadTeamExperts(key, sessionID) {
+    teamLoading = true;
+    try {
+      const suffix = sessionID ? `?sessionId=${encodeURIComponent(sessionID)}` : '';
+      const [catalog, state] = await Promise.all([
+        request(`/api/experts${suffix}`),
+        sessionID ? request(`/api/sessions/${encodeURIComponent(sessionID)}/expert`) : Promise.resolve(null)
+      ]);
+      if (key !== teamCatalogKey) return;
+      teamExperts = (catalog?.experts || []).filter((expert) => expert?.expertType === 'team' || expert?.expertType === 'agent');
+      boundExpertID = state?.expert?.id || '';
+      boundExpertType = state?.expert?.expertType || '';
+      if (sessionID) {
+        selectedTeamID = boundExpertID;
+      } else if (selectedTeamID && !teamExperts.some((expert) => expert.id === selectedTeamID)) {
+        selectedTeamID = '';
+      }
+    } catch (err) {
+      if (key === teamCatalogKey) {
+        teamExperts = [];
+        boundExpertID = '';
+        boundExpertType = '';
+        setError(err);
+      }
+    } finally {
+      if (key === teamCatalogKey) teamLoading = false;
+    }
+  }
+
+  function selectTeamExpert(nextID) {
+    const expert = teamExperts.find((item) => item.id === nextID);
+    if (expert?.invalid) return;
+    if (isNewSession) {
+      selectedTeamID = String(nextID || '');
+      return;
+    }
+    if (!$currentSession || busy) return;
+    selectedTeamID = String(nextID || '');
+  }
+
+  async function applyTeamSelection() {
+    if (isNewSession || !$currentSession || teamApplying || busy) return;
+    const expertID = selectedTeamID;
+    if (!teamSelectionChanged) return;
+    const expert = teamExperts.find((item) => item.id === expertID);
+    if (expert?.invalid) return;
+    if (boundExpertID && expertID && boundExpertID !== expertID) {
+      setNotice($t('chat.expertTeam.switchInExperts'));
+      navigate('/experts');
+      return;
+    }
+    clearBanners();
+    teamApplying = true;
+    try {
+      const next = await patchJSON(`/api/sessions/${encodeURIComponent($currentSession)}/expert`, { expertId: expertID });
+      boundExpertID = next?.expert?.id || '';
+      boundExpertType = next?.expert?.expertType || '';
+      selectedTeamID = boundExpertID;
+      setNotice(boundExpertID ? $t('chat.expertTeam.bound', { id: boundExpertID }) : $t('chat.expertTeam.unbound'));
+      await refreshSessions();
+    } catch (err) {
+      setError(err);
+    } finally {
+      teamApplying = false;
+    }
   }
 
   async function toggleSkill(name, event) {
@@ -1097,6 +1208,7 @@
         model: $selectedModel || 'default',
         provider: providerID || undefined,
         mode: creatingSession ? newSessionMode : undefined,
+        expertId: creatingSession && !selectedTeamInvalid ? selectedTeamID || undefined : undefined,
         tools: visibleSessionTools ? Object.keys(visibleSessionTools).filter(k => visibleSessionTools[k]) : [],
         skills: activeSkills,
         attachments: outgoingAttachments.map((a) => ({
@@ -3271,6 +3383,28 @@
           disabled={!apiEnabled || providerModels.length === 0}
           on:change={(event) => selectModel(event.detail)}
         />
+        <SearchSelect
+          value={selectedTeamID}
+          options={teamExpertOptions}
+          placeholder={$t('chat.expertTeam.placeholder')}
+          ariaLabel={$t('chat.expertTeam.label')}
+          noOptionsLabel={$t('chat.expertTeam.empty')}
+          className="expert-team-search-select"
+          menuClassName="expert-team-search-select-menu"
+          disabled={!apiEnabled || busy || teamLoading || teamApplying}
+          on:change={(event) => selectTeamExpert(event.detail)}
+        />
+        {#if !isNewSession && teamSelectionChanged}
+          <Button
+            type="button"
+            variant={teamMustFork ? 'outline' : 'default'}
+            size="sm"
+            disabled={!teamCanApply && !teamMustFork}
+            onclick={applyTeamSelection}
+          >
+            {teamMustFork ? $t('chat.expertTeam.switchAction') : $t('chat.expertTeam.apply')}
+          </Button>
+        {/if}
       </div>
       <div class="composer-row">
       {#if pendingAttachments.length > 0}

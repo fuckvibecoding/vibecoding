@@ -1659,6 +1659,11 @@ label span:first-child { margin-bottom: 2px; }
   background: var(--bg-hover);
   color: var(--text);
 }
+.search-select-menu button.disabled,
+.search-select-menu button:disabled {
+  opacity: .65;
+  cursor: not-allowed;
+}
 .search-select-empty {
   padding: 10px 9px;
   color: var(--text-muted);
@@ -3884,7 +3889,8 @@ button.trajectory-detail-divider:hover,
   pointer-events: none;
 }
 .model-search-select-menu,
-.provider-search-select-menu {
+.provider-search-select-menu,
+.expert-team-search-select-menu {
   position: absolute;
   z-index: 100;
   top: auto;
@@ -3972,7 +3978,8 @@ button.trajectory-detail-divider:hover,
     width: min(140px, 100%);
   }
   .model-search-select-menu,
-  .provider-search-select-menu {
+  .provider-search-select-menu,
+  .expert-team-search-select-menu {
     position: fixed;
     left: 12px;
     right: 12px;
@@ -4672,7 +4679,8 @@ button.stop-btn:disabled {
   .runtime-panel,
   .skill-picker-menu,
   .model-search-select-menu,
-  .provider-search-select-menu {
+  .provider-search-select-menu,
+  .expert-team-search-select-menu {
     bottom: max(12px, calc(8px + env(safe-area-inset-bottom)));
   }
 }

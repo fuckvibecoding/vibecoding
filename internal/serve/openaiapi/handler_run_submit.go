@@ -24,10 +24,14 @@ import (
 )
 
 type submitRunRequest struct {
-	Message     string                       `json:"message"`
-	Provider    string                       `json:"provider,omitempty"`
-	Model       string                       `json:"model"`
-	Mode        string                       `json:"mode"`
+	Message  string `json:"message"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model"`
+	Mode     string `json:"mode"`
+	// ExpertID is an optional identity choice made with a new WebUI chat. The
+	// binding itself stays Runtime-owned and is applied only after the request
+	// has resolved the session's authoritative work directory.
+	ExpertID    string                       `json:"expertId,omitempty"`
 	Tools       []string                     `json:"tools"`
 	Skills      []string                     `json:"skills"`
 	Images      []string                     `json:"images"` // legacy image-only WebUI payload
@@ -299,13 +303,14 @@ func (s *Server) HandleSubmitRun(w http.ResponseWriter, r *http.Request) {
 		Provider    string                       `json:"provider,omitempty"`
 		Model       string                       `json:"model"`
 		Mode        string                       `json:"mode"`
+		ExpertID    string                       `json:"expertId,omitempty"`
 		Tools       []string                     `json:"tools"`
 		Skills      []string                     `json:"skills"`
 		Images      []string                     `json:"images"`
 		Attachments []submitRunAttachmentRequest `json:"attachments"`
 		Trace       bool                         `json:"transcript"`
 		WorkDir     string                       `json:"workDir"`
-	}{req.Message, req.Provider, req.Model, req.Mode, req.Tools, req.Skills, req.Images, req.Attachments, req.Transcript, req.WorkDir})
+	}{req.Message, req.Provider, req.Model, req.Mode, req.ExpertID, req.Tools, req.Skills, req.Images, req.Attachments, req.Transcript, req.WorkDir})
 
 	// Resolve workDir. Sessions created client-side (e.g. by the Web UI)
 	// are not persisted yet; fall back to the default workDir for those,
@@ -388,6 +393,21 @@ func (s *Server) HandleSubmitRun(w http.ResponseWriter, r *http.Request) {
 			"idempotent": true,
 		})
 		return
+	}
+	// A composer may select a team before its first message. Apply that
+	// identity after the durable session has been created with the requested
+	// work directory, never as an adapter-owned pre-session mutation. This is
+	// deliberately after the idempotency lookup so a retried accepted submit
+	// remains a pure reconciliation while its original run is active.
+	if !isRetry && strings.TrimSpace(req.ExpertID) != "" {
+		if _, err := s.SetSessionExpert(r.Context(), sess.ID, req.ExpertID); err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, ErrSessionExpertMutationBusy) {
+				status = http.StatusConflict
+			}
+			writeSubmitError(w, status, err, "expert_binding_failed", "invalid_request_error", agentruntime.FailurePolicy, agentruntime.PhaseAdmission, "run.error.expertBindingFailed", "The selected expert could not be bound to this session.", agentruntime.RetryNone, false)
+			return
+		}
 	}
 	if !s.pool.Pin(sess) {
 		writeSubmitError(w, http.StatusServiceUnavailable, nil, "session_pool_unavailable", "server_error", agentruntime.FailureTransient, agentruntime.PhaseAdmission, "run.error.sessionPoolUnavailable", "session pool is at capacity", agentruntime.RetryReconcile, true)

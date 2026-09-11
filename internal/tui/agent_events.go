@@ -271,6 +271,12 @@ func (a *App) handleAgentEvent(event agent.Event) tea.Cmd {
 			if a.agentManagementEnabled() && a.agentMgr != nil && a.agent != nil {
 				a.agentMgr.MarkCanceled(a.agent.ID(), event.Error)
 			}
+			// Agent.Abort is intentionally terminal for an Agent instance. A
+			// Runtime cancellation (for example, a lost execution lease) reaches
+			// the same abort path as an explicit TUI cancellation. Do not reuse
+			// that instance for the next prompt: its closed abort channel would
+			// cancel every subsequent run immediately.
+			a.resetAgent(errors.New("agent run canceled"))
 			a.isThinking = false
 			a.finishRequestTimer()
 			// Cancellation is a normal terminal outcome, not an error.

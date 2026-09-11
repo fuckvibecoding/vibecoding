@@ -8,6 +8,7 @@ import { Cpu, Plus } from 'lucide-react';
 import { ManageWorkspace, UnsupportedRow } from '@/components/manage-primitives';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { RowItem, RowList } from '@/components/layout';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -200,7 +201,7 @@ function filteredProviders(catalog: ProviderCatalog, draft: ProviderConfigView |
   const configs = [...(catalog.providerConfigs || [])];
   if (draft && !configs.some((provider) => provider.id === draft.id)) configs.push(draft);
   return configs.filter((provider) => {
-    if (scope === 'configured' && !provider.globalOverride && !provider.apiKeyConfigured && !provider.isDefault) return false;
+    if (scope === 'configured' && !provider.apiKeyConfigured && provider !== draft) return false;
     if (!search) return true;
     return [provider.id, provider.provider.vendor, provider.provider.baseUrl, provider.maskedKey]
       .filter(Boolean)
@@ -225,6 +226,10 @@ export function ProvidersPanel() {
   const [scope, setScope] = useState<'configured' | 'all'>('configured');
   const [search, setSearch] = useState('');
   const [discovering, setDiscovering] = useState(false);
+  const [discoverDialogOpen, setDiscoverDialogOpen] = useState(false);
+  const [discoveredCandidates, setDiscoveredCandidates] = useState<ProviderModelView[]>([]);
+  const [discoverSearch, setDiscoverSearch] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const reload = useCallback(async () => {
     const [nextSettings, nextCatalog] = await Promise.all([loadSettings(), loadProviderCatalog()]);
@@ -244,7 +249,7 @@ export function ProvidersPanel() {
       if (activeProviderID && providers.some((provider) => provider.id === activeProviderID)) return;
       const initial =
         providers.find((provider) => provider.id === nextSettings?.defaultProvider || provider.isDefault) ||
-        providers.find((provider) => provider.globalOverride || provider.apiKeyConfigured) ||
+        providers.find((provider) => provider.apiKeyConfigured) ||
         providers[0];
       if (initial) {
         setActiveProviderID(initial.id);
@@ -369,6 +374,36 @@ export function ProvidersPanel() {
     else toast(t('settings.testFail', { n: draft.id, e: result.error || 'unknown' }));
   };
 
+  const toggleCandidate = (id: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const confirmAddDiscovered = () => {
+    if (!draft) return;
+    let added = 0;
+    patchDraft((next) => {
+      const models = next.provider.models || (next.provider.models = []);
+      const existingIds = new Set(models.map((entry) => String(entry.id || '')));
+      for (const candidate of discoveredCandidates) {
+        const id = String(candidate.id || '').trim();
+        if (!id || !selectedIds.has(id) || existingIds.has(id)) continue;
+        models.push({ ...candidate, id, name: String(candidate.name || id), input: [...(candidate.input || ['text'])] });
+        existingIds.add(id);
+        added += 1;
+      }
+    });
+    toast(t('settings.modelsDiscovered', { n: added }));
+    setDiscoverDialogOpen(false);
+    setDiscoveredCandidates([]);
+    setSelectedIds(new Set());
+    setDiscoverSearch('');
+  };
+
   const discover = async () => {
     if (!draft) return;
     setDiscovering(true);
@@ -380,22 +415,43 @@ export function ProvidersPanel() {
         httpProxy: draft.provider.httpProxy || '',
         forceHTTP11: draft.provider.forceHTTP11 === true,
       });
-      let added = 0;
-      patchDraft((next) => {
-        const models = next.provider.models || (next.provider.models = []);
-        for (const model of found) {
-          const id = String(model.id || '').trim();
-          if (!id || models.some((entry) => entry.id === id)) continue;
-          models.push({ ...model, id, name: String(model.name || id), input: [...(model.input || ['text'])] });
-          added += 1;
-        }
-      });
-      toast(t('settings.modelsDiscovered', { n: added }));
+      const existingIds = new Set((draft.provider.models || []).map((entry) => String(entry.id || '')));
+      const seen = new Set<string>();
+      const candidates: ProviderModelView[] = [];
+      for (const model of found) {
+        const id = String(model.id || '').trim();
+        if (!id || existingIds.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        candidates.push({ ...model, id, name: String(model.name || id), input: [...(model.input || ['text'])] });
+      }
+      if (candidates.length === 0) {
+        toast(t('settings.noDiscoveredModels'));
+        return;
+      }
+      setDiscoveredCandidates(candidates);
+      setSelectedIds(new Set());
+      setDiscoverSearch('');
+      setDiscoverDialogOpen(true);
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error));
     } finally {
       setDiscovering(false);
     }
+  };
+
+  const filteredCandidates = discoveredCandidates.filter((candidate) => {
+    const term = discoverSearch.trim().toLowerCase();
+    if (!term) return true;
+    const id = String(candidate.id || '').toLowerCase();
+    const name = String(candidate.name || '').toLowerCase();
+    return id.includes(term) || name.includes(term);
+  });
+
+  const closeDiscoverDialog = () => {
+    setDiscoverDialogOpen(false);
+    setDiscoveredCandidates([]);
+    setSelectedIds(new Set());
+    setDiscoverSearch('');
   };
 
   const visible = filteredProviders(catalog, draft, scope, search.trim().toLowerCase());
@@ -460,12 +516,17 @@ export function ProvidersPanel() {
                     <Cpu className="size-4" />
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <span className="flex items-center gap-[5px]">
-                      <span className={cn('truncate text-[12px] font-bold', provider.id === activeProviderID && 'text-primary')}>{provider.id}</span>
-                      {provider.isDefault ? <Badge variant="accent">{t('settings.isDefault')}</Badge> : null}
-                      {provider.globalOverride ? <Badge variant="info">{t('settings.configured')}</Badge> : null}
+                    <span className="flex min-w-0 items-center gap-[5px]">
+                      <span title={provider.id} className={cn('min-w-0 flex-1 truncate text-[12px] font-bold', provider.id === activeProviderID && 'text-primary')}>{provider.id}</span>
+                      {provider.isDefault ? <Badge variant="accent" className="shrink-0">{t('settings.isDefault')}</Badge> : null}
+                      {provider.apiKeyConfigured ? <Badge variant="info" className="shrink-0">{t('settings.configured')}</Badge> : null}
                     </span>
-                    <span className="block truncate text-[10px] text-faint">
+                    <span
+                      title={[provider.maskedKey || t('settings.noKey'), provider.provider.baseUrl, `${providerModelCopies(provider).length} ${t('settings.models')}`]
+                        .filter(Boolean)
+                        .join(' · ')}
+                      className="block truncate text-[10px] text-faint"
+                    >
                       {[provider.maskedKey || t('settings.noKey'), provider.provider.baseUrl, `${providerModelCopies(provider).length} ${t('settings.models')}`]
                         .filter(Boolean)
                         .join(' · ')}
@@ -676,6 +737,7 @@ export function ProvidersPanel() {
                       </span>
                       <Switch
                         checked={secret.clearKey}
+
                         onCheckedChange={(checked) => setSecret((current) => ({ ...current, clearKey: checked }))}
                         aria-label={t('settings.clearProviderKey')}
                       />
@@ -683,6 +745,64 @@ export function ProvidersPanel() {
                   </div>
                 </TabsContent>
               </Tabs>
+
+              <Dialog
+                open={discoverDialogOpen}
+                onOpenChange={(open) => {
+                  if (!open) closeDiscoverDialog();
+                }}
+              >
+                <DialogContent className="w-[min(560px,92vw)]">
+                  <DialogHeader>
+                    <DialogTitle>{t('settings.discoverModelsTitle')}</DialogTitle>
+                    <DialogDescription>{t('settings.discoverModelsDesc')}</DialogDescription>
+                  </DialogHeader>
+                  <Input
+                    type="search"
+                    autoFocus
+                    placeholder={t('settings.searchDiscoveredModels')}
+                    value={discoverSearch}
+                    onChange={(event) => setDiscoverSearch(event.target.value)}
+                  />
+                  <div className="max-h-[min(420px,48vh)] overflow-y-auto rounded-lg border border-border">
+                    {filteredCandidates.length === 0 ? (
+                      <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+                        {t('settings.noDiscoveredModelsMatch')}
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-border">
+                        {filteredCandidates.map((candidate) => {
+                          const id = String(candidate.id || '');
+                          const name = String(candidate.name || id);
+                          return (
+                            <label key={id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-hoverbg">
+                              <input
+                                type="checkbox"
+                                className="size-4 shrink-0 accent-primary"
+                                checked={selectedIds.has(id)}
+                                onChange={() => toggleCandidate(id)}
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span title={id} className="block truncate font-mono text-[12px] font-semibold text-strong">{id}</span>
+                                {name !== id ? <span title={name} className="mt-0.5 block truncate text-[11px] text-muted-foreground">{name}</span> : null}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <DialogFooter className="items-center max-[520px]:flex-col-reverse max-[520px]:items-stretch">
+                    <span className="mr-auto text-[11.5px] text-muted-foreground max-[520px]:mr-0">
+                      {t('settings.discoveredModelSelection', { n: selectedIds.size })}
+                    </span>
+                    <Button variant="outline" onClick={closeDiscoverDialog}>{t('modal.cancel')}</Button>
+                    <Button disabled={selectedIds.size === 0} onClick={confirmAddDiscovered}>
+                      {t('settings.addSelectedModels', { n: selectedIds.size })}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </>
           )}
         </div>

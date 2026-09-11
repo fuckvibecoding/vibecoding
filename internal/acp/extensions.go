@@ -72,6 +72,32 @@ func (s *server) notifyRunStatus(sessionID, runID, status string) {
 	})
 }
 
+// notifyExternalRunStatus re-reads the canonical durable Run after an
+// advisory cross-process lease-bus wake-up. UDP data never becomes projected
+// state directly: it merely tells this ACP host to refresh SQLite-backed Run
+// state, matching the WebUI external-session synchronization contract.
+func (s *server) notifyExternalRunStatus(sessionID string) {
+	if s == nil || s.settings == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	sessionDir := s.settings.GetSessionDir()
+	runs, err := agentruntime.ListLatestDurableRunsBySessions(context.Background(), sessionDir, []string{sessionID})
+	if err != nil {
+		log.Printf("[acp] refresh external run %q: %v", sessionID, err)
+		return
+	}
+	run, ok := runs[sessionID]
+	if !ok || run.ID == "" {
+		return
+	}
+	status := acpRunStatus(run.Status)
+	if active, activeErr := agentruntime.GetActiveDurableRun(context.Background(), sessionDir, sessionID); activeErr == nil && active != nil {
+		run.ID = active.ID
+		status = "running"
+	}
+	s.notifyRunStatus(sessionID, run.ID, status)
+}
+
 // sessionListLastRun assembles the additive listedSession._meta.lastRun
 // projection for one page of sessions: the most recent durable Run per
 // session plus the cross-process active marker from GetActiveDurableRun.

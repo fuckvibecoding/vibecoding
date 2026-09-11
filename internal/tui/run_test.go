@@ -325,6 +325,61 @@ func TestEscAbortThenNextInputCompletes(t *testing.T) {
 	}
 }
 
+func TestCancelledRunResetsAgentBeforeNextInput(t *testing.T) {
+	workDir := t.TempDir()
+	sessionDir := filepath.Join(workDir, "sessions")
+	sess := session.New(workDir, sessionDir)
+	if err := sess.Init(); err != nil {
+		t.Fatalf("init session: %v", err)
+	}
+
+	responses := []provider.StreamEvent{
+		{Type: provider.StreamTextDelta, TextDelta: "recovered"},
+		{Type: provider.StreamDone, StopReason: "end_turn"},
+	}
+	mock := provider.NewMockProvider("mock", []*provider.Model{{ID: "test", Name: "Test"}}, responses)
+	settings := config.DefaultSettings()
+	settings.DefaultThinkingLevel = "off"
+	app := NewApp(mock, mock.Models()[0], settings, sess, tools.NewRegistry(workDir, nil), "", "", "", nil, "agent", false, false, nil, nil, nil)
+
+	app.ensureAgent()
+	if app.agent == nil {
+		t.Fatal("main agent was not created")
+	}
+	// Match the state after a Runtime-originated cancellation: the old Agent's
+	// abort channel is already closed before EventRunFinished reaches the TUI.
+	app.agent.Abort()
+	run := newTUIRun()
+	if _, err := run.execution.Begin(context.Background(), run.id); err != nil {
+		t.Fatalf("begin cancelled run: %v", err)
+	}
+	app.run = run
+	app.isThinking = true
+	app.handleAgentEvent(agent.Event{Type: agent.EventRunFinished, Status: agent.TaskCanceled})
+	if app.agent != nil {
+		t.Fatal("cancelled run retained an aborted Agent instance")
+	}
+
+	nextCmd := app.processInput("try again")
+	if nextCmd == nil {
+		t.Fatal("next input did not start")
+	}
+	nextStart, ok := nextCmd().(agentStreamStartMsg)
+	if !ok || nextStart.err != nil || nextStart.eventCh == nil {
+		t.Fatalf("next stream start = %#v", nextStart)
+	}
+
+	var finished agent.TaskStatus
+	for event := range nextStart.eventCh {
+		if event.Type == agent.EventRunFinished {
+			finished = event.Status
+		}
+	}
+	if finished != agent.TaskSuccess {
+		t.Fatalf("next run status = %q, want %q", finished, agent.TaskSuccess)
+	}
+}
+
 func TestInputDuringRunQueuesWithoutReplacingLeaseOwner(t *testing.T) {
 	workDir := t.TempDir()
 	sessionDir := filepath.Join(workDir, "sessions")

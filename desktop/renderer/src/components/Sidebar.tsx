@@ -44,7 +44,7 @@ import {
   ungroupedSessions,
 } from '@/core/sessions';
 import { openSettingsTab } from '@/core/settings-nav';
-import { hasFeature, state, type ListedSessionShape, type ProjectShape } from '@/core/state';
+import { hasFeature, sessionTitle, state, type ListedSessionShape, type ProjectShape } from '@/core/state';
 import { applyTheme } from '@/core/theme';
 import { switchView } from '@/core/views';
 import { useAppState } from '@/hooks/useAppState';
@@ -139,6 +139,7 @@ function SessionItem({ session, registerFlip }: { session: ListedSessionShape; r
   const appState = useAppState();
   const status = sessionStatus(session);
   const active = appState.activeSessionId === session.sessionId;
+  const title = sessionTitle(session.sessionId);
   return (
     <div
       ref={registerFlip(session.sessionId)}
@@ -147,7 +148,7 @@ function SessionItem({ session, registerFlip }: { session: ListedSessionShape; r
         'animate-in fade-in slide-in-from-bottom-1 duration-200',
         active && 'bg-activebg'
       )}
-      title={`${session.title || session.sessionId}${session.model ? ` · ${session.model}` : ''}${session.cwd ? ` · ${session.cwd}` : ''}`}
+      title={`${title}${session.model ? ` · ${session.model}` : ''}${session.cwd ? ` · ${session.cwd}` : ''}`}
       role="button"
       tabIndex={0}
       onClick={() => void openSession(session.sessionId)}
@@ -156,7 +157,7 @@ function SessionItem({ session, registerFlip }: { session: ListedSessionShape; r
       }}
     >
       <span className={cn('size-1.5 shrink-0 rounded-full', DOT_CLASS[status] || 'bg-faint')} />
-      <span className="flex-1 truncate text-[12.5px]">{session.title || session.sessionId.slice(0, 10)}</span>
+      <span className="flex-1 truncate text-[12.5px]">{title}</span>
       {isPinned(session.sessionId) ? <Pin className="size-3 shrink-0 text-faint" /> : null}
       <SessionMenu session={session} />
     </div>
